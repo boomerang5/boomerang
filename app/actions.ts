@@ -6,11 +6,12 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 export const signUpAction = async (formData: FormData) => {
-  const email = formData.get("email")?.toString();
-  const password = formData.get("password")?.toString();
-  const supabase = await createClient();
-  const origin = (await headers()).get("origin");
+  const email = formData.get("email")?.toString(); //Toma el valor del campo email
+  const password = formData.get("password")?.toString(); //Toma el valor del campo password
+  const supabase = await createClient(); //Crea una instancia del cliente Supabase
+  const origin = (await headers()).get("origin"); //Obtiene el origen (http://localhost:3000) de la solicitud, que se usará para redirigir al usuario después de la verificación del correo electrónico
 
+  // Verifica si el email y la contraseña no sean cadenas vacías
   if (!email || !password) {
     return encodedRedirect(
       "error",
@@ -19,18 +20,20 @@ export const signUpAction = async (formData: FormData) => {
     );
   }
 
+  // Registro de un usuario que posteriormente será autentificado
   const { error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: `${origin}/auth/callback`,
+      emailRedirectTo: `${origin}/auth/callback`, // para confirmar el correo electrónico
     },
   });
 
+  // Si hay un error, se redirige al usuario a la página de registro con un mensaje de error
   if (error) {
     console.error(error.code + " " + error.message);
     return encodedRedirect("error", "/sign-up", error.message);
-  } else {
+  } else { // Si no hay error, se redirige al usuario a la página de inicio de sesión con un mensaje de éxito
     return encodedRedirect(
       "success",
       "/sign-up",
@@ -39,6 +42,7 @@ export const signUpAction = async (formData: FormData) => {
   }
 };
 
+// INICIO DE SESIÓN CON PASSWORD
 export const signInAction = async (formData: FormData) => {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
@@ -59,7 +63,7 @@ export const signInAction = async (formData: FormData) => {
 export const forgotPasswordAction = async (formData: FormData) => {
   const email = formData.get("email")?.toString();
   const supabase = await createClient();
-  const origin = (await headers()).get("origin");
+  const origin = (await headers()).get("origin"); 
   const callbackUrl = formData.get("callbackUrl")?.toString();
 
   if (!email) {
