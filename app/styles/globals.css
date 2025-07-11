@@ -1,0 +1,57 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap');
+
+:root {
+  /* Colores base */
+  --bg: #0C0C0C;                  /* Fondo principal */
+  --surface: #1A1A1A;             /* Tarjetas o paneles */
+  --primary: #F43F5E;             /* Rojo acento */
+  --primary-dark: #B91C1C;        /* Rojo más oscuro */
+  --gray-light: #E5E7EB;          /* Gris claro */
+  --gray: #9CA3AF;                /* Gris medio */
+
+  /* Tipografía */
+  --text-primary: #FFFFFF;        /* Texto principal */
+  --text-secondary: #9CA3AF;      /* Texto apagado */
+
+  /* Otros */
+  --radius: 12px;                 /* Bordes redondeados */
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Outfit', sans-serif;
+  background: linear-gradient(135deg, #0C0C0C, #1A1A1A); /* Gradiente oscuro coherente */
+  color: var(--text-primary);
+}
+
+a {
+  text-decoration: none;
+  color: var(--primary);
+}
+
+a:hover {
+  color: var(--primary-dark);
+}
+
+/* Opcional: clases genéricas */
+.btnPrimary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: var(--text-primary);
+  padding: 0.75rem 2rem;
+  border-radius: 999px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+.btnPrimary:hover {
+  background: var(--primary-dark);
+  color: var(--gray-light);
+}

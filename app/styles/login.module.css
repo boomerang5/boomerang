@@ -1,0 +1,118 @@
+.header {
+  background: transparent;
+  padding: 1rem 2rem;
+}
+
+.navContainer {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.navList {
+  list-style: none;
+  display: flex;
+  flex-direction: row;
+  gap: 2rem;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+}
+
+.navList li a {
+  color: var(--text-primary);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.navList li a:hover {
+  color: var(--primary);
+}
+
+.hamburger {
+  display: none; /* oculto para login */
+}
+
+.btnPrimary {
+  padding: 0.6rem 1.8rem;
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.3s ease, color 0.3s ease;
+  text-decoration: none;
+}
+
+.btnPrimary:hover {
+  background: var(--primary-dark);
+  color: var(--gray-light);
+}
+
+.footerLink {
+  margin-top: 1rem;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.footerLink a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.footerLink a:hover {
+  text-decoration: underline;
+}
+
+.formContainer {
+  display: flex;
+  flex-direction: column;
+  max-width: 400px;
+  margin: 6rem auto;
+  padding: 2rem;
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  color: var(--text-primary);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+}
+
+.formContainer h2 {
+  margin-bottom: 1.5rem;
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.formContainer label {
+  margin-top: 1rem;
+  font-weight: 500;
+  display: block;
+}
+
+.formContainer input {
+  display: block;
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--gray);
+  border-radius: var(--radius);
+  background-color: #161B22;
+  color: var(--text-primary);
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.formContainer input:focus {
+  outline: none;
+  border-color: var(--primary);
+}

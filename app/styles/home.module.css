@@ -1,0 +1,308 @@
+.home {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 72px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  backdrop-filter: blur(8px);
+}
+
+.nav-icons,
+.bottom-icons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.sidebar svg {
+  width: 26px;
+  height: 26px;
+  fill: var(--text-secondary);
+  cursor: pointer;
+  transition: fill 0.3s, background 0.3s;
+  border-radius: var(--radius);
+  padding: 4px;
+}
+
+.sidebar svg:hover,
+.sidebar svg.active {
+  fill: var(--green-mid);
+  background: var(--highlight);
+}
+
+.greeting-status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.user-status {
+  background: var(--surface);
+  border: 1.5px solid var(--green-mid);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 0.3rem 2.5rem;
+  cursor: pointer;
+  transition: 0.3s ease;
+  min-width: 130px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-primary) 50%),
+    linear-gradient(135deg, var(--text-primary) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  position: relative;
+}
+
+.user-status::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: gray;
+  pointer-events: none;
+}
+
+.user-status.status-available::before { background-color: #00C853; }
+.user-status.status-busy::before { background-color: var(--green-light); }
+.user-status.status-away::before { background-color: #888888; }
+
+.user-status:hover,
+.user-status:focus {
+  border-color: var(--green-light);
+  background-color: rgba(173, 246, 132, 0.08);
+}
+
+.user-status option {
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+.main-container {
+  flex-grow: 1;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  overflow-y: auto;
+}
+
+.header-home {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.greeting {
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.search-bar {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+}
+
+.search-bar input {
+  width: 100%;
+  padding: 0.5rem 2.5rem 0.5rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid #30363D;
+  background-color: #161B22;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.search-bar input:focus {
+  border-color: var(--green-mid);
+  outline: none;
+}
+
+.search-bar svg {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  fill: var(--text-secondary);
+}
+
+.notifications {
+  position: relative;
+}
+
+.notif-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notif-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.notif-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--green-light);
+  color: var(--bg);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2rem;
+}
+
+.card {
+  position: relative;
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 2rem;
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  transition: transform 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 280px;
+}
+
+.card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 6px 20px rgba(131, 237, 163, 0.1);
+}
+
+.card h2 {
+  font-size: 1.4rem;
+  color: var(--green-light);
+}
+
+.card button {
+  position: absolute;
+  bottom: 2rem;
+  left: 2rem;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--green-light), var(--green-mid));
+  color: var(--bg);
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s ease;
+  white-space: nowrap;
+  width: auto;
+}
+
+.card button:hover {
+  background: linear-gradient(135deg, var(--blue), var(--green-mid));
+  color: var(--text-primary);
+}
+
+.card input[type="text"],
+.card input[type="search"] {
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid #30363D;
+  background-color: #161B22;
+  color: var(--text-primary);
+  font-size: 1rem;
+  width: 100%;
+}
+
+.card ul {
+  list-style: none;
+  padding-left: 1rem;
+}
+
+.card ul li {
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.chat-box {
+  background-color: rgba(255, 255, 255, 0.02);
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  max-height: 150px;
+  overflow-y: auto;
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .header-home {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.status-wrapper {
+  position: relative;
+  display: inline-block;
+  padding-left: 2rem;
+}
+
+.status-wrapper::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: gray;
+}
+
+.status-wrapper.status-available::before { background-color: #00e676; }
+.status-wrapper.status-busy::before { background-color: var(--green-light); }
+.status-wrapper.status-away::before { background-color: #ffea00; }
+
+.user-status {
+  appearance: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: var(--radius);
+  border: none;
+  font-size: 0.9rem;
+  background-color: var(--surface);
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+}

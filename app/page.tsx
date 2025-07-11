@@ -1,16 +1,90 @@
-import Hero from "@/components/hero";
-import ConnectSupabaseSteps from "@/components/tutorial/connect-supabase-steps";
-import SignUpUserSteps from "@/components/tutorial/sign-up-user-steps";
-import { hasEnvVars } from "@/utils/supabase/check-env-vars";
+'use client';
 
-export default async function Home() {
+import { useEffect } from 'react';
+import Link from 'next/link';
+import styles from './styles/landing.module.css'; // 
+
+export default function Home() {
+  useEffect(() => {
+    const hamburger = document.getElementById('hamburger');
+    const navList = document.getElementById('navList');
+
+    const toggleMenu = () => {
+      navList?.classList.toggle(styles.active); // 
+    };
+
+    hamburger?.addEventListener('click', toggleMenu);
+
+    return () => {
+      hamburger?.removeEventListener('click', toggleMenu);
+    };
+  }, []);
+
   return (
     <>
-      <Hero />
-      <main className="flex-1 flex flex-col gap-6 px-4">
-        <h2 className="font-medium text-xl mb-4">Next steps</h2>
-        {hasEnvVars ? <SignUpUserSteps /> : <ConnectSupabaseSteps />}
-      </main>
+      <header className={styles.header}>
+        <div className={`${styles.container} ${styles.navContainer}`}>
+          <div className={styles.logo}>Boomerang</div>
+          <nav>
+            <ul className={styles.navList} id="navList">
+              <li><a href="#features">Funciones</a></li>
+              <li><Link href="/pages/login">Login</Link></li>
+              <li>
+                <Link href="/pages/registro" className={styles.btnPrimary}>
+                  Registrate
+                </Link>
+              </li>
+            </ul>
+            <div className={styles.hamburger} id="hamburger">&#9776;</div>
+          </nav>
+        </div>
+      </header>
+
+      <section className={styles.hero}>
+        <div className={`${styles.container} ${styles.heroContent}`}>
+          <div className={styles.heroText}>
+            <h1>
+              Conectá el mundo<br />
+              <span className={styles.gradientText}>en tiempo real.</span>
+            </h1>
+            <p>Videollamadas con traducción automática, sin fronteras ni barreras.</p>
+            <div className={styles.ctaButtons}>
+              <a href="#" className={styles.btnPrimary}>Iniciar llamada</a>
+              <a href="#" className={styles.btnSecondary}>Unirse</a>
+            </div>
+          </div>
+          <div className={styles.heroImg}>
+            <img src="/img/videollamada.png" alt="Videollamada" />
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.features} id="features">
+        <div className={styles.container}>
+          <h2>Lo que hace única a Boomerang</h2>
+          <div className={styles.featureCards}>
+            <div className={styles.card}>
+              <h3>🎤 Traducción en vivo</h3>
+              <p>Rompé las barreras del idioma con voz en tiempo real.</p>
+            </div>
+            <div className={styles.card}>
+              <h3>💻 Sin instalaciones</h3>
+              <p>Accedé desde cualquier dispositivo, sin descargas.</p>
+            </div>
+            <div className={styles.card}>
+              <h3>🔒 Seguridad total</h3>
+              <p>Cifrado extremo a extremo que protege tus conversaciones.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer className={styles.footer}>
+        <div className={styles.container}>
+          <p>&copy; 2025 Boomerang. Todos los derechos reservados.</p>
+        </div>
+      </footer>
     </>
   );
 }
+
