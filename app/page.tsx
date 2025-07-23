@@ -1,24 +1,37 @@
-'use client';
+'use client'
 
-import { useEffect } from 'react';
-import Link from 'next/link';
-import styles from './styles/landing.module.css'; // 
+import { useEffect } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useSession } from '@supabase/auth-helpers-react'
+import styles from './styles/landing.module.css'
 
 export default function Home() {
+  const session = useSession()
+  const router = useRouter()
+
+  // Redirigir a /dashboard si el usuario ya está autenticado
   useEffect(() => {
-    const hamburger = document.getElementById('hamburger');
-    const navList = document.getElementById('navList');
+    if (session) {
+      router.push('/dashboard')
+    }
+  }, [session])
+
+  // Navbar hamburguesa
+  useEffect(() => {
+    const hamburger = document.getElementById('hamburger')
+    const navList = document.getElementById('navList')
 
     const toggleMenu = () => {
-      navList?.classList.toggle(styles.active); // 
-    };
+      navList?.classList.toggle(styles.active)
+    }
 
-    hamburger?.addEventListener('click', toggleMenu);
+    hamburger?.addEventListener('click', toggleMenu)
 
     return () => {
-      hamburger?.removeEventListener('click', toggleMenu);
-    };
-  }, []);
+      hamburger?.removeEventListener('click', toggleMenu)
+    }
+  }, [])
 
   return (
     <>
@@ -28,9 +41,9 @@ export default function Home() {
           <nav>
             <ul className={styles.navList} id="navList">
               <li><a href="#features">Funciones</a></li>
-              <li><Link href="/pages/login">Login</Link></li>
+              <li><Link href="/sign-in">Login</Link></li>
               <li>
-                <Link href="/pages/registro" className={styles.btnPrimary}>
+                <Link href="/sign-up" className={styles.btnPrimary}>
                   Registrate
                 </Link>
               </li>
@@ -85,6 +98,5 @@ export default function Home() {
         </div>
       </footer>
     </>
-  );
+  )
 }
-

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/utils/supabase/client'
 import { useRouter } from 'next/navigation'
+import styles from '@/app/styles/login.module.css' 
 
 export function GoogleSignInButton() {
   const supabase = createClient()
@@ -21,16 +22,13 @@ export function GoogleSignInButton() {
   }
 
   return (
-    <button
-      onClick={handleLoginWithGoogle}
-      className="mt-4 w-full flex items-center justify-center gap-2 border border-gray-300 rounded px-4 py-2 hover:bg-gray-100 transition"
-    >
+    <button onClick={handleLoginWithGoogle} className={styles.googleButton}>
       <img
         src="https://www.svgrepo.com/show/475656/google-color.svg"
         alt="Google logo"
-        className="w-5 h-5"
+        className={styles.googleLogo}
       />
-      <span className="text-sm text-gray-700 font-medium">Continuar con Google</span>
+      <span>Continuar con Google</span>
     </button>
   )
 }

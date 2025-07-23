@@ -136,3 +136,67 @@ export const signOutAction = async () => {
   await supabase.auth.signOut();
   return redirect("/sign-in");
 };
+
+//Registrarse con mail
+export const signUpStep1Action = async (formData: FormData) => {
+  const email = formData.get("email")?.toString();
+  const password = formData.get("password")?.toString();
+  const supabase = await createClient();
+
+  if (!email || !password) {
+    return encodedRedirect("error", "/sign-up", "Email y contraseña requeridos.");
+  }
+
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: "http://localhost:3000/auth/callback", // cambia a tu dominio real en prod
+    },
+  });
+
+  if (error) {
+    return encodedRedirect("error", "/sign-up", error.message);
+  }
+
+  // ✅ Solo mostramos mensaje para que verifique su correo
+  return redirect("/sign-up/verify-email");
+};
+
+
+//Completar formulario perfil
+export const completeProfileAction = async (formData: FormData) => {
+  const supabase = await createClient();
+
+  const user_id = formData.get("userId")?.toString();
+  const nombre = formData.get("nombre")?.toString();
+  const apellido = formData.get("apellido")?.toString();
+  const apodo = formData.get("apodo")?.toString();
+  const idioma = 1;
+  const fecha_nacimiento = formData.get("fecha_nacimiento")?.toString(); // 👈
+  const genero = formData.get("sexo")?.toString(); // 👈
+
+  if (!user_id || !nombre || !apellido || !apodo || !fecha_nacimiento || !genero) {
+    return encodedRedirect("error", "/sign-up", "Faltan datos del perfil.");
+  }
+
+  const { error } = await supabase.rpc("create_usuario_profile", {
+    p_nombre: nombre,
+    p_apellido: apellido,
+    p_idioma: idioma,
+    p_apodo: apodo,
+    p_user_id: user_id,
+    p_fec_nacimiento: fecha_nacimiento,
+    p_genero: genero,
+  });
+
+  if (error) {
+    console.error("❌ Error en RPC create_usuario_profile:", error);
+    return encodedRedirect("error", "/sign-up", error.message || "Error al guardar perfil.");
+  }
+
+  return redirect("/sign-in");
+};
+
+
+

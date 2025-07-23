@@ -1,38 +1,107 @@
-import FetchDataSteps from "@/components/tutorial/fetch-data-steps";
-import { createClient } from "@/utils/supabase/server";
-import { InfoIcon } from "lucide-react";
-import { redirect } from "next/navigation";
+'use client'
 
-export default async function ProtectedPage() {
-  const supabase = await createClient();
+import { useEffect, useState } from 'react'
+import { replace as featherReplace } from 'feather-icons'
+import styles from '@/app/styles/home.module.css'
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export default function DashboardPage() {
+  const [estado, setEstado] = useState('available')
 
-  if (!user) {
-    return redirect("/sign-in");
-  }
+  useEffect(() => {
+    featherReplace()
+  }, [])
 
   return (
-    <div className="flex-1 w-full flex flex-col gap-12">
-      <div className="w-full">
-        <div className="bg-accent text-sm p-3 px-5 rounded-md text-foreground flex gap-3 items-center">
-          <InfoIcon size="16" strokeWidth={2} />
-          This is a protected page that you can only see as an authenticated
-          user
+    <div className={styles.container}>
+      <aside className={styles.sidebar}>
+        <div className={styles.navIcons}>
+          <i data-feather="home" className={styles.active}></i>
+          <i data-feather="activity"></i>
+          <i data-feather="message-circle"></i>
+          <i data-feather="video"></i>
+          <i data-feather="calendar"></i>
         </div>
-      </div>
-      <div className="flex flex-col gap-2 items-start">
-        <h2 className="font-bold text-2xl mb-4">Your user details</h2>
-        <pre className="text-xs font-mono p-3 rounded border max-h-32 overflow-auto">
-          {JSON.stringify(user, null, 2)}
-        </pre>
-      </div>
-      <div>
-        <h2 className="font-bold text-2xl mb-4">Next steps</h2>
-        <FetchDataSteps />
-      </div>
+        <div className={styles.bottomIcons}>
+          <i data-feather="help-circle"></i>
+          <i data-feather="settings"></i>
+        </div>
+      </aside>
+
+      <main className={styles.mainContainer}>
+        <header className={styles.headerHome}>
+          <div className={styles.greetingStatus}>
+            <h1 className={styles.greeting}>¡Bienvenido, Usuario!</h1>
+            <select
+              aria-label="Estado del usuario"
+              className={styles[`status-${estado}`]}
+              value={estado}
+              onChange={(e) => setEstado(e.target.value)}
+            >
+              <option value="available">Disponible</option>
+              <option value="busy">Ocupado</option>
+              <option value="away">Ausente</option>
+            </select>
+          </div>
+
+          <div className={styles.searchBar}>
+            <input
+              type="text"
+              placeholder="Buscar contactos, reuniones..."
+              aria-label="Buscar"
+            />
+            <i data-feather="search"></i>
+          </div>
+        </header>
+
+        <section className={styles.dashboard}>
+          <div className={styles.card}>
+            <h2>Iniciar reunión</h2>
+            <p>Crea una sala e invita a otros.</p>
+            <button>Crear reunión</button>
+          </div>
+
+          <div className={styles.card}>
+            <h2>Unirse con código</h2>
+            <input type="text" placeholder="Código de reunión" />
+            <button>Unirse</button>
+          </div>
+
+          <div className={styles.card}>
+            <h2>Contactos</h2>
+            <input type="search" placeholder="Buscar contacto" />
+            <ul>
+              <li>Juan Pérez</li>
+              <li>María Gómez</li>
+            </ul>
+            <button>Agregar contacto</button>
+          </div>
+
+          <div className={styles.card}>
+            <h2>Reuniones programadas</h2>
+            <ul>
+              <li>🗓️ 5 julio - Reunión equipo 10:00</li>
+              <li>🗓️ 6 julio - Cliente Z 15:30</li>
+            </ul>
+            <button>Ver calendario</button>
+          </div>
+
+          <div className={styles.card}>
+            <h2>Perfil</h2>
+            <p>Nombre: Usuario Ejemplo</p>
+            <p>Correo: usuario@ejemplo.com</p>
+            <button>Editar perfil</button>
+          </div>
+
+          <div className={styles.card}>
+            <h2>Chat reciente</h2>
+            <div className={styles.chatBox}>
+              <p><strong>Juan:</strong> ¿Nos conectamos ahora?</p>
+              <p><strong>Vos:</strong> Dame 5 minutos 🙌</p>
+            </div>
+            <button>Ir al chat</button>
+          </div>
+        </section>
+      </main>
     </div>
-  );
+  )
 }
