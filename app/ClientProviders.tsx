@@ -13,7 +13,6 @@ export default function ClientProviders({ children }: { children: React.ReactNod
   return (
     <SessionContextProvider supabaseClient={supabase}>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-        {/* Aquí podés usar EnvVarWarning, HeaderAuth, ThemeSwitcher que son cliente */}
         {children}
       </ThemeProvider>
     </SessionContextProvider>

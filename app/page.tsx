@@ -15,7 +15,7 @@ export default function Home() {
   return (
     <>
       {/* HERO */}
-      <section className="py-24 text-center bg-gradient-to-br from-orange-100/50 to-white/30 backdrop-blur-md rounded-xl mx-4 my-6 shadow-lg">
+      <section className="py-24 text-center bg-gradient-to-br from-orange-100/50 to-white/30 dark:from-orange-950/20 dark:to-orange-900/10 backdrop-blur-md rounded-xl mx-4 my-6 shadow-lg border border-orange-200 dark:border-orange-800 transition">
         <div className="w-full max-w-[1400px] mx-auto px-6 flex flex-col md:flex-row items-center gap-10">
           <div className="flex-1 space-y-6 text-left">
             <h1 className="text-5xl font-bold leading-tight text-foreground">
@@ -46,7 +46,7 @@ export default function Home() {
             <img
               src="/videollamada.png"
               alt="Videollamada"
-              className="max-w-full rounded-xl shadow-xl border border-orange-200"
+              className="max-w-full rounded-xl shadow-xl border border-orange-200 dark:border-orange-700"
             />
           </div>
         </div>
@@ -78,9 +78,9 @@ export default function Home() {
             ].map(({ icon, title, desc }, i) => (
               <div
                 key={i}
-                className="bg-white/60 backdrop-blur-md border border-orange-100 p-6 rounded-2xl w-72 shadow-md hover:shadow-xl transition text-left"
+                className="bg-white/60 dark:bg-white/10 backdrop-blur-md border border-orange-100 dark:border-orange-700 p-6 rounded-2xl w-72 shadow-md hover:shadow-xl transition text-left"
               >
-                <h3 className="text-xl font-semibold mb-2 text-orange-600">
+                <h3 className="text-xl font-semibold mb-2 text-orange-600 dark:text-orange-400">
                   {icon} {title}
                 </h3>
                 <p className="text-muted-foreground">{desc}</p>
