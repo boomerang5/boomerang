@@ -67,34 +67,3 @@
     @apply bg-background text-foreground;
   }
 }
-
-//utilities para pantalla de contactos
-@layer utilities {
-  /* Botones principales */
-  .btn-primary {
-    @apply bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 
-           rounded-full font-semibold transition;
-  }
-
-  /* Botón para llamadas */
-  .btn-call {
-    @apply bg-green-500 hover:bg-green-600 text-white p-2 rounded-full transition;
-  }
-
-  /* Botón para videollamadas */
-  .btn-video {
-    @apply bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-full transition;
-  }
-
-  /* Card reutilizable */
-  .card {
-    @apply bg-card text-card-foreground rounded-xl p-6 shadow-lg 
-           backdrop-blur-md border border-border;
-  }
-
-  /* Item de lista de contactos */
-  .contact-item {
-    @apply flex justify-between items-center bg-muted p-4 rounded-lg 
-           hover:bg-accent transition;
-  }
-}

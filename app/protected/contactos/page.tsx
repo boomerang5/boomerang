@@ -9,7 +9,7 @@ export default function ContactosPage() {
   const supabase = useSupabaseClient();
   const [contactos, setContactos] = useState<any[]>([]);
   
-  //simulando llamada (por ahora) despues cambiar cuando tengamos la ruta a la llamada real
+  //simulando llamada (por ahora) despues cambiar cuando tengamos la ruta a la llamada
   const handleLlamada = (contacto: any) => {
     alert(`Iniciando llamada de audio con ${contacto.nombre} ${contacto.apellido}`);
   }
