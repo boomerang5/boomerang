@@ -5,6 +5,7 @@ import { useSupabaseClient } from "@supabase/auth-helpers-react";
 // @ts-ignore
 import feather from 'feather-icons'
 import Link from 'next/link';
+import { Users } from "react-feather";
 
 export default function DashboardPage() {
   const supabase = useSupabaseClient();
@@ -53,8 +54,8 @@ export default function DashboardPage() {
           <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
           <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
           
-          <Link href="/protected/contactos">
-            <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
+          <Link href="/protected/contactos"> 
+            <Users className="text-black dark:text-white w-5 h-5" /> 
           </Link>
 
           <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
