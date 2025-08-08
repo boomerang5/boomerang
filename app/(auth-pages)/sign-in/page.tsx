@@ -5,8 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createClient } from "@/utils/supabase/server";
 
 export default async function Login(props: { searchParams: Promise<Message> }) {
+  
+  //nuevo - si ya hay sesion, salimos de /signin
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {redirect('/protected');}
+  
   const searchParams = await props.searchParams;
 
   return (
