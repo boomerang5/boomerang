@@ -87,7 +87,7 @@ export default function DashboardPage() {
         .maybeSingle();
 
       if (!row?.id) { setCargando(false); return; }
-      setIdUsuario(row.id); // 👈 guardamos id_usuario para el Swagger
+      setIdUsuario(row.id);
 
       const { data: userData } = await supabase.rpc('get_user_by_id_usuario', { p_id_usuario: row.id });
       const u = Array.isArray(userData) ? userData[0] : userData;
@@ -99,7 +99,7 @@ export default function DashboardPage() {
     fetchPerfil();
   }, [supabase]);
 
-  // Contactos desde tu backend vía PROXY /api/contactos/misContactos?id_usuario=&busqueda=
+  // Contactos desde tu backend vía PROXY
   useEffect(() => {
     const ctrl = new AbortController();
 
@@ -115,7 +115,7 @@ export default function DashboardPage() {
     }
 
     (async () => {
-      if (!idUsuario) { // aún no tenemos id_usuario
+      if (!idUsuario) {
         setContacts([]);
         setContactsLoading(false);
         return;
@@ -160,7 +160,6 @@ export default function DashboardPage() {
   }, [idUsuario, qDebounced, supabase]);
 
   const filteredContacts = useMemo(() => {
-    // ya viene filtrado del server por busqueda, pero mantenemos filtro local por robustez
     const needle = q.trim().toLowerCase();
     if (!needle) return contacts;
     return contacts.filter((c) => {
@@ -182,16 +181,21 @@ export default function DashboardPage() {
             <i data-feather="home" className="text-orange-500 hover:text-orange-400 w-5 h-5" />
           </Link>
 
-          {/* Usuario → Ver perfil (rutas en español) */}
           <Link href="/protected/perfil">
             <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
           </Link>
 
           <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
+
           <Link href="/protected/contactos">
             <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
           </Link>
-          <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
+
+          {/* 👇 Chat con Link */}
+          <Link href="/protected/chats" aria-label="Ir a chats">
+            <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
           <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
         </div>
         <div className="flex flex-col items-center gap-5 mb-4">
@@ -352,6 +356,7 @@ export default function DashboardPage() {
             }
           />
 
+          {/* 👇 Chat reciente con Link */}
           <Card
             title="Chat reciente"
             content={
@@ -360,7 +365,14 @@ export default function DashboardPage() {
                 <p><strong>Vos:</strong> Dame 5 minutos 🙌</p>
               </div>
             }
-            buttonText="Ir al chat"
+            buttonText={
+              <Link
+                href="/protected/chats"
+                className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold w-fit mt-3 hover:brightness-105 transition"
+              >
+                Ir al chat
+              </Link>
+            }
           />
         </section>
       </main>
