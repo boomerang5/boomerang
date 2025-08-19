@@ -1,0 +1,12 @@
+import { NextRequest } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+export async function GET(_req: NextRequest, { params }: { params: { uuid: string } }) {
+  const base = process.env.BACKEND_API_BASE_URL || 'http://localhost:3001';
+  const res = await fetch(`${base}/api/users/uuid/${params.uuid}`, { cache: 'no-store' });
+  const text = await res.text();
+  return new Response(text, {
+    status: res.status,
+    headers: { 'content-type': res.headers.get('content-type') ?? 'application/json' },
+  });
+}

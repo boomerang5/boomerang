@@ -19,6 +19,7 @@
     "autoprefixer": "10.4.20",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "cors": "^2.8.5",
     "dotenv": "^17.0.1",
     "feather-icons": "^4.29.2",
     "lucide-react": "^0.468.0",
