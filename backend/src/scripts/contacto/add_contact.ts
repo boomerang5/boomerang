@@ -1,16 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = process.env;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error("❌ Faltan las variables SUPABASE_URL o SUPABASE_ANON_KEY en el .env");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import supabase from "../../lib/supabase";
 
 async function addContact(p_id_usuario: number, p_id_usuario_contacto: number) {
   console.log(`🧪 Ejecutando RPC add_contact con parámetros: { p_id_usuario: ${p_id_usuario}, p_id_usuario_contacto: ${p_id_usuario_contacto} }`);

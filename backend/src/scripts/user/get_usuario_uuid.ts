@@ -1,16 +1,4 @@
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = process.env;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error("❌ Faltan las variables SUPABASE_URL o SUPABASE_ANON_KEY en el .env");
-  process.exit(1);
-}
-
-const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import supabase from "../../lib/supabase";
 
 async function getUsuarioUuid(uuidUsuario: string) {
 
