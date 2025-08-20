@@ -1,8 +1,9 @@
 import supabase from "../../lib/supabase";
 
-export async function updateContactFavoriteService(idContactoUsuario: number, favorito: boolean) {
+export async function updateContactFavoriteService(id_usuario: number, idContactoUsuario: number, favorito: boolean) {
   const { data, error } = await supabase.rpc("update_contact_favorite", {
-    p_id_contacto_usuario: idContactoUsuario,
+    p_id_usuario: id_usuario,
+    p_id_usuario_contacto: idContactoUsuario,
     p_favorito: favorito,
   });
 

@@ -1,32 +1,35 @@
 import supabase from "../../lib/supabase";
 
 async function updateContactFavorite({
-  idContactoUsuario,
+  idUsuario,
+  idUsuarioContacto, // <-- OJO al nombre: es el id del usuario-contacto, no el id de la fila
   favorito,
 }: {
-  idContactoUsuario: number;
+  idUsuario: number;
+  idUsuarioContacto: number;
   favorito: boolean;
 }) {
   try {
     const { data, error } = await supabase.rpc("update_contact_favorite", {
-      p_id_contacto_usuario: idContactoUsuario,
-      p_favorito: favorito
+      p_id_usuario: idUsuario,
+      p_id_usuario_contacto: idUsuarioContacto,
+      p_favorito: favorito,
     });
 
     if (error) {
       console.error("❌ Error al ejecutar la función:", error);
-      process.exit(1);
+      return;
     }
 
     console.log("✅ Contacto actualizado correctamente. Resultado:", data);
   } catch (err) {
     console.error("❌ Error inesperado:", err);
-    process.exit(1);
   }
 }
 
 // ejemplo de uso
-const idContactoUsuario = 12; // el id de ContactoUsuario
-const favorito = false;       // true o false
+const idUsuario = 1;
+const idUsuarioContacto = 2; // <-- este es el "otro" usuario (columna id_usuario_contacto)
+const favorito = false;
 
-updateContactFavorite({ idContactoUsuario, favorito });
+updateContactFavorite({ idUsuario, idUsuarioContacto, favorito });
