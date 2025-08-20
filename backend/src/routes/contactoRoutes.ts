@@ -1,7 +1,8 @@
 import express from 'express';
-import { supabase } from '../lib/supabase';
 
 const router = express.Router();
+
+import { add_contact, delete_contact, update_contact_favorite, get_contacts_favorites, get_my_contacts} from '../controllers/contactoController';
 
 // POST ADD_CONTACT
 /**
@@ -29,42 +30,10 @@ const router = express.Router();
  *     responses:
  *       200:
  *         description: Contacto agregado correctamente
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               example:
- *                 message: Contacto agregado correctamente
- *       400:
- *         description: Faltan parámetros
- *       500:
- *         description: Error interno del servidor
  */
-router.post('/add', async (req, res) => {
-  const { id_usuario, id_usuario_contacto } = req.body;
+router.post('/add', add_contact);
 
-  if (!id_usuario || !id_usuario_contacto) {
-    return res.status(400).json({ error: 'Faltan parámetros obligatorios.' });
-  }
-
-  try {
-    const { data, error } = await supabase.rpc('add_contact', {
-      p_id_usuario: id_usuario,
-      p_id_usuario_contacto: id_usuario_contacto,
-    });
-
-    if (error) {
-      console.error('❌ Supabase error:', error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    return res.status(200).json({ message: 'Contacto agregado correctamente' });
-  } catch (err) {
-    console.error('❌ Error inesperado:', err);
-    return res.status(500).json({ error: 'Error interno del servidor.' });
-  }
-});
-
+//-----------------------------------------------------------------------------------------------------------------
 // POST DELETE_CONTACT
 /**
  * @swagger
@@ -102,31 +71,9 @@ router.post('/add', async (req, res) => {
  *       500:
  *         description: Error interno del servidor
  */
-router.post('/delete', async (req, res) => {
-  const { id_usuario, id_usuario_contacto } = req.body;
+router.post('/delete', delete_contact);
 
-  if (!id_usuario || !id_usuario_contacto) {
-    return res.status(400).json({ error: 'Faltan parámetros obligatorios.' });
-  }
-
-  try {
-    const { data, error } = await supabase.rpc('delete_contact', {
-      p_id_usuario: id_usuario,
-      p_id_usuario_contacto: id_usuario_contacto,
-    });
-
-    if (error) {
-      console.error('❌ Supabase error:', error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    return res.status(200).json({ message: 'Contacto eliminado correctamente' });
-  } catch (err) {
-    console.error('❌ Error inesperado:', err);
-    return res.status(500).json({ error: 'Error interno del servidor.' });
-  }
-});
-
+//-----------------------------------------------------------------------------------------------------------------
 // PATCH UPDATE_CONTACT_FAVORITE
 /**
  * @swagger
@@ -164,31 +111,9 @@ router.post('/delete', async (req, res) => {
  *       500:
  *         description: Error interno del servidor
  */
-router.patch('/favorite', async (req, res) => {
-  const { id_contacto_usuario, favorito } = req.body;
+router.patch('/favorite', update_contact_favorite);
 
-  if (typeof id_contacto_usuario !== 'number' || typeof favorito !== 'boolean') {
-    return res.status(400).json({ error: 'Parámetros inválidos o faltantes.' });
-  }
-
-  try {
-    const { data, error } = await supabase.rpc('update_contact_favorite', {
-      p_id_contacto_usuario: id_contacto_usuario,
-      p_favorito: favorito,
-    });
-
-    if (error) {
-      console.error('❌ Supabase error:', error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    return res.status(200).json({ message: 'Contacto actualizado correctamente' });
-  } catch (err) {
-    console.error('❌ Error inesperado:', err);
-    return res.status(500).json({ error: 'Error interno del servidor.' });
-  }
-});
-
+//-----------------------------------------------------------------------------------------------------------------
 // GET GET_CONTACTS_FAVORITES
 /**
  * @swagger
@@ -244,30 +169,9 @@ router.patch('/favorite', async (req, res) => {
  *       400:
  *         description: ID inválido
  */
-router.get('/favorites', async (req, res) => {
-  const id_usuario = parseInt(req.query.id_usuario as string);
+router.get('/favorites', get_contacts_favorites);
 
-  if (isNaN(id_usuario)) {
-    return res.status(400).json({ error: 'ID inválido' });
-  }
-
-  try {
-    const { data, error } = await supabase.rpc('get_contacts_favorites', {
-      p_id_usuario: id_usuario,
-    });
-
-    if (error) {
-      console.error('❌ Supabase error:', error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    return res.status(200).json(data);
-  } catch (err) {
-    console.error('❌ Error inesperado:', err);
-    return res.status(500).json({ error: 'Error interno del servidor.' });
-  }
-});
-
+//-----------------------------------------------------------------------------------------------------------------
 // GET GET_MY_CONTACTS
 /**
  * @swagger
@@ -329,31 +233,7 @@ router.get('/favorites', async (req, res) => {
  *       400:
  *         description: ID inválido
  */
-router.get('/misContactos', async (req, res) => {
-  const id_usuario = parseInt(req.query.id_usuario as string);
-  const busqueda = req.query.busqueda as string | undefined;
-
-  if (isNaN(id_usuario)) {
-    return res.status(400).json({ error: 'ID inválido' });
-  }
-
-  try {
-    const { data, error } = await supabase.rpc('get_my_contacts', {
-      p_id_usuario: id_usuario,
-      p_busqueda: busqueda ?? null,
-    });
-
-    if (error) {
-      console.error('❌ Supabase error:', error);
-      return res.status(500).json({ error: error.message });
-    }
-
-    return res.status(200).json(data);
-  } catch (err) {
-    console.error('❌ Error inesperado:', err);
-    return res.status(500).json({ error: 'Error interno del servidor.' });
-  }
-});
+router.get('/misContactos', get_my_contacts);
 
 
 export default router;
