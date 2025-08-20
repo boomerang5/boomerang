@@ -54,6 +54,16 @@ export const signInAction = async (formData: FormData) => {
   });
 
   if (error) {
+    //mapear errores comunes
+    let msg = error.message;
+    const code = (error as any).code; // Accede a la propiedad 'code' del error
+
+    if (code === "email_not_confirmed" || msg === "Email not confirmed") {
+      msg = "Aún no confirmaste tu correo. Revisá tu email y seguí el enlace de verificación.";
+    } else if (code === "invalid_login_credentials" || msg === "Invalid login credentials") {
+      msg = "Email o contraseña inválidos.";
+    }
+
     return encodedRedirect("error", "/sign-in", error.message);
   }
 
