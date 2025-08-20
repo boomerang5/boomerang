@@ -42,14 +42,14 @@ export const delete_contact = async (req: Request, res: Response) => {
 
 //UPDATE_CONTACT_FAVORITE
 export const update_contact_favorite = async (req: Request, res: Response) => {
-  const { id_contacto_usuario, favorito } = req.body;
+  const { id_usuario, id_usuario_contacto, favorito } = req.body;
 
-  if (typeof id_contacto_usuario !== 'number' || typeof favorito !== 'boolean') {
+  if (typeof id_usuario!== 'number' || typeof id_usuario_contacto !== 'number' || typeof favorito !== 'boolean') {
     return res.status(400).json({ error: 'Parámetros inválidos o faltantes.' });
   }
 
   try {
-    await updateContactFavoriteService(id_contacto_usuario, favorito);
+    await updateContactFavoriteService(id_usuario, id_usuario_contacto, favorito);
     return res.status(200).json({ message: "Contacto actualizado correctamente" });
   } catch (error: any) {
     console.error("❌ Error en updateContactFavorite:", error);

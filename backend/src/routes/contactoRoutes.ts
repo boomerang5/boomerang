@@ -88,12 +88,16 @@ router.post('/delete', delete_contact);
  *           schema:
  *             type: object
  *             required:
- *               - id_contacto_usuario
+ *               - id_usuario
+ *               - id_usuario_contacto
  *               - favorito
  *             properties:
- *               id_contacto_usuario:
+ *               id_usuario:
  *                 type: integer
- *                 example: 12
+ *                 example: 1
+ *               id_usuario_contacto:
+ *                 type: integer
+ *                 example: 2
  *               favorito:
  *                 type: boolean
  *                 example: true
