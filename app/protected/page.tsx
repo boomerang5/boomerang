@@ -185,8 +185,10 @@ export default function DashboardPage() {
             <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
           </Link>
 
-          <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
-
+          <Link href="/protected/videollamada">
+            <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+          
           <Link href="/protected/contactos">
             <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
           </Link>
