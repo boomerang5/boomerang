@@ -66,7 +66,7 @@ export default function VideoCallPage() {
   const [inbox, setInbox] = useState<ReturnType<SupabaseClient['channel']> | null>(null)
   const [callCh, setCallCh] = useState<ReturnType<SupabaseClient['channel']> | null>(null)
 
-  // IDs (en tu app, reemplazá por valores reales del usuario y su peer)
+  // IDs (reemplazar por user real)
   const [meId, setMeId] = useState<string>('userA-uuid')   // TODO: setear con user.id real
   const [meName, setMeName] = useState<string>('cliente1') // TODO: setear nombre real
   const [peerId, setPeerId] = useState<string>('userB-uuid')
@@ -91,7 +91,6 @@ export default function VideoCallPage() {
 
   /* ========= Crear cliente Supabase ========= */
   useEffect(() => {
-    // Si ya tenés client global, reemplazá esto por tu import
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const client = createClient(url, key, { realtime: { params: { eventsPerSecond: 10 } } })
@@ -111,15 +110,23 @@ export default function VideoCallPage() {
       setRole('callee')
       setUiField('callId', payload.callId)
       setUiField('role', 'callee')
+
+      // 🔧 responder al que realmente llamó
+      if (payload.from?.id) setPeerId(payload.from.id)
+
       log(`← ring from ${payload.from?.id} (${payload.from?.name}) callId=${payload.callId}`)
     })
 
     ch.on('broadcast', { event: 'accept' }, async ({ payload }) => {
       if (payload.callId !== callId) return
       log(`← accept de ${payload.from}`)
-      // el caller inicia offer
+
+      // 🔧 El CALLER crea la fila en BD (así no queda invertido)
       if (role === 'caller') {
-        setCallRowId(payload.id_llamada) // importante
+        const id = await dbStartCall() // guarda {from: meId, to: peerId}
+        if (!id) { log('! no se pudo crear la llamada en BD'); return }
+        setCallRowId(id)
+
         if (!localStreamRef.current) await enableCam()
         await joinCallChannel(payload.callId)
         await startCall() // crea offer
@@ -135,6 +142,15 @@ export default function VideoCallPage() {
     setInbox(ch)
   }
 
+  // autosuscribirse al inbox cuando haya sb y meId
+  useEffect(() => {
+    if (!sb || !meId) return
+    subscribeInbox()
+    // Nota: si cambiás meId en runtime, idealmente desuscribí el anterior.
+    // Para ejemplo simple lo dejamos así.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sb, meId])
+
   /* ========= FLUJO DE BOTONES ========= */
 
   const makeCall = async () => {
@@ -142,7 +158,7 @@ export default function VideoCallPage() {
     if (!inbox) { alert('Suscribite al inbox primero'); return }
     if (!peerId) { alert('Peer Usuario ID requerido'); return }
 
-    if (!localStreamRef.current) await enableCam() // gesto del usuario
+    if (!localStreamRef.current) await enableCam()
 
     const id = uuid()
     setCallId(id)
@@ -167,20 +183,18 @@ export default function VideoCallPage() {
     const toId = role === 'callee' ? peerId : null
     if (!toId) { log('! Seteá Peer Usuario ID con el caller'); return }
 
-    if (!localStreamRef.current) await enableCam() // gesto del usuario
+    if (!localStreamRef.current) await enableCam()
 
-    // 1) DB start
-    const id = await dbStartCall()
-    if (!id) { log('! no se pudo crear la llamada en BD'); return }
+    // ❌ El callee NO crea la fila: la crea el caller al recibir el accept.
 
-    // 2) Unirse al canal de llamada
+    // 1) Unirse al canal de llamada
     await joinCallChannel(callId)
 
-    // 3) Notificar accept al caller con id_llamada
+    // 2) Notificar accept al caller
     const ch = sb.channel(`user:${toId}`)
     await ch.subscribe()
-    await ch.send({ type: 'broadcast', event: 'accept', payload: { callId, from: meId, id_llamada: id } })
-    log(`→ accept to user:${toId} (callId=${callId}, id_llamada=${id})`)
+    await ch.send({ type: 'broadcast', event: 'accept', payload: { callId, from: meId } })
+    log(`→ accept to user:${toId} (callId=${callId})`)
     await ch.unsubscribe()
   }
 
@@ -249,6 +263,7 @@ export default function VideoCallPage() {
 
     ch.on('presence', { event: 'sync' }, () => {
       const state = ch.presenceState()
+      log('presence: ' + JSON.stringify(state))
       setCallPeers(Object.keys(state).length)
     })
 
@@ -632,7 +647,7 @@ function VideoTile({
   camOn: boolean
   micOn: boolean
   inCall: boolean
-  videoRef: RefObject<HTMLVideoElement | null>   // ← acepta null
+  videoRef: RefObject<HTMLVideoElement | null>
   muted?: boolean
 }) {
   return (
