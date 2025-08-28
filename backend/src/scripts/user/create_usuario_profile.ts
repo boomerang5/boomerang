@@ -1,18 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
-
-// cargar variables de entorno
-dotenv.config();
-
-const { SUPABASE_URL, SUPABASE_ANON_KEY } = process.env;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error("❌ Faltan las variables SUPABASE_URL o SUPABASE_ANON_KEY en el .env");
-  process.exit(1);
-}
-
-// inicializar supabase
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import supabase from "../../lib/supabase";
 
 // objeto simulado desde el front
 const usuario = {
@@ -23,7 +9,7 @@ const usuario = {
   user_id: "fd4680cc-e879-4a70-8c19-21c1d0ab3ee6"
 };
 
-async function main() {
+async function createUsuarioProfile() {
   try {
     const { data, error } = await supabase.rpc("create_usuario_profile", {
       p_nombre: usuario.nombre,
@@ -45,4 +31,4 @@ async function main() {
   }
 }
 
-main();
+createUsuarioProfile();
