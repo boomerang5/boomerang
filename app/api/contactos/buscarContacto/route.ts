@@ -1,23 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.BACKEND_URL!; // definido en .env.local
+const BACKEND_URL = process.env.BACKEND_URL!; // de .env.local
 
 export async function GET(req: NextRequest) {
   try {
     const auth = req.headers.get('authorization') || '';
     const sp = new URL(req.url).searchParams;
-
     const id_usuario = sp.get('id_usuario');
-    // acepta ambas variantes por compatibilidad
-    const busquedaParam = sp.get('busqueda') ?? sp.get('q') ?? '';
+    const q = sp.get('q') ?? '';
 
-    if (!id_usuario) {
-      return NextResponse.json({ error: 'id_usuario es requerido' }, { status: 400 });
+    if (!id_usuario || !q) {
+      return NextResponse.json(
+        { error: 'id_usuario y q son requeridos' },
+        { status: 400 }
+      );
     }
 
-    const upstreamUrl =
-      `${BACKEND_URL}/api/contactos/misContactos?id_usuario=${encodeURIComponent(id_usuario)}` +
-      (busquedaParam ? `&busqueda=${encodeURIComponent(busquedaParam)}` : '');
+    const upstreamUrl = `${BACKEND_URL}/api/contactos/search?id_usuario=${encodeURIComponent(
+      id_usuario
+    )}&q=${encodeURIComponent(q)}`;
 
     const r = await fetch(upstreamUrl, {
       headers: {
@@ -34,10 +35,14 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(text, {
       status: 200,
-      headers: { 'Content-Type': r.headers.get('content-type') ?? 'application/json' },
+      headers: {
+        'Content-Type': r.headers.get('content-type') ?? 'application/json',
+      },
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Proxy error' }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || 'Proxy error' },
+      { status: 500 }
+    );
   }
-}
-
+} 
