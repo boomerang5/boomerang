@@ -16,7 +16,7 @@ type ContactoAgenda = {
   favorito?: boolean
   fh_alta?: string | null
   id_estado?: number | null
-  nombreEstado?: string | null
+  nombreEstado?: string | null 
 }
 
 type UsuarioBusqueda = {
@@ -72,26 +72,34 @@ export default function ContactosPage() {
   useEffect(() => { feather.replace() }, [])
   useEffect(() => { feather.replace() }, [contactos.length, results.length, q, isModalOpen, modalResults.length, selectedUser])
 
-  // ====== Obtener idUsuario interno
+  // ====== Obtener idUsuario interno (SIN RPC, consultando la tabla Usuario)
   useEffect(() => {
     (async () => {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const user_uuid = sessionData.session?.user.id
-      if (!user_uuid) return
+      try {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const user_uuid = sessionData.session?.user.id
+        if (!user_uuid) return
 
-      // Tu RPC actual para mapear UUID -> id interno
-      const { data, error } = await supabase.rpc('get_usuario_uuid', { p_user_id: user_uuid })
-      if (!error && data) {
-        const perfil = Array.isArray(data) ? data[0] : data
-        const idNum = Number(perfil?.id)
+        // Buscamos el id interno con el User_id (uuid) del usuario autenticado
+        const { data, error, status } = await supabase
+          .from('Usuario')
+          .select('id')
+          .eq('User_id', user_uuid)
+          .single()
+
+        if (error || !data?.id) {
+          console.error('No se pudo obtener id interno desde Usuario:', { status, error, data })
+          return
+        }
+
+        const idNum = Number(data.id)
         if (!Number.isNaN(idNum)) setIdUsuario(idNum)
-      } else {
-        console.error('Error get_usuario_uuid:', error)
+      } catch (err) {
+        console.error('Error al resolver idUsuario:', err)
       }
     })()
   }, [supabase])
 
-  // IDs de mi agenda (para marcar "en_agenda" en los resultados)
   const agendaIds = useMemo(() => {
     const ids = new Set<number>()
     for (const c of contactos) {
@@ -109,7 +117,7 @@ export default function ContactosPage() {
       setAgendaError(null)
       try {
         const token = await getJwt(supabase)
-        const url = `/api/contactos/misContactos?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(busqueda.trim())}`;
+        const url = `/api/contactos/misContactos?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(busqueda.trim())}`
         const r = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
           cache: 'no-store',
@@ -156,7 +164,7 @@ export default function ContactosPage() {
       try {
         setLoadingSearch(true)
         const token = await getJwt(supabase)
-        const url = `/api/contactos/buscarContacto?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(term.trim())}`;
+        const url = `/api/contactos/buscarContacto?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(term.trim())}`
         const r = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
           cache: 'no-store',
@@ -253,7 +261,7 @@ export default function ContactosPage() {
       try {
         setModalLoading(true)
         const token = await getJwt(supabase)
-        const url = `/api/contactos/buscarContacto?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(term.trim())}`;
+        const url = `/api/contactos/buscarContacto?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(term.trim())}`
 
         const r = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
@@ -522,4 +530,3 @@ export default function ContactosPage() {
     </div>
   )
 }
-
