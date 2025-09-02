@@ -1,28 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.BACKEND_URL!; // de .env.local
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.API_BASE ||
+  'http://localhost:3001';
 
 export async function GET(req: NextRequest) {
   try {
     const auth = req.headers.get('authorization') || '';
     const sp = new URL(req.url).searchParams;
-    const id_usuario = sp.get('id_usuario');
-    const q = sp.get('q') ?? '';
 
-    if (!id_usuario || !q) {
+    const id_usuario = sp.get('id_usuario') ?? '';
+    const busqueda   = sp.get('busqueda') ?? '';
+
+    // Swagger: id_usuario es requerido
+    if (!id_usuario) {
       return NextResponse.json(
-        { error: 'id_usuario y q son requeridos' },
+        { error: 'id_usuario es requerido' },
         { status: 400 }
       );
     }
 
-    const upstreamUrl = `${BACKEND_URL}/api/contactos/search?id_usuario=${encodeURIComponent(
-      id_usuario
-    )}&q=${encodeURIComponent(q)}`;
+    const upstreamUrl =
+      `${API_BASE}/api/users/contacts?id_usuario=${encodeURIComponent(id_usuario)}` +
+      (busqueda ? `&busqueda=${encodeURIComponent(busqueda)}` : '');
 
     const r = await fetch(upstreamUrl, {
       headers: {
-        'Content-Type': 'application/json',
+        'content-type': 'application/json',
         ...(auth ? { authorization: auth } : {}),
       },
       cache: 'no-store',
@@ -36,7 +41,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(text, {
       status: 200,
       headers: {
-        'Content-Type': r.headers.get('content-type') ?? 'application/json',
+        'content-type': r.headers.get('content-type') ?? 'application/json',
       },
     });
   } catch (e: any) {
@@ -45,4 +50,4 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}
