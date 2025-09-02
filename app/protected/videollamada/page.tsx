@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import clsx from 'clsx'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+// @ts-ignore — solo en cliente
+import feather from 'feather-icons'
 
 type Panel = 'none' | 'chat' | 'people' | 'settings'
 type Role = 'idle' | 'caller' | 'callee'
@@ -10,6 +12,101 @@ type SignalPayload =
   | { type: 'offer' | 'answer'; sdp: RTCSessionDescriptionInit; from: string }
   | { type: 'ice'; candidate: RTCIceCandidateInit; from: string }
   | { type: 'hangup'; from: string }
+
+/* =================== Helpers de datos =================== */
+
+// Busca tu ID numérico en tabla Usuario usando tu UUID de auth
+async function fetchMyNumericId(sb: SupabaseClient, myUuid: string): Promise<number | null> {
+  try {
+    const { data, error } = await sb
+      .from('Usuario')
+      .select('id')
+      .eq('User_id', myUuid)
+      .maybeSingle()
+    if (error) return null
+    return data?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+// Espera a que el canal quede SUBSCRIBED (evita perder mensajes)
+async function ensureSubscribed(ch: ReturnType<SupabaseClient['channel']>): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false
+    ch.subscribe((status) => {
+      if (!done && status === 'SUBSCRIBED') {
+        done = true
+        resolve()
+      }
+    })
+  })
+}
+
+// Devuelve claves de destino para ring/accept/... (id y/o uuid) con fallbacks fuertes
+async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: string)=>void): Promise<string[]> {
+  const key = peerInput.trim()
+  const keys = new Set<string>()
+  if (!key) return []
+  keys.add(key)
+
+  // Si es ID → intentar RPC y también SELECT directo
+  if (/^\d+$/.test(key)) {
+    const idNum = Number(key)
+    try {
+      const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: idNum })
+      if (!error && data) {
+        const u = (Array.isArray(data) ? data[0] : data) as any
+        const uuid =
+          (typeof u === 'string' && u) ||
+          u?.User_id || u?.user_id || u?.uuid || u?.user_uuid
+        if (uuid) { keys.add(String(uuid)); log?.(`~ resolvePeerKeys: RPC id→uuid ${key} → ${uuid}`) }
+      } else {
+        log?.(`~ resolvePeerKeys: RPC id→uuid sin datos (id=${key})`)
+      }
+    } catch (e:any) {
+      log?.(`~ resolvePeerKeys: RPC id→uuid error: ${e?.message}`)
+    }
+
+    // Fallback fuerte: SELECT directo a Usuario
+    try {
+      const { data, error } = await sb
+        .from('Usuario')
+        .select('User_id')
+        .eq('id', idNum)
+        .maybeSingle()
+      if (!error && data?.User_id) {
+        keys.add(String(data.User_id))
+        log?.(`~ resolvePeerKeys: SELECT id→uuid ${key} → ${data.User_id}`)
+      }
+    } catch (e:any) {
+      log?.(`~ resolvePeerKeys: SELECT id→uuid error: ${e?.message}`)
+    }
+  } else {
+    // input = UUID → traer ID desde Usuario (SELECT directo)
+    try {
+      const { data, error } = await sb
+        .from('Usuario')
+        .select('id')
+        .eq('User_id', key)
+        .maybeSingle()
+      if (!error && data?.id != null) {
+        keys.add(String(data.id))
+        log?.(`~ resolvePeerKeys: SELECT uuid→id ${key} → ${data.id}`)
+      }
+    } catch (e:any) {
+      log?.(`~ resolvePeerKeys: SELECT uuid→id error: ${e?.message}`)
+    }
+  }
+
+  return Array.from(keys)
+}
+
+// Prioriza UUIDs; si no hay, usa lo que haya (numéricos)
+function pickTargets(keys: string[]) {
+  const uuidKeys = keys.filter(k => !/^\d+$/.test(k))
+  return uuidKeys.length ? uuidKeys : keys
+}
 
 export default function VideoCallPage() {
   // ---- UI base
@@ -24,13 +121,21 @@ export default function VideoCallPage() {
   const [sb, setSb] = useState<SupabaseClient | null>(null)
   const [inbox, setInbox] = useState<ReturnType<SupabaseClient['channel']> | null>(null)
   const [callCh, setCallCh] = useState<ReturnType<SupabaseClient['channel']> | null>(null)
-  const callChRef = useRef<ReturnType<SupabaseClient['channel']> | null>(null) // NEW
+  const callChRef = useRef<ReturnType<SupabaseClient['channel']> | null>(null)
+  const inboxesRef = useRef<ReturnType<SupabaseClient['channel']>[]>([])
+  const [inboxReady, setInboxReady] = useState(false)
 
   // ---- Identidad / control
-  const [meId, setMeId] = useState<string>('1')
-  const [meName, setMeName] = useState<string>('Nombre')
-  const [peerId, setPeerId] = useState<string>('2')
-  const meIdInt = useMemo(() => Number(meId), [meId])
+  const [meId, setMeId] = useState<string>('')                   // UUID (para canales/presence)
+  const [meNumericId, setMeNumericId] = useState<number | null>(null) // ID numérico
+  const [meName, setMeName] = useState<string>('Yo')
+  const [peerId, setPeerId] = useState<string>('')               // uuid o id del peer
+
+  const meIdInt = useMemo(() => {
+    if (meNumericId != null) return meNumericId
+    const n = Number(meId)
+    return Number.isFinite(n) ? n : null
+  }, [meNumericId, meId])
 
   const [role, setRole] = useState<Role>('idle')
   const [callId, setCallId] = useState<string | null>(null)
@@ -57,6 +162,18 @@ export default function VideoCallPage() {
   const [micOn, setMicOn] = useState(true)
   const [camOn, setCamOn] = useState(true)
 
+  // ---- Controles extra
+  const [captionsOn, setCaptionsOn] = useState(false)
+  const [shareOn, setShareOn] = useState(false)
+  const [translateOn, setTranslateOn] = useState(false)
+
+  const toggleCaptions = () => setCaptionsOn(v => !v)
+  const toggleShare = () => { setShareOn(v => !v) }
+  const toggleTranslate = () => { setTranslateOn(v => !v) }
+  const openChat = () => setPanel(p => (p === 'chat' ? 'none' : 'chat'))
+  const openPeople = () => setPanel(p => (p === 'people' ? 'none' : 'people'))
+  const openSettings = () => setPanel(p => (p === 'settings' ? 'none' : 'settings'))
+
   // ---- Log
   const logRef = useRef<HTMLPreElement | null>(null)
   const log = (t: string) => {
@@ -71,6 +188,13 @@ export default function VideoCallPage() {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2)
 
+  const isNumericId = (s: string | null | undefined) => !!s && /^\d+$/.test(String(s))
+
+  // Feather icons
+  useEffect(() => {
+    feather.replace()
+  }, [micOn, camOn, shareOn, captionsOn, translateOn, panel])
+
   // ========= 1) Supabase client
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -84,110 +208,309 @@ export default function VideoCallPage() {
     log('✓ supabase client ready')
   }, [])
 
-  // ========= 2) Inbox user:<meId>
-  useEffect(() => {
-    if (!sb || !meId) return
-    ;(async () => {
-      if (inbox) { try { await inbox.unsubscribe() } catch {} setInbox(null) }
+  // === Helpers URL
+  const qp = (k: string) =>
+    typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get(k)
 
-      const ch = sb.channel(`user:${meId}`, { config: { broadcast: { self: false } } })
+  // === 1.b) Cargar identidad automáticamente (uuid + id numérico si existe)
+  useEffect(() => {
+    if (!sb) return
+    ;(async () => {
+      let finalUuid: string | null = null
+
+      // a) override de pruebas: ?as=<uuid>
+      const asQ = qp('as')
+      if (asQ) {
+        finalUuid = asQ
+        sessionStorage.setItem('vc_uuid', finalUuid)
+        log(`~ override via ?as=${finalUuid}`)
+      }
+
+      // b) UUID vía RPC
+      if (!finalUuid) {
+        try {
+          const { data: uuidData } = await sb.rpc('get_usuario_uuid')
+          const rpcUuid =
+            (typeof uuidData === 'string' && uuidData) ||
+            (uuidData && (uuidData as any).uuid) ||
+            (uuidData && (uuidData as any).user_uuid) ||
+            null
+          if (rpcUuid) {
+            finalUuid = rpcUuid
+            log(`~ uuid via RPC get_usuario_uuid = ${finalUuid}`)
+          }
+        } catch {}
+      }
+
+      // c) fallback: usuario autenticado por client
+      if (!finalUuid) {
+        try {
+          const { data } = await sb.auth.getUser()
+          if (data?.user?.id) {
+            finalUuid = data.user.id
+            const nm =
+              (data.user.user_metadata && (data.user.user_metadata.full_name || data.user.user_metadata.name)) ||
+              undefined
+            if (nm) setMeName(String(nm))
+          }
+        } catch {}
+      }
+
+      // d) per-tab (sessionStorage) para anónimos
+      if (!finalUuid) {
+        finalUuid = sessionStorage.getItem('vc_uuid')
+        if (!finalUuid) {
+          finalUuid = uuid()
+          sessionStorage.setItem('vc_uuid', finalUuid)
+        }
+      }
+
+      // id numérico: primero LS, si no, buscar en BD y cachear
+      let lsId: number | null = null
+      const lsIdStr = localStorage.getItem('usuario_id')
+      if (lsIdStr && /^\d+$/.test(lsIdStr)) lsId = Number(lsIdStr)
+      if (!lsId && finalUuid) {
+        const fetched = await fetchMyNumericId(sb, finalUuid)
+        if (fetched) {
+          lsId = fetched
+          localStorage.setItem('usuario_id', String(fetched))
+          log(`~ meNumericId via DB = ${fetched}`)
+        } else {
+          log('~ no se encontró id numérico en BD (seguiré solo con UUID)')
+        }
+      }
+
+      setMeNumericId(lsId ?? null)
+      setMeId(finalUuid)
+      log(`✓ identidad uid=${finalUuid}${lsId ? ` (id=${lsId})` : ''}`)
+
+      // peer desde URL (para compartir link directo)
+      const peerQ = qp('peer')
+      if (peerQ) {
+        setPeerId(peerQ)
+        log(`~ peer via ?peer=${peerQ}`)
+      }
+
+      // >>> NUEVO: prefillear también cuando vienen desde contacto con ?to=<uuid|id>
+      const toQ = qp('to')
+      if (toQ) {
+        setPeerId(toQ)
+        log(`~ peer via ?to=${toQ}`)
+      }
+    })()
+  }, [sb])
+
+  // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
+  useEffect(() => {
+    if (!sb) return
+    if (!meId && meNumericId == null) return
+
+    // limpiar anteriores
+    ;(async () => {
+      setInboxReady(false)
+      if (inbox) { try { await inbox.unsubscribe() } catch {} setInbox(null) }
+      const prev = inboxesRef.current
+      inboxesRef.current = []
+      for (const ch of prev) { try { await ch.unsubscribe() } catch {} }
+    })()
+
+    const setupInbox = async (key: string) => {
+      const ch = sb.channel(`user:${key}`, { config: { broadcast: { self: false } } })
 
       ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
         const fromId = String(payload.from?.id ?? '')
-        log(`← ring from ${fromId} (${payload.from?.name}) callId=${payload.callId}`)
+        log(`← ring on user:${key} from ${fromId} (${payload.from?.name}) callId=${payload.callId}`)
         setCallId(payload.callId); callIdRef.current = payload.callId
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
-        calleeUserIdRef.current = String(meId)
+        calleeUserIdRef.current = String(meId || key)
         setPeerId(fromId)
       })
 
       ch.on('broadcast', { event: 'accept' }, async ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
-        log(`← accept de ${payload.from}`)
+        log(`← accept (via user:${key}) de ${payload.from}`)
         if (roleRef.current === 'caller') {
           setCallRowId(payload.id_llamada)
           if (!localStreamRef.current) await enableCam()
           await dbAddCallParticipant(payload.id_llamada, meIdInt, { host: true })
-          await joinCallChannel(payload.callId)
+          await joinCallChannel(payload.callId)        // **espera SUBSCRIBED**
           setInCall(true)
-          await startCall()
+          await startCall()                            // ahora sí, offer
         }
       })
 
       ch.on('broadcast', { event: 'reject' }, ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
-        log('← reject'); resetCall()
+        log(`← reject (via user:${key})`); resetCall()
       })
 
       ch.on('broadcast', { event: 'cancel' }, ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
-        log('← cancel'); resetCall()
+        log(`← cancel (via user:${key})`); resetCall()
       })
 
-      await ch.subscribe((status) => {
-        if (status === 'SUBSCRIBED') log(`✓ SUBSCRIBED inbox user:${meId}`)
-      })
-      setInbox(ch)
+      await ensureSubscribed(ch)
+      setInboxReady(true)
+      log(`✓ SUBSCRIBED inbox user:${key}`)
+      inboxesRef.current.push(ch)
+
+      // Log de TODOS los inbox activos (para chequear coincidencias)
+      try {
+        // @ts-ignore acceso interno
+        const topics = inboxesRef.current.map((c:any) => c?.topic ?? '(sin topic)').join(', ')
+        log(`~ inboxes activos: ${topics}`)
+      } catch {}
+
+      if (!inbox) setInbox(ch) // guardar el primero para compat
+    }
+
+    ;(async () => {
+      if (meId) await setupInbox(meId)
+      if (meNumericId != null) await setupInbox(String(meNumericId))
     })()
-  }, [sb, meId])
+
+  }, [sb, meId, meNumericId])
+
+  /* ========= 2.b) Auto-acciones por query =========
+     - ?to=<uuid|id>&autocall=1        -> inicia llamada automáticamente (caller)
+     - ?incoming=<callId>&from=<id|uuid>&autoaccept=1 -> acepta automáticamente (callee)
+  */
+
+  // 3.a) AUTO-CALL
+  useEffect(() => {
+    if (!sb) return
+    const to = qp('to')
+    const auto = qp('autocall')
+    if (!to || auto !== '1') return
+    if (!meId || !inboxReady) return
+    setPeerId(to)
+    const onceKey = `autocall:${to}`
+    const once = sessionStorage.getItem(onceKey)
+    if (!once) {
+      sessionStorage.setItem(onceKey, 'done')
+      ;(async () => {
+        if (!localStreamRef.current) await enableCam()
+        await makeCall(to) // <<< usar override directo
+      })()
+    }
+    return () => { sessionStorage.removeItem(onceKey) }
+  }, [sb, meId, inboxReady])
+
+  // 3.b) AUTO-ACCEPT
+  useEffect(() => {
+    if (!sb) return
+    const incoming = qp('incoming')
+    const from = qp('from')
+    const auto = qp('autoaccept')
+    if (!incoming || !from || auto !== '1') return
+    if (!inboxReady) return
+
+    setCallId(incoming); callIdRef.current = incoming
+    setRole('callee');   roleRef.current = 'callee'
+    setPeerId(from)
+    callerUserIdRef.current = from
+    calleeUserIdRef.current = String(meId || meNumericId || '')
+
+    ;(async () => {
+      if (!localStreamRef.current) await enableCam()
+      const idRow = await dbStartCall()
+      if (idRow) setCallRowId(idRow)
+      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false })
+      await joinCallChannel(incoming)
+      setInCall(true)
+      // avisar al caller que aceptamos
+      const keys = await resolvePeerKeys(sb, String(from), log)
+      const targets = pickTargets(keys)
+      for (const key of targets) {
+        const ch = sb.channel(`user:${key}`)
+        await ensureSubscribed(ch)
+        await ch.send({ type: 'broadcast', event: 'accept', payload: { callId: incoming, from: meId, id_llamada: idRow ?? undefined } })
+        await ch.unsubscribe()
+      }
+      log(`→ auto-accept enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
+    })()
+  }, [sb, inboxReady])
 
   // ========= 3) Acciones Call/Accept/Reject/Cancel
-  const makeCall = async () => {
+  const makeCall = async (peerOverride?: string) => {
     if (!sb) return
-    if (!inbox) return alert('Primero suscribite a tu inbox')
-    if (!peerId) return alert('Falta Peer Usuario ID')
+    if (!inboxReady) return alert('Aún suscribiéndose al inbox… probá de nuevo en un segundo')
+
+    const targetPeer = (peerOverride ?? peerId).trim()
+    log(`~ makeCall targetPeer=${targetPeer}`) // <<< NUEVO: log explícito
+    if (!targetPeer) return alert('Falta Peer Usuario ID/UUID (pegá el de la otra pestaña o usá el link compartido)')
     if (!localStreamRef.current) await enableCam()
 
     const id = uuid()
     setCallId(id); callIdRef.current = id
     setRole('caller'); roleRef.current = 'caller'
     callerUserIdRef.current = String(meId)
-    calleeUserIdRef.current = String(peerId)
+    calleeUserIdRef.current = String(targetPeer)
 
-    const peerChannel = sb.channel(`user:${String(peerId)}`)
-    await peerChannel.subscribe()
-    await peerChannel.send({
-      type: 'broadcast',
-      event: 'ring',
-      payload: { callId: id, room: id, from: { id: meId, name: meName } },
-    })
-    log(`→ ring to user:${peerId} (callId=${id})`)
-    await peerChannel.unsubscribe()
+    // Resolvemos destinos y priorizamos UUID
+    const keys = await resolvePeerKeys(sb, String(targetPeer), log)
+    const targets = pickTargets(keys)
+
+    log(`→ ring targets (prefer UUID): ${targets.map(t => `user:${t}`).join(', ')}`)
+    if (!targets.length) {
+      log('! No se resolvió ningún destino. Probá llamar usando el UUID del usuario.')
+      alert('No se resolvió ningún destino válido. Probá con el UUID del usuario.')
+      return
+    }
+
+    for (const key of targets) {
+      const ch = sb.channel(`user:${key}`)
+      await ensureSubscribed(ch)
+      await ch.send({
+        type: 'broadcast',
+        event: 'ring',
+        payload: { callId: id, room: id, from: { id: meId, name: meName } },
+      })
+      await ch.unsubscribe()
+    }
+    log(`→ ring enviado (callId=${id})`)
   }
 
   const accept = async () => {
     if (!sb) return
     if (!callIdRef.current) return alert('No hay llamada entrante')
-    const toId = roleRef.current === 'callee' ? peerId : null
+    const toId = roleRef.current === 'callee' ? peerId.trim() : null
     if (!toId) { log('! Seteá Peer Usuario ID con el caller'); return }
     if (!localStreamRef.current) await enableCam()
 
     const idRow = await dbStartCall()
-    if (!idRow) { log('! no se pudo crear la llamada en BD'); return }
-    setCallRowId(idRow)
+    setCallRowId(idRow) // puede ser null y seguimos igual
 
-    await dbAddCallParticipant(idRow, meIdInt, { host: false })
-    await joinCallChannel(callIdRef.current)
+    await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false })
+    await joinCallChannel(callIdRef.current) // **espera SUBSCRIBED**
     setInCall(true)
 
-    const ch = sb.channel(`user:${toId}`)
-    await ch.subscribe()
-    await ch.send({ type: 'broadcast', event: 'accept', payload: { callId: callIdRef.current, from: meId, id_llamada: idRow } })
-    log(`→ accept to user:${toId} (callId=${callIdRef.current}, id_llamada=${idRow})`)
-    await ch.unsubscribe()
+    const keys = await resolvePeerKeys(sb, String(toId), log)
+    const targets = pickTargets(keys)
+    for (const key of targets) {
+      const ch = sb.channel(`user:${key}`)
+      await ensureSubscribed(ch)
+      await ch.send({ type: 'broadcast', event: 'accept', payload: { callId: callIdRef.current, from: meId, id_llamada: idRow ?? undefined } })
+      await ch.unsubscribe()
+    }
+    log(`→ accept enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
   }
 
   const reject = async () => {
     if (!sb) return
     if (!callIdRef.current) return
-    const toId = roleRef.current === 'callee' ? peerId : null
+    const toId = roleRef.current === 'callee' ? peerId.trim() : null
     if (!toId) { log('! Seteá Peer Usuario ID con el caller'); return }
-    const ch = sb.channel(`user:${toId}`)
-    await ch.subscribe()
-    await ch.send({ type: 'broadcast', event: 'reject', payload: { callId: callIdRef.current, from: meId } })
-    log(`→ reject to user:${toId}`)
-    await ch.unsubscribe()
+    const keys = await resolvePeerKeys(sb, String(toId), log)
+    const targets = pickTargets(keys)
+    for (const key of targets) {
+      const ch = sb.channel(`user:${key}`)
+      await ensureSubscribed(ch)
+      await ch.send({ type: 'broadcast', event: 'reject', payload: { callId: callIdRef.current, from: meId } })
+      await ch.unsubscribe()
+    }
+    log(`→ reject enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
     resetCall()
   }
 
@@ -195,11 +518,15 @@ export default function VideoCallPage() {
     if (!sb) return
     if (!callIdRef.current) return
     if (roleRef.current !== 'caller') { log('! Cancel solo caller'); return }
-    const ch = sb.channel(`user:${peerId}`)
-    await ch.subscribe()
-    await ch.send({ type: 'broadcast', event: 'cancel', payload: { callId: callIdRef.current, from: meId } })
-    log(`→ cancel to user:${peerId}`)
-    await ch.unsubscribe()
+    const keys = await resolvePeerKeys(sb, String((peerId || '').trim()), log)
+    const targets = pickTargets(keys)
+    for (const key of targets) {
+      const ch = sb.channel(`user:${key}`)
+      await ensureSubscribed(ch)
+      await ch.send({ type: 'broadcast', event: 'cancel', payload: { callId: callIdRef.current, from: meId } })
+      await ch.unsubscribe()
+    }
+    log(`→ cancel enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
     resetCall()
   }
 
@@ -246,12 +573,14 @@ export default function VideoCallPage() {
     if (callCh) { try { await callCh.unsubscribe() } catch {} }
 
     const ch = sb.channel(`call:${id}`, {
-      config: { broadcast: { self: false }, presence: { key: meId } },
+      config: { broadcast: { self: false }, presence: { key: meId || 'anon' } },
     })
 
     ch.on('presence', { event: 'sync' }, () => {
       const state = ch.presenceState()
-      setCallPeers(Object.keys(state).length)
+      const count = Object.keys(state).length
+      setCallPeers(count)
+      log(`~ presence sync call:${id} peers=${count}`)
     })
 
     ch.on('broadcast', { event: 'signal' }, async ({ payload }) => {
@@ -264,7 +593,6 @@ export default function VideoCallPage() {
         if (!localStreamRef.current) await enableCam()
         await pcRef.current!.setRemoteDescription(m.sdp)
         localStreamRef.current!.getTracks().forEach(t => pcRef.current!.addTrack(t, localStreamRef.current!))
-
         const answer = await pcRef.current!.createAnswer()
         await pcRef.current!.setLocalDescription(answer)
         await sendSignal({ type: 'answer', sdp: pcRef.current!.localDescription!, from: meId })
@@ -287,14 +615,11 @@ export default function VideoCallPage() {
       }
     })
 
-    await ch.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        await ch.track({ id: meId, name: meName })
-        log(`✓ joined call:${id}`)
-      }
-    })
-    setCallCh(ch)           // estado (async)
-    callChRef.current = ch  // ref (inmediato)
+    await ensureSubscribed(ch)
+    await ch.track({ id: meId, name: meName })
+    log(`✓ SUBSCRIBED call:${id}`)
+    setCallCh(ch)
+    callChRef.current = ch
   }
 
   const drainIceQueue = () => {
@@ -331,32 +656,38 @@ export default function VideoCallPage() {
     log('→ signal ' + payload.type)
   }
 
-  // ========= 5) RPCs BD
+  // ========= 5) RPCs BD (best-effort)
   const dbStartCall = async (): Promise<number | null> => {
     if (!sb || !callIdRef.current) return null
-    const { data, error } = await sb.rpc('start_call', {
-      p_id_grupo: null,
-      p_titulo: callIdRef.current,
-      p_descripcion: JSON.stringify({
-        from: callerUserIdRef.current,
-        to: calleeUserIdRef.current,
-      }),
-    })
-    if (error) { log('! start_call: ' + error.message); return null }
-    log('✓ DB start_call id=' + data)
-    return data as number
+    try {
+      const { data, error } = await sb.rpc('start_call', {
+        p_id_grupo: null,
+        p_titulo: callIdRef.current,
+        p_descripcion: JSON.stringify({
+          from: callerUserIdRef.current,
+          to: calleeUserIdRef.current,
+        }),
+      })
+      if (error) { log('! start_call (no bloquea): ' + error.message); return null }
+      log('✓ DB start_call id=' + data)
+      return data as number
+    } catch (e:any) {
+      log('! start_call (excepción, no bloquea): ' + e?.message)
+      return null
+    }
   }
 
   const dbEndCall = async () => {
     if (!sb) return
-    if (!callRowId) { log('! end_call: callRowId es null'); return }
+    if (!callRowId) { log('~ end_call: callRowId null (omito)'); return }
     const { error } = await sb.rpc('end_call', { p_id_llamada: callRowId })
     if (error) log('! end_call: ' + error.message)
     else log('✓ DB end_call OK')
   }
 
-  const dbAddCallParticipant = async (llamadaId: number, usuarioIdInt: number, { host = false } = {}) => {
+  const dbAddCallParticipant = async (llamadaId: number, usuarioIdInt: number | null, { host = false } = {}) => {
     if (!sb) return
+    if (usuarioIdInt == null) { log('! add_call_participant: usuarioIdInt null/NaN, omito'); return }
     const { error } = await sb.rpc('add_call_participant', {
       p_id_llamada: Number(llamadaId),
       p_id_usuario: Number(usuarioIdInt),
@@ -421,9 +752,10 @@ export default function VideoCallPage() {
 
     cleanupPC()
 
+    // ⚠️ IMPORTANTE: NO cerramos los inbox; así pueden volver a llamarte.
     try { await callCh?.unsubscribe() } catch {}
     setCallCh(null)
-    callChRef.current = null // limpiar ref
+    callChRef.current = null
 
     setCallId(null); callIdRef.current = null
     setRole('idle'); roleRef.current = 'idle'
@@ -486,27 +818,36 @@ export default function VideoCallPage() {
               <div className="hidden md:flex items-center gap-2 text-xs opacity-80">
                 <span className="px-2 py-1 rounded-full border border-white/30 bg-white/20">role: {role}</span>
                 <span className="px-2 py-1 rounded-full border border-white/30 bg-white/20">peers: {callPeers}</span>
+                <span className="px-2 py-1 rounded-full border border-white/30 bg-white/20">uid: {meId ? meId.slice(0,8) : '-'}</span>
+                <span className="px-2 py-1 rounded-full border border-white/30 bg-white/20">id: {meNumericId ?? '-'}</span>
               </div>
               <TimeBadge />
               <button
                 className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/20 px-3 py-1.5 text-sm backdrop-blur-md hover:brightness-105"
                 title="Copiar enlace de reunión"
-                onClick={() => navigator.clipboard.writeText(window.location.href)}
+                onClick={() => {
+                  const url = new URL(window.location.href)
+                  url.searchParams.set('peer', meId || '')
+                  navigator.clipboard.writeText(url.toString())
+                  log('→ enlace copiado con ?peer=' + (meId || ''))
+                }}
               >
-                <LinkIcon />
+                <i data-feather="link" className="w-4 h-4" />
                 Copiar enlace
               </button>
             </div>
           </div>
 
-          {/* Panel de control */}
+          {/* Panel de control superior (IDs de prueba) */}
           <div className="px-4 sm:px-6 pb-4 grid gap-2 md:grid-cols-3">
             <div className="flex items-center gap-2">
               <input
                 className="flex-1 rounded-md border border-white/20 bg-white/20 px-3 py-2"
-                value={meId} onChange={e => setMeId(e.target.value)} placeholder="Mi Usuario ID (numérico)"
+                value={meId}
+                readOnly
+                placeholder="Mi UUID (auto)"
               />
-              <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30">Inbox ✓</button>
+              <span className={clsx("rounded-md px-3 py-2", inboxReady ? "bg-white/20" : "bg-white/10")}>Inbox {inboxReady ? '✓' : '…'}</span>
             </div>
             <input
               className="rounded-md border border-white/20 bg-white/20 px-3 py-2"
@@ -515,9 +856,9 @@ export default function VideoCallPage() {
             <div className="flex items-center gap-2">
               <input
                 className="flex-1 rounded-md border border-white/20 bg-white/20 px-3 py-2"
-                value={peerId} onChange={e => setPeerId(e.target.value)} placeholder="Peer Usuario ID (uuid o id)"
+                value={peerId} onChange={e => setPeerId(e.target.value)} placeholder="Peer Usuario (UUID o ID numérico)"
               />
-              <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30" onClick={makeCall}>Call</button>
+              <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30" onClick={() => makeCall()}>Call</button>
               <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30" onClick={cancel}>Cancel</button>
             </div>
             <div className="md:col-span-3 flex items-center gap-2">
@@ -552,27 +893,36 @@ export default function VideoCallPage() {
               />
             </div>
 
-            <div className="mt-4 flex items-center gap-2">
-              <button className={btnToggle(micOn)} onClick={toggleLocalMic} title={micOn ? 'Silenciar micrófono' : 'Activar micrófono'}>
-                {micOn ? 'Mic on' : 'Mic off'}
-              </button>
-              <button className={btnToggle(camOn)} onClick={toggleLocalCam} title={camOn ? 'Apagar cámara' : 'Encender cámara'}>
-                {camOn ? 'Cam on' : 'Cam off'}
-              </button>
-              <button className="inline-flex items-center justify-center rounded-full bg-red-500/90 hover:bg-red-500 text-white px-4 py-2" onClick={hangup}>
-                Colgar
-              </button>
-            </div>
-
+            {/* LOG */}
             <pre ref={logRef} className="mt-6 rounded-xl bg-black/80 text-green-300 p-3 text-xs max-h-60 overflow-auto"></pre>
           </section>
 
           {panel !== 'none' && (
             <aside className="relative z-40 border-l border-white/20 bg-white/30 dark:bg-white/10 backdrop-blur-xl p-4 overflow-y-auto">
-              {/* tu contenido */}
+              {panel === 'chat' && <div className="text-sm opacity-80">Chat (placeholder)</div>}
+              {panel === 'people' && <div className="text-sm opacity-80">Personas (placeholder)</div>}
+              {panel === 'settings' && <div className="text-sm opacity-80">Ajustes (placeholder)</div>}
             </aside>
           )}
         </div>
+
+        {/* === Barra de controles flotante === */}
+        <CallControls
+          micOn={micOn}
+          camOn={camOn}
+          captionsOn={captionsOn}
+          shareOn={shareOn}
+          translateOn={translateOn}
+          onToggleMic={toggleLocalMic}
+          onToggleCam={toggleLocalCam}
+          onToggleCaptions={toggleCaptions}
+          onToggleShare={toggleShare}
+          onToggleTranslate={toggleTranslate}
+          onOpenChat={openChat}
+          onOpenPeople={openPeople}
+          onOpenSettings={openSettings}
+          onHangup={hangup}
+        />
       </main>
     </div>
   )
@@ -660,8 +1010,85 @@ function VideoTile({
   )
 }
 
-const btnToggle = (on: boolean) =>
-  clsx(
-    'inline-flex h-10 px-4 items-center justify-center rounded-full transition',
-    on ? 'bg-white/20 hover:bg-white/30' : 'bg-black/30 text-white hover:bg-black/40'
+/* =================== Barra de controles flotante =================== */
+
+function CallControls({
+  micOn, camOn, captionsOn, shareOn, translateOn,
+  onToggleMic, onToggleCam, onToggleCaptions, onToggleShare, onToggleTranslate,
+  onOpenChat, onOpenPeople, onOpenSettings, onHangup,
+}: {
+  micOn: boolean; camOn: boolean; captionsOn: boolean; shareOn: boolean; translateOn: boolean;
+  onToggleMic: () => void; onToggleCam: () => void; onToggleCaptions: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
+  onOpenChat: () => void; onOpenPeople: () => void; onOpenSettings: () => void; onHangup: () => void;
+}) {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+      <div
+        className={clsx(
+          "pointer-events-auto flex items-center gap-2 rounded-[28px] px-3 py-2 sm:px-4",
+          "bg-white/80 text-gray-800 shadow-xl ring-1 ring-black/5",
+          "dark:bg-neutral-900/80 dark:text-neutral-100 dark:ring-white/10",
+          "backdrop-blur-xl"
+        )}
+        style={{ maxWidth: 980, width: "100%", justifyContent: "center" }}
+      >
+        <RoundBtn active={micOn} onClick={onToggleMic} title={micOn ? 'Silenciar micrófono' : 'Activar micrófono'} icon="mic" />
+        <RoundBtn active={camOn} onClick={onToggleCam} title={camOn ? 'Apagar cámara' : 'Encender cámara'} icon="video" />
+        <RoundBtn active={shareOn} onClick={onToggleShare} title="Compartir pantalla" icon="monitor" />
+        <RoundBtn active={captionsOn} onClick={onToggleCaptions} title="Subtítulos" icon="type" />
+        <RoundBtn onClick={onOpenChat} title="Chat" icon="message-square" />
+        <RoundBtn onClick={onOpenPeople} title="Personas" icon="users" />
+        <RoundBtn onClick={onOpenSettings} title="Ajustes" icon="settings" />
+
+        <span className="mx-3 hidden h-6 w-px bg-black/10 dark:bg-white/15 sm:inline" />
+
+        <button
+          onClick={onToggleTranslate}
+          className={clsx(
+            "hidden sm:inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition",
+            translateOn
+              ? "bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow"
+              : "bg-gradient-to-r from-orange-300 to-orange-500 text-white/95 hover:text-white"
+          )}
+          title="Traducción en tiempo real"
+        >
+          <i data-feather="globe" className="w-5 h-5" />
+          {translateOn ? "Traducción ON" : "Traducción"}
+        </button>
+
+        <button
+          onClick={onHangup}
+          className="ml-2 inline-flex items-center justify-center rounded-full bg-rose-500 px-3 py-2 text-sm font-medium text-white shadow hover:bg-rose-600"
+          title="Colgar"
+        >
+          <i data-feather="phone-off" className="w-5 h-5" />
+          <span className="ml-2 hidden sm:inline">Colgar</span>
+        </button>
+      </div>
+    </div>
   )
+}
+
+function RoundBtn({
+  active, onClick, title, icon,
+}: { active?: boolean; onClick?: () => void; title?: string; icon: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-pressed={!!active}
+      className={clsx(
+        "inline-flex h-11 w-11 items-center justify-center rounded-full transition",
+        "ring-1 ring-black/10 dark:ring-white/10",
+        active
+          ? "bg-black/5 text-gray-900 hover:bg-black/10"
+          : "bg-transparent text-gray-700 hover:bg-black/5",
+        active
+          ? "dark:bg-white/10 dark:text-white dark:hover:bg-white/15"
+          : "dark:bg-transparent dark:text-neutral-200 dark:hover:bg-white/10"
+      )}
+    >
+      <i data-feather={icon} className="w-5 h-5" />
+    </button>
+  )
+}

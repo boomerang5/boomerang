@@ -5,13 +5,18 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react';
 // @ts-ignore
 import feather from 'feather-icons';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 type Perfil = { nombre: string | null; apellido: string | null; mail: string | null };
 
 // ----- Tipos y helpers para Contactos (REST) -----
 type RawContact = Record<string, any>;
 type Contact = {
-  id: number | string;
+  // ⚠️ ahora diferenciamos IDs:
+  id_contacto?: number | string | null;        // ID del registro de contacto (no usar para llamadas)
+  id_usuario_contacto?: number | string | null; // ID del usuario (debe mapear a public.Usuario.id)
+  userUuid?: string | null;                    // UUID del usuario (User_id)
+  // datos visibles
   nombre: string;
   apellido?: string | null;
   apodo?: string | null;
@@ -45,12 +50,13 @@ function useDebouncedValue<T>(value: T, delay = 300) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const supabase = useSupabaseClient();
   const [estado, setEstado] = useState('available');
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [cargando, setCargando] = useState(true);
 
-  // ---- ID de usuario (para Swagger) ----
+  // ---- ID de usuario (para llamadas / swagger) ----
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
 
   // ---- Estado Contactos (REST) ----
@@ -99,13 +105,25 @@ export default function DashboardPage() {
     fetchPerfil();
   }, [supabase]);
 
-  // Contactos desde tu backend vía PROXY
+  // Contactos desde tu backend vía PROXY (enriquecemos shape)
   useEffect(() => {
     const ctrl = new AbortController();
 
     function mapContact(c: RawContact): Contact {
+      // Algunos backends traen:
+      //  - c.id               -> id del contacto (NO usar para ring)
+      //  - c.id_usuario_contacto / id_usuario / user_id -> id del usuario
+      //  - c.user_uuid / User_id / uuid -> uuid del usuario
+      const idUsuarioContacto =
+        c.id_usuario_contacto ?? c.id_usuario ?? c.user_id ?? null;
+
+      const userUuid =
+        c.user_uuid ?? c.User_id ?? c.uuid ?? null;
+
       return {
-        id: c.id ?? c.id_usuario ?? c.user_id ?? String(Math.random()),
+        id_contacto: c.id ?? c.id_contacto ?? null,
+        id_usuario_contacto: idUsuarioContacto,
+        userUuid,
         nombre: c.nombre ?? c.first_name ?? c.name ?? '—',
         apellido: c.apellido ?? c.last_name ?? null,
         apodo: c.apodo ?? c.nickname ?? null,
@@ -168,9 +186,134 @@ export default function DashboardPage() {
     });
   }, [contacts, q]);
 
-  function handleCall(c: Contact)  { console.log('Llamar a', c); }
-  function handleVideo(c: Contact) { console.log('Videollamar a', c); }
-  function handleChat(c: Contact)  { console.log('Chat con', c); }
+  // === helper: si tengo un ID de usuario numérico, busco su UUID en tabla Usuario
+  async function getUuidFromUserNumericId(idNum: number): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('Usuario')
+        .select('User_id')
+        .eq('id', idNum)
+        .maybeSingle();
+      if (error) return null;
+      return data?.User_id ?? null;
+    } catch { return null; }
+  }
+
+  // === ACCIONES: click en contacto → navegar a videollamada con autocall, asegurando UUID
+  async function gotoCall(c: Contact, kind: 'audio' | 'video') {
+    let peer: string | null = c.userUuid ?? null;
+
+    // Si no vino UUID, intentamos con id_usuario_contacto (NO usar id_contacto)
+    if (!peer && c.id_usuario_contacto != null) {
+      const idNum = Number(c.id_usuario_contacto);
+      if (Number.isFinite(idNum)) {
+        const uuid = await getUuidFromUserNumericId(idNum);
+        if (uuid) peer = uuid;
+      }
+    }
+
+    if (!peer) {
+      alert('No se pudo resolver el UUID del contacto (el backend entregó sólo id_contacto o un ID que no mapea a Usuario).');
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set('to', peer);
+    params.set('autocall', '1');
+    if (kind === 'video') params.set('type', 'video');
+    router.push(`/protected/videollamada?${params.toString()}`);
+  }
+
+  const handleCall  = (c: Contact) => { void gotoCall(c, 'audio'); };
+  const handleVideo = (c: Contact) => { void gotoCall(c, 'video'); };
+  const handleChat  = (c: Contact) => {
+    // El chat puede seguir usando id_contacto si tu backend así lo espera
+    const withId = c.id_usuario_contacto ?? c.id_contacto ?? '';
+    router.push(`/protected/chats?with=${encodeURIComponent(String(withId))}`);
+  };
+
+  /* ======================= Listener de llamadas entrantes (con fallbacks) ======================= */
+
+function ensureSubscribed(ch: any) {
+  return new Promise<void>((resolve) => {
+    let ok = false;
+    ch.subscribe((status: any) => {
+      if (!ok && status === 'SUBSCRIBED') { ok = true; resolve(); }
+    });
+  });
+}
+
+useEffect(() => {
+  let mounted = true;
+  const chans: any[] = [];
+
+  (async () => {
+    try {
+      // 1) Intento 1: UUID de sesión (usuario logueado)
+      const { data: sess } = await supabase.auth.getSession();
+      const sessionUuid: string | null = sess?.session?.user?.id || null;
+
+      // 2) Intento 2: mismo fallback que VideoCallPage
+      //    - sessionStorage 'vc_uuid' (uuid por pestaña para anónimos)
+      //    - localStorage 'usuario_id' (id numérico cacheado)
+      const vcUuid = typeof window !== 'undefined' ? sessionStorage.getItem('vc_uuid') : null;
+      const lsIdStr = typeof window !== 'undefined' ? localStorage.getItem('usuario_id') : null;
+      const lsId = lsIdStr && /^\d+$/.test(lsIdStr) ? Number(lsIdStr) : null;
+
+      // 3) También tenemos idUsuario resuelto contra la tabla Usuario
+      const numericFromState = idUsuario ?? null;
+
+      // 4) Construir todas las claves posibles (sin duplicados)
+      const keys = Array.from(
+        new Set(
+          [sessionUuid, vcUuid, numericFromState, lsId]
+            .filter(Boolean)
+            .map(String)
+        )
+      );
+
+      if (keys.length === 0) {
+        // No hay identidad aún: esperamos a que se resuelva en otro render
+        // console.log('[Dashboard] ring listener: sin claves aún (esperando identidad)…');
+        return;
+      }
+
+      // 5) Suscribirse a TODOS los inbox válidos
+      for (const key of keys) {
+        const topic = `user:${key}`;
+        const ch = supabase.channel(topic, { config: { broadcast: { self: false } } });
+
+        ch.on('broadcast', { event: 'ring' }, ({ payload }: any) => {
+          const caller = payload?.from?.id || payload?.from || '';
+          const callId = payload?.callId || '';
+          // Debug útil en callee:
+          console.log('[Dashboard] ← ring', { topic, from: caller, callId });
+
+          if (caller && callId) {
+            router.push(
+              `/protected/videollamada?incoming=${encodeURIComponent(callId)}&from=${encodeURIComponent(caller)}&autoaccept=1`
+            );
+          }
+        });
+
+        await ensureSubscribed(ch);
+        if (!mounted) { try { await ch.unsubscribe(); } catch {} return; }
+        chans.push(ch);
+        console.log('[Dashboard] ✓ SUBSCRIBED', topic);
+      }
+    } catch (e) {
+      console.error('[Dashboard] ring listener error:', e);
+    }
+  })();
+
+  return () => {
+    mounted = false;
+    (async () => {
+      for (const ch of chans) { try { await ch.unsubscribe(); } catch {} }
+    })();
+  };
+}, [supabase, idUsuario, router]);
+/* ======================= FIN listener ======================= */
 
   return (
     <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d]">
@@ -263,8 +406,8 @@ export default function DashboardPage() {
                   <p className="text-sm text-muted-foreground">Sin resultados.</p>
                 ) : (
                   <ul className="divide-y divide-white/20 max-h-72 overflow-auto pr-1">
-                    {filteredContacts.map((c) => (
-                      <li key={c.id} className="py-2 flex items-center gap-3">
+                    {filteredContacts.map((c, idx) => (
+                      <li key={`${c.userUuid ?? c.id_usuario_contacto ?? idx}`} className="py-2 flex items-center gap-3">
                         {c.foto ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={c.foto} alt={c.apodo ?? c.nombre} className="w-9 h-9 rounded-full object-cover" />
