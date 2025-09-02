@@ -4,6 +4,7 @@ import { deleteChatService } from '../services/chat/deleteChatService';
 import { getChatInfoService } from '../services/chat/getChatInfoService';
 import { getUserChatsService } from '../services/chat/getUserChatsService';
 import { leaveGroupChatService } from '../services/chat/leaveGroupChatService';
+import { createGroupWithChatService } from '../services/chat/createGroupWithChatService';
 
 //---------------------------------------------------------------------------------------------
 // CREATE_CHAT
@@ -51,6 +52,70 @@ export const create_chat = async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('❌ Error en create_chat:', err);
     return res.status(500).json({ error: err?.message ?? 'Error interno' });
+  }
+};
+
+//--------------------------------------------------------------------------------------------
+// CREATE_GROUP_WITH_CHAT
+export const create_group_with_chat = async (req: Request, res: Response) => {
+  const { id_usuario_creador, nombre, descripcion, participantes } = req.body ?? {};
+
+  // Validaciones mínimas
+  if (id_usuario_creador == null) {
+    return res.status(400).json({ error: "Falta id_usuario_creador." });
+  }
+  if (typeof nombre !== "string" || nombre.trim() === "") {
+    return res.status(400).json({ error: "Falta nombre." });
+  }
+
+  // Normalizaciones
+  const nombreNorm = nombre.trim();
+  const descripcionNorm =
+    typeof descripcion === "string" ? (descripcion.trim() || null) : (descripcion ?? null);
+
+  // participantes puede venir como array de números o como CSV string ("2,3,5")
+  let participantesArr: number[] | null = null;
+  if (participantes != null) {
+    if (Array.isArray(participantes)) {
+      participantesArr = participantes
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n));
+    } else if (typeof participantes === "string") {
+      participantesArr = participantes
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n));
+    } else {
+      return res.status(400).json({
+        error: "participantes debe ser un array de números o un string CSV de números.",
+      });
+    }
+
+    // quitar el creador si aparece y deduplicar
+    const creador = Number(id_usuario_creador);
+    participantesArr = [...new Set(participantesArr.filter((n) => n !== creador))];
+
+    if (participantesArr.length === 0) participantesArr = null;
+  }
+
+  try {
+    const result = await createGroupWithChatService({
+      idUsuarioCreador: Number(id_usuario_creador),
+      nombre: nombreNorm,
+      descripcion: descripcionNorm,
+      participantes: participantesArr,
+    });
+
+    if (result && typeof result.idGrupo === "number" && typeof result.idChat === "number") {
+      return res.status(200).json({ id_grupo: result.idGrupo, id_chat: result.idChat });
+    }
+
+    return res
+      .status(500)
+      .json({ error: "No se pudo crear el grupo y el chat (sin IDs retornados)." });
+  } catch (err: any) {
+    console.error("❌ Error en create_group_with_chat:", err);
+    return res.status(500).json({ error: err?.message ?? "Error interno" });
   }
 };
 

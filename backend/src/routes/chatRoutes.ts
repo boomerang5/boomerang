@@ -1,5 +1,5 @@
 import express from 'express';
-import { create_chat, delete_chat, get_chat_info, get_user_chats, leave_group_chat } from '../controllers/chatController'
+import { create_chat, create_group_with_chat, delete_chat, get_chat_info, get_user_chats, leave_group_chat } from '../controllers/chatController'
 
 const router = express.Router();
 
@@ -80,6 +80,84 @@ const router = express.Router();
 router.post('/create', create_chat);
 
 //----------------------------------------------------------------------------------------
+
+// POST CREATE_GROUP_WITH_CHAT
+/**
+ * @swagger
+ * /api/chats/create-group-with-chat:
+ *   post:
+ *     summary: Crear un grupo y su chat grupal
+ *     tags: [Chats]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id_usuario_creador:
+ *                 type: integer
+ *                 example: 1
+ *               nombre:
+ *                 type: string
+ *                 example: "Equipo Tesis"
+ *               descripcion:
+ *                 type: string
+ *                 nullable: true
+ *                 example: "Grupo de coordinación del proyecto"
+ *               participantes:
+ *                 oneOf:
+ *                   - type: array
+ *                     description: Lista de IDs de usuarios a agregar como miembros
+ *                     items:
+ *                       type: integer
+ *                       example: 2
+ *                   - type: string
+ *                     description: CSV de IDs de usuarios (ej. "2,3,5")
+ *                     example: "2,3,5"
+ *             required: [id_usuario_creador, nombre]
+ *           examples:
+ *             con_array:
+ *               summary: Con participantes (array)
+ *               value:
+ *                 id_usuario_creador: 1
+ *                 nombre: "Equipo Tesis"
+ *                 descripcion: "Grupo de prueba"
+ *                 participantes: [2,3,5]
+ *             con_csv:
+ *               summary: Con participantes (CSV)
+ *               value:
+ *                 id_usuario_creador: 1
+ *                 nombre: "Equipo Tesis"
+ *                 participantes: "2,3,5"
+ *             sin_participantes:
+ *               summary: Sólo creador (sin participantes)
+ *               value:
+ *                 id_usuario_creador: 1
+ *                 nombre: "Equipo Tesis"
+ *     responses:
+ *       200:
+ *         description: Grupo y chat creados correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id_grupo:
+ *                   type: integer
+ *                   example: 12
+ *                 id_chat:
+ *                   type: integer
+ *                   example: 34
+ *       400:
+ *         description: Body inválido o parámetros faltantes
+ *       500:
+ *         description: Error interno del servidor
+ */
+router.post("/create-group-with-chat", create_group_with_chat);
+
+//----------------------------------------------------------------------------------------
+
 // POST DELETE_CHAT
 /**
  * @swagger
