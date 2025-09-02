@@ -6,6 +6,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // @ts-ignore
 import feather from 'feather-icons'
 
+// === Backend base (llamamos directo, no al proxy de Next) ===
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.API_BASE ||
+  'http://localhost:3001'; // ajustá si tu backend corre en otro host/puerto
+
+
 /* =============== Tipos =============== */
 type ContactoAgenda = {
   id?: number | string
@@ -109,34 +116,43 @@ export default function ContactosPage() {
     return ids
   }, [contactos])
 
-  // ====== Traer agenda (vía API /api/contactos/misContactos)
-  const fetchAgenda = useCallback(
-    async (busqueda: string = '') => {
-      if (!idUsuario) return
-      setLoadingAgenda(true)
-      setAgendaError(null)
-      try {
-        const token = await getJwt(supabase)
-        const url = `/api/contactos/misContactos?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(busqueda.trim())}`
-        const r = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: 'no-store',
-        })
-        if (!r.ok) {
-          const t = await r.text().catch(() => '')
-          console.error('misContactos error', r.status, t)
-          setAgendaError('No se pudieron cargar los contactos.')
-          setContactos([])
-        } else {
-          const data = await r.json().catch(() => [])
-          setContactos(Array.isArray(data) ? (data as ContactoAgenda[]) : [])
-        }
-      } finally {
-        setLoadingAgenda(false)
+// ====== Traer agenda (directo al BACKEND /api/contacts/misContactos)
+const fetchAgenda = useCallback(
+  async (busqueda: string = '') => {
+    if (!idUsuario) return
+    setLoadingAgenda(true)
+    setAgendaError(null)
+    try {
+      const token = await getJwt(supabase)
+      const url =
+      `${API_BASE}/api/contacts/misContactos` +
+      `?id_usuario=${encodeURIComponent(idUsuario)}` +
+      (busqueda.trim() ? `&busqueda=${encodeURIComponent(busqueda.trim())}` : '');
+
+
+      const r = await fetch(url, {
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        cache: 'no-store',
+      })
+
+      if (!r.ok) {
+        const t = await r.text().catch(() => '')
+        console.error('misContactos error', r.status, t)
+        setAgendaError('No se pudieron cargar los contactos.')
+        setContactos([])
+      } else {
+        const data = await r.json().catch(() => [])
+        setContactos(Array.isArray(data) ? (data as ContactoAgenda[]) : [])
       }
-    },
-    [idUsuario, supabase]
-  )
+    } finally {
+      setLoadingAgenda(false)
+    }
+  },
+  [idUsuario, supabase]
+)
 
   useEffect(() => {
     if (idUsuario) void fetchAgenda('')
@@ -154,7 +170,7 @@ export default function ContactosPage() {
     }
   }, [idUsuario, q, fetchAgenda])
 
-  // ====== Búsqueda de la página (debounce) — vía API /api/contactos/buscarContacto
+  // ====== Búsqueda de la página (debounce) — vía API /api/users/contacts
   useEffect(() => {
     const t = setTimeout(async () => {
       if (!idUsuario) return
@@ -164,7 +180,10 @@ export default function ContactosPage() {
       try {
         setLoadingSearch(true)
         const token = await getJwt(supabase)
-        const url = `/api/contactos/buscarContacto?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(term.trim())}`
+        const url =
+        `${API_BASE}/api/users/contacts` +
+        `?id_usuario=${encodeURIComponent(idUsuario)}` +
+        `&busqueda=${encodeURIComponent(term)}`;
         const r = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
           cache: 'no-store',
@@ -192,23 +211,23 @@ export default function ContactosPage() {
     return () => clearTimeout(t)
   }, [q, idUsuario, supabase, agendaIds])
 
-  // ====== Agregar contacto — vía API /api/contactos/agregarContacto
+  // ====== Agregar contacto — vía API /api/contacts/add
   const addContacto = useCallback(
     async (idUsuarioContacto: number) => {
       if (!idUsuario) return
       try {
         const token = await getJwt(supabase)
-        const res = await fetch('/api/contactos/agregarContacto', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            id_usuario: idUsuario,
-            id_usuario_contacto: idUsuarioContacto,
-          }),
-        })
+        const res = await fetch(`${API_BASE}/api/contacts/add`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id_usuario: idUsuario,                 
+          id_usuario_contacto: idUsuarioContacto
+        }),
+      })
         if (res.ok) {
           setResults(prev => prev.map(r => r.id === idUsuarioContacto ? { ...r, en_agenda: true } : r))
           await fetchAgenda(q)
@@ -250,7 +269,7 @@ export default function ContactosPage() {
     setSelectedUser(null)
   }
 
-  // ====== Búsqueda dentro del modal — vía API /api/contactos/buscarContacto
+  // ====== Búsqueda dentro del modal — vía API /api/users/contacts
   useEffect(() => {
     if (!isModalOpen) return
     const t = setTimeout(async () => {
@@ -261,7 +280,10 @@ export default function ContactosPage() {
       try {
         setModalLoading(true)
         const token = await getJwt(supabase)
-        const url = `/api/contactos/buscarContacto?id_usuario=${encodeURIComponent(idUsuario)}&busqueda=${encodeURIComponent(term.trim())}`
+        const url =
+        `${API_BASE}/api/users/contacts` +
+        `?id_usuario=${encodeURIComponent(idUsuario)}` +
+        `&busqueda=${encodeURIComponent(term)}`;
 
         const r = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },

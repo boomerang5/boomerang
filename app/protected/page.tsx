@@ -132,7 +132,7 @@ export default function DashboardPage() {
         params.set('id_usuario', String(idUsuario));
         if (qDebounced) params.set('busqueda', qDebounced);
 
-        const url = `/api/contactos/misContactos?` + params.toString();
+        const url = `/api/contacts/misContactos?` + params.toString();
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${accessToken}` },
           signal: ctrl.signal,
