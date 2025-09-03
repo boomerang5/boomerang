@@ -5,6 +5,7 @@ import { ThemeProvider } from 'next-themes';
 import { createClient } from '@/utils/supabase/client';
 import type { ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
+import CallNotificationsProvider from '@/components/CallNotificationsProvider';
 
 // ⚠️ tu util debe crear el cliente del BROWSER (usar NEXT_PUBLIC_*).
 const supabase = createClient();
@@ -27,7 +28,9 @@ export default function ClientProviders({
         enableSystem
         disableTransitionOnChange
       >
-        {children}
+        <CallNotificationsProvider callRoute="/protected/videollamada">
+          {children}
+        </CallNotificationsProvider>
       </ThemeProvider>
     </SessionContextProvider>
   );

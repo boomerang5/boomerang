@@ -272,6 +272,8 @@ useEffect(() => {
         )
       );
 
+      console.log('[Dashboard] Ring listener keys:', { sessionUuid, vcUuid, numericFromState, lsId, finalKeys: keys });
+
       if (keys.length === 0) {
         // No hay identidad aún: esperamos a que se resuelva en otro render
         // console.log('[Dashboard] ring listener: sin claves aún (esperando identidad)…');
@@ -290,9 +292,13 @@ useEffect(() => {
           console.log('[Dashboard] ← ring', { topic, from: caller, callId });
 
           if (caller && callId) {
-            router.push(
-              `/protected/videollamada?incoming=${encodeURIComponent(callId)}&from=${encodeURIComponent(caller)}&autoaccept=1`
-            );
+            try { sessionStorage.setItem(`aa:${callId}`, '1'); } catch {}
+            const params = new URLSearchParams();
+            params.set('incoming', callId);
+            params.set('from', caller);
+            params.set('autoaccept', '1');
+            params.set('aa', callId);
+            router.push(`/protected/videollamada?${params.toString()}`);
           }
         });
 

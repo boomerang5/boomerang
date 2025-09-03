@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useRouter } from 'next/navigation'
 import clsx from 'clsx'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 // @ts-ignore — solo en cliente
@@ -12,6 +13,8 @@ type SignalPayload =
   | { type: 'offer' | 'answer'; sdp: RTCSessionDescriptionInit; from: string }
   | { type: 'ice'; candidate: RTCIceCandidateInit; from: string }
   | { type: 'hangup'; from: string }
+
+type IncomingCall = { callId: string; fromId: string; fromName?: string }
 
 /* =================== Helpers de datos =================== */
 
@@ -104,11 +107,14 @@ async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: 
 
 // Prioriza UUIDs; si no hay, usa lo que haya (numéricos)
 function pickTargets(keys: string[]) {
-  const uuidKeys = keys.filter(k => !/^\d+$/.test(k))
-  return uuidKeys.length ? uuidKeys : keys
+  // Enviar a TODOS los destinos resueltos (uuid y/o id), evitando duplicados
+  const uniq = Array.from(new Set(keys.filter(Boolean)))
+  return uniq
 }
 
 export default function VideoCallPage() {
+  const router = useRouter()
+
   // ---- UI base
   const [inCall, setInCall] = useState(false)
   const [panel, setPanel] = useState<Panel>('none')
@@ -301,6 +307,8 @@ export default function VideoCallPage() {
   }, [sb])
 
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
+  const [incoming, setIncoming] = useState<IncomingCall | null>(null)
+
   useEffect(() => {
     if (!sb) return
     if (!meId && meNumericId == null) return
@@ -319,12 +327,15 @@ export default function VideoCallPage() {
 
       ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
         const fromId = String(payload.from?.id ?? '')
-        log(`← ring on user:${key} from ${fromId} (${payload.from?.name}) callId=${payload.callId}`)
+        const fromName = String(payload.from?.name ?? 'Invitado')
+        log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${payload.callId}`)
         setCallId(payload.callId); callIdRef.current = payload.callId
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
         calleeUserIdRef.current = String(meId || key)
         setPeerId(fromId)
+        setIncoming({ callId: payload.callId, fromId, fromName }) // mostrar notificación
+        try { navigator.vibrate?.(200) } catch {}
       })
 
       ch.on('broadcast', { event: 'accept' }, async ({ payload }) => {
@@ -342,27 +353,23 @@ export default function VideoCallPage() {
 
       ch.on('broadcast', { event: 'reject' }, ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
-        log(`← reject (via user:${key})`); resetCall()
+        log(`← reject (via user:${key})`)
+        setIncoming(null) // cerrar banner
+        resetCall()
       })
 
       ch.on('broadcast', { event: 'cancel' }, ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
-        log(`← cancel (via user:${key})`); resetCall()
+        log(`← cancel (via user:${key})`)
+        setIncoming(null) // cerrar banner
+        resetCall()
       })
 
       await ensureSubscribed(ch)
       setInboxReady(true)
       log(`✓ SUBSCRIBED inbox user:${key}`)
       inboxesRef.current.push(ch)
-
-      // Log de TODOS los inbox activos (para chequear coincidencias)
-      try {
-        // @ts-ignore acceso interno
-        const topics = inboxesRef.current.map((c:any) => c?.topic ?? '(sin topic)').join(', ')
-        log(`~ inboxes activos: ${topics}`)
-      } catch {}
-
-      if (!inbox) setInbox(ch) // guardar el primero para compat
+      if (!inbox) setInbox(ch)
     }
 
     ;(async () => {
@@ -391,20 +398,39 @@ export default function VideoCallPage() {
       sessionStorage.setItem(onceKey, 'done')
       ;(async () => {
         if (!localStreamRef.current) await enableCam()
-        await makeCall(to) // <<< usar override directo
+        await makeCall(to)
       })()
     }
     return () => { sessionStorage.removeItem(onceKey) }
   }, [sb, meId, inboxReady])
 
-  // 3.b) AUTO-ACCEPT
+  // 3.b) AUTO-ACCEPT (con fallback a toast local si falta gate/token)
   useEffect(() => {
     if (!sb) return
+
     const incoming = qp('incoming')
     const from = qp('from')
     const auto = qp('autoaccept')
+    const token = qp('aa')
+
     if (!incoming || !from || auto !== '1') return
     if (!inboxReady) return
+
+    const gateKey = `aa:${incoming}`
+    const ok = sessionStorage.getItem(gateKey) === '1'
+
+    if (!ok || token !== incoming) {
+      // ⛑️ Fallback: mostrar toast local para aceptar manualmente
+      log('~ auto-accept bloqueado (sin gate o token inválido) → muestro toast local')
+      setRole('callee');        // me preparo como callee
+      roleRef.current = 'callee'
+      setPeerId(from)           // guardo quién llama
+      setIncoming({ callId: incoming, fromId: from, fromName: 'Invitado' })
+      return
+    }
+
+    // ✅ Gate/Token OK → continuar auto-aceptación
+    sessionStorage.removeItem(gateKey)
 
     setCallId(incoming); callIdRef.current = incoming
     setRole('callee');   roleRef.current = 'callee'
@@ -419,6 +445,7 @@ export default function VideoCallPage() {
       await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false })
       await joinCallChannel(incoming)
       setInCall(true)
+
       // avisar al caller que aceptamos
       const keys = await resolvePeerKeys(sb, String(from), log)
       const targets = pickTargets(keys)
@@ -428,7 +455,6 @@ export default function VideoCallPage() {
         await ch.send({ type: 'broadcast', event: 'accept', payload: { callId: incoming, from: meId, id_llamada: idRow ?? undefined } })
         await ch.unsubscribe()
       }
-      log(`→ auto-accept enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
     })()
   }, [sb, inboxReady])
 
@@ -438,8 +464,8 @@ export default function VideoCallPage() {
     if (!inboxReady) return alert('Aún suscribiéndose al inbox… probá de nuevo en un segundo')
 
     const targetPeer = (peerOverride ?? peerId).trim()
-    log(`~ makeCall targetPeer=${targetPeer}`) // <<< NUEVO: log explícito
-    if (!targetPeer) return alert('Falta Peer Usuario ID/UUID (pegá el de la otra pestaña o usá el link compartido)')
+    log(`~ makeCall targetPeer=${targetPeer}`)
+    if (!targetPeer) return alert('Falta Peer Usuario ID/UUID')
     if (!localStreamRef.current) await enableCam()
 
     const id = uuid()
@@ -448,14 +474,13 @@ export default function VideoCallPage() {
     callerUserIdRef.current = String(meId)
     calleeUserIdRef.current = String(targetPeer)
 
-    // Resolvemos destinos y priorizamos UUID
     const keys = await resolvePeerKeys(sb, String(targetPeer), log)
     const targets = pickTargets(keys)
 
-    log(`→ ring targets (prefer UUID): ${targets.map(t => `user:${t}`).join(', ')}`)
+    log(`→ ring targets: ${targets.map(t => `user:${t}`).join(', ')}`)
     if (!targets.length) {
-      log('! No se resolvió ningún destino. Probá llamar usando el UUID del usuario.')
-      alert('No se resolvió ningún destino válido. Probá con el UUID del usuario.')
+      log('! No se resolvió ningún destino. Probá con el UUID.')
+      alert('No se resolvió ningún destino válido.')
       return
     }
 
@@ -474,27 +499,38 @@ export default function VideoCallPage() {
 
   const accept = async () => {
     if (!sb) return
-    if (!callIdRef.current) return alert('No hay llamada entrante')
-    const toId = roleRef.current === 'callee' ? peerId.trim() : null
-    if (!toId) { log('! Seteá Peer Usuario ID con el caller'); return }
-    if (!localStreamRef.current) await enableCam()
-
-    const idRow = await dbStartCall()
-    setCallRowId(idRow) // puede ser null y seguimos igual
-
-    await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false })
-    await joinCallChannel(callIdRef.current) // **espera SUBSCRIBED**
-    setInCall(true)
-
-    const keys = await resolvePeerKeys(sb, String(toId), log)
-    const targets = pickTargets(keys)
-    for (const key of targets) {
-      const ch = sb.channel(`user:${key}`)
-      await ensureSubscribed(ch)
-      await ch.send({ type: 'broadcast', event: 'accept', payload: { callId: callIdRef.current, from: meId, id_llamada: idRow ?? undefined } })
-      await ch.unsubscribe()
+    // Fallbacks: si aún no se seteó callIdRef, intento con estado local o query
+    let currentCallId = callIdRef.current
+    if (!currentCallId && incoming) currentCallId = incoming.callId
+    if (!currentCallId) {
+      const incQ = qp('incoming')
+      if (incQ) currentCallId = incQ
     }
-    log(`→ accept enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
+    if (!currentCallId) return alert('No hay llamada entrante')
+
+    if (roleRef.current !== 'callee') { log('! Accept: solo callee'); return }
+
+    // Determinar a quién responder: priorizar peerId, luego incoming.fromId, luego query
+    let toId = (peerId || '').trim()
+    if (!toId && incoming?.fromId) toId = incoming.fromId
+    if (!toId) {
+      const fromQ = qp('from')
+      if (fromQ) toId = fromQ
+    }
+    if (!toId) { log('! Seteá Peer Usuario ID con el caller'); return }
+
+    // Gate para que el auto-accept de esta misma página avance
+    sessionStorage.setItem(`aa:${currentCallId}`, '1')
+
+    // Redirijo a ESTA página con los parámetros (idempotente)
+    const url = new URL(window.location.href)
+    url.searchParams.set('incoming', currentCallId)
+    url.searchParams.set('from', toId)
+    url.searchParams.set('autoaccept', '1')
+    url.searchParams.set('aa', currentCallId)
+
+    setIncoming(null)
+    router.push(url.toString())
   }
 
   const reject = async () => {
@@ -511,6 +547,7 @@ export default function VideoCallPage() {
       await ch.unsubscribe()
     }
     log(`→ reject enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
+    setIncoming(null)
     resetCall()
   }
 
@@ -572,8 +609,18 @@ export default function VideoCallPage() {
     if (!sb || !id) return
     if (callCh) { try { await callCh.unsubscribe() } catch {} }
 
+    // Usar una clave de presencia única y estable por pestaña/usuario
+    const stableUuid = (() => {
+      const s = sessionStorage.getItem('vc_uuid')
+      if (s) return s
+      const g = uuid()
+      sessionStorage.setItem('vc_uuid', g)
+      return g
+    })()
+    const presenceKey = meId || stableUuid
+
     const ch = sb.channel(`call:${id}`, {
-      config: { broadcast: { self: false }, presence: { key: meId || 'anon' } },
+      config: { broadcast: { self: false }, presence: { key: presenceKey } },
     })
 
     ch.on('presence', { event: 'sync' }, () => {
@@ -616,7 +663,7 @@ export default function VideoCallPage() {
     })
 
     await ensureSubscribed(ch)
-    await ch.track({ id: meId, name: meName })
+    await ch.track({ id: presenceKey, name: meName })
     log(`✓ SUBSCRIBED call:${id}`)
     setCallCh(ch)
     callChRef.current = ch
@@ -923,6 +970,15 @@ export default function VideoCallPage() {
           onOpenSettings={openSettings}
           onHangup={hangup}
         />
+
+        {/* === Notificación de llamada entrante (local) === */}
+        {incoming && role === 'callee' && (
+          <IncomingCallToast
+            fromName={incoming.fromName || 'Invitado'}
+            onAccept={accept}
+            onReject={reject}
+          />
+        )}
       </main>
     </div>
   )
@@ -1090,5 +1146,50 @@ function RoundBtn({
     >
       <i data-feather={icon} className="w-5 h-5" />
     </button>
+  )
+}
+
+/* ============== Toast de llamada entrante (local) ============== */
+function IncomingCallToast({
+  fromName,
+  onAccept,
+  onReject,
+}: {
+  fromName: string
+  onAccept: () => void
+  onReject: () => void
+}) {
+  return (
+    <div className="fixed right-4 bottom-24 z-[60] max-w-md w-[92vw] sm:w-auto">
+      <div className="rounded-2xl border border-white/25 bg-white/70 dark:bg-neutral-900/80 backdrop-blur-xl shadow-2xl px-4 py-3 sm:px-5 sm:py-4">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 h-9 w-9 shrink-0 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 text-white grid place-items-center shadow">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+              <path d="M22 16.92v3a2 2 0 01-2.18 2 19.86 19.86 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.86 19.86 0 012.08 4.18 2 2 0 014.06 2h3a2 2 0 012 1.72c.12.9.37 1.77.73 2.58a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.5-1.25a2 2 0 012.11-.45c.81.36 1.68.61 2.58.73A2 2 0 0122 16.92z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm text-black/60 dark:text-white/70">Llamada entrante</div>
+            <div className="font-semibold truncate">{fromName}</div>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={onAccept}
+                className="inline-flex items-center gap-2 rounded-full bg-green-500 px-3 py-1.5 text-white text-sm shadow hover:bg-green-600"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.86 19.86 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.86 19.86 0 012.08 4.18 2 2 0 014.06 2h3a2 2 0 012 1.72c.12.9.37 1.77.73 2.58a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.5-1.25a2 2 0 012.11-.45c.81.36 1.68.61 2.58.73A2 2 0 0122 16.92z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                Aceptar
+              </button>
+              <button
+                onClick={onReject}
+                className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-3 py-1.5 text-white text-sm shadow hover:bg-rose-600"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                Rechazar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
