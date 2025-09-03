@@ -232,94 +232,63 @@ export default function DashboardPage() {
     router.push(`/protected/chats?with=${encodeURIComponent(String(withId))}`);
   };
 
-  /* ======================= Listener de llamadas entrantes (con fallbacks) ======================= */
+  /* ======================= Listener de llamadas entrantes ======================= */
 
-function ensureSubscribed(ch: any) {
-  return new Promise<void>((resolve) => {
-    let ok = false;
-    ch.subscribe((status: any) => {
-      if (!ok && status === 'SUBSCRIBED') { ok = true; resolve(); }
+  function ensureSubscribed(ch: any) {
+    return new Promise<void>((resolve) => {
+      let ok = false;
+      ch.subscribe((status: any) => {
+        if (!ok && status === 'SUBSCRIBED') { ok = true; resolve(); }
+      });
     });
-  });
-}
+  }
 
-useEffect(() => {
-  let mounted = true;
-  const chans: any[] = [];
+  useEffect(() => {
+    let mounted = true;
+    const chans: any[] = [];
 
-  (async () => {
-    try {
-      // 1) Intento 1: UUID de sesión (usuario logueado)
-      const { data: sess } = await supabase.auth.getSession();
-      const sessionUuid: string | null = sess?.session?.user?.id || null;
-
-      // 2) Intento 2: mismo fallback que VideoCallPage
-      //    - sessionStorage 'vc_uuid' (uuid por pestaña para anónimos)
-      //    - localStorage 'usuario_id' (id numérico cacheado)
-      const vcUuid = typeof window !== 'undefined' ? sessionStorage.getItem('vc_uuid') : null;
-      const lsIdStr = typeof window !== 'undefined' ? localStorage.getItem('usuario_id') : null;
-      const lsId = lsIdStr && /^\d+$/.test(lsIdStr) ? Number(lsIdStr) : null;
-
-      // 3) También tenemos idUsuario resuelto contra la tabla Usuario
-      const numericFromState = idUsuario ?? null;
-
-      // 4) Construir todas las claves posibles (sin duplicados)
-      const keys = Array.from(
-        new Set(
-          [sessionUuid, vcUuid, numericFromState, lsId]
-            .filter(Boolean)
-            .map(String)
-        )
-      );
-
-      console.log('[Dashboard] Ring listener keys:', { sessionUuid, vcUuid, numericFromState, lsId, finalKeys: keys });
-
-      if (keys.length === 0) {
-        // No hay identidad aún: esperamos a que se resuelva en otro render
-        // console.log('[Dashboard] ring listener: sin claves aún (esperando identidad)…');
-        return;
-      }
-
-      // 5) Suscribirse a TODOS los inbox válidos
-      for (const key of keys) {
-        const topic = `user:${key}`;
-        const ch = supabase.channel(topic, { config: { broadcast: { self: false } } });
-
-        ch.on('broadcast', { event: 'ring' }, ({ payload }: any) => {
-          const caller = payload?.from?.id || payload?.from || '';
-          const callId = payload?.callId || '';
-          // Debug útil en callee:
-          console.log('[Dashboard] ← ring', { topic, from: caller, callId });
-
-          if (caller && callId) {
-            try { sessionStorage.setItem(`aa:${callId}`, '1'); } catch {}
-            const params = new URLSearchParams();
-            params.set('incoming', callId);
-            params.set('from', caller);
-            params.set('autoaccept', '1');
-            params.set('aa', callId);
-            router.push(`/protected/videollamada?${params.toString()}`);
-          }
-        });
-
-        await ensureSubscribed(ch);
-        if (!mounted) { try { await ch.unsubscribe(); } catch {} return; }
-        chans.push(ch);
-        console.log('[Dashboard] ✓ SUBSCRIBED', topic);
-      }
-    } catch (e) {
-      console.error('[Dashboard] ring listener error:', e);
-    }
-  })();
-
-  return () => {
-    mounted = false;
     (async () => {
-      for (const ch of chans) { try { await ch.unsubscribe(); } catch {} }
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const myUuid: string | null = sess?.session?.user?.id || null;
+
+        if (!myUuid && !idUsuario) return;
+
+        const keys: string[] = [];
+        if (myUuid) keys.push(String(myUuid));
+        if (idUsuario) keys.push(String(idUsuario));
+
+        for (const key of keys) {
+          const ch = supabase.channel(`user:${key}`, { config: { broadcast: { self: false } } });
+
+          ch.on('broadcast', { event: 'ring' }, ({ payload }: any) => {
+            const caller = payload?.from?.id || payload?.from || '';
+            const callId = payload?.callId || '';
+            if (caller && callId) {
+              router.push(
+                `/protected/videollamada?incoming=${encodeURIComponent(callId)}&from=${encodeURIComponent(caller)}&autoaccept=1`
+              );
+            }
+          });
+
+          await ensureSubscribed(ch);
+          if (!mounted) { try { await ch.unsubscribe(); } catch {} return; }
+          chans.push(ch);
+        }
+      } catch {
+        // opcional: log
+      }
     })();
-  };
-}, [supabase, idUsuario, router]);
-/* ======================= FIN listener ======================= */
+
+    return () => {
+      mounted = false;
+      (async () => {
+        for (const ch of chans) { try { await ch.unsubscribe(); } catch {} }
+      })();
+    };
+  }, [supabase, idUsuario, router]);
+
+  /* ======================= FIN listener ======================= */
 
   return (
     <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d]">
