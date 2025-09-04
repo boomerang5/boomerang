@@ -187,11 +187,14 @@ export default function DashboardPage() {
 
           <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
 
+          <Link href="/protected/historial-llamada">
+            <i data-feather="clock" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
           <Link href="/protected/contactos">
             <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
           </Link>
 
-          {/* 👇 Chat con Link */}
           <Link href="/protected/chats" aria-label="Ir a chats">
             <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
           </Link>
