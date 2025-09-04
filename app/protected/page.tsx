@@ -234,85 +234,88 @@ export default function DashboardPage() {
         </header>
 
         {/* Cards */}
-        <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch auto-rows-[minmax(0,1fr)]">
           <Card title="Iniciar reunión" description="Crea una sala e invita a otros." buttonText="Crear reunión" />
           <Card title="Unirse con código" inputPlaceholder="Código de reunión" buttonText="Unirse" />
 
           {/* Contactos */}
-          <Card
-            title="Contactos"
-            content={
-              <div className="flex flex-col gap-3">
-                <div className="relative">
-                  <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="Buscar por nombre, apellido o apodo…"
-                    className="w-full px-3 py-2 pr-8 rounded-md bg-white/20 border border-white/30 text-foreground backdrop-blur-sm"
-                  />
-                  <i data-feather="search" className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-500 w-4 h-4" />
-                </div>
+          <div className="md:row-span-2 h-full">
+            <Card        
+              className="h-full"
+              title="Contactos"
+              content={
+                <div className="flex flex-col gap-4 h-full">
+                  <div className="relative">
+                    <input
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      placeholder="Buscar por nombre, apellido o apodo…"
+                      className="w-full px-3 py-2 pr-8 rounded-md bg-white/20 border border-white/30 text-foreground backdrop-blur-sm"
+                    />
+                    <i data-feather="search" className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-500 w-4 h-4" />
+                  </div>
 
-                {contactsLoading ? (
-                  <p className="text-sm text-muted-foreground">Cargando…</p>
-                ) : contactsError ? (
-                  <p className="text-sm text-red-500">Error de red al obtener contactos.</p>
-                ) : filteredContacts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Sin resultados.</p>
-                ) : (
-                  <ul className="divide-y divide-white/20 max-h-72 overflow-auto pr-1">
-                    {filteredContacts.map((c) => (
-                      <li key={c.id} className="py-2 flex items-center gap-3">
-                        {c.foto ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={c.foto} alt={c.apodo ?? c.nombre} className="w-9 h-9 rounded-full object-cover" />
-                        ) : (
-                          <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-xs">👤</div>
-                        )}
+                  {contactsLoading ? (
+                    <p className="text-sm text-muted-foreground">Cargando…</p>
+                  ) : contactsError ? (
+                    <p className="text-sm text-red-500">Error de red al obtener contactos.</p>
+                  ) : filteredContacts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Sin resultados.</p>
+                  ) : (
+                    <ul className="divide-y divide-white/20 flex-1 overflow-auto pr-1">
+                      {filteredContacts.map((c) => (
+                        <li key={c.id} className="py-2 flex items-center gap-3">
+                          {c.foto ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={c.foto} alt={c.apodo ?? c.nombre} className="w-9 h-9 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-xs">👤</div>
+                          )}
 
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">
-                            {c.nombre} {c.apellido ?? ''}
-                            {c.apodo ? <span className="opacity-70"> · {c.apodo}</span> : null}
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">
+                              {c.nombre} {c.apellido ?? ''}
+                              {c.apodo ? <span className="opacity-70"> · {c.apodo}</span> : null}
+                            </div>
+                            {c.estado ? (
+                              <span className="text-xs opacity-70">
+                                {stateDot(c.estado)} {labelEstado(c.estado)}
+                              </span>
+                            ) : null}
                           </div>
-                          {c.estado ? (
-                            <span className="text-xs opacity-70">
-                              {stateDot(c.estado)} {labelEstado(c.estado)}
-                            </span>
-                          ) : null}
-                        </div>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            title="Llamar"
-                            className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                            onClick={() => handleCall(c)}
-                          >
-                            <i data-feather="phone" className="w-4 h-4" />
-                          </button>
-                          <button
-                            title="Videollamada"
-                            className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                            onClick={() => handleVideo(c)}
-                          >
-                            <i data-feather="video" className="w-4 h-4" />
-                          </button>
-                          <button
-                            title="Chat"
-                            className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                            onClick={() => handleChat(c)}
-                          >
-                            <i data-feather="message-circle" className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            }
-          />
-
+                          <div className="flex items-center gap-2">
+                            <button
+                              title="Llamar"
+                              className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
+                              onClick={() => handleCall(c)}
+                            >
+                              <i data-feather="phone" className="w-4 h-4" />
+                            </button>
+                            <button
+                              title="Videollamada"
+                              className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
+                              onClick={() => handleVideo(c)}
+                            >
+                              <i data-feather="video" className="w-4 h-4" />
+                            </button>
+                            <button
+                              title="Chat"
+                              className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
+                              onClick={() => handleChat(c)} 
+                            >
+                              <i data-feather="message-circle" className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              }
+            />
+          </div> 
+      
           <Card
             title="Reuniones programadas"
             list={['🗓 5 julio - Reunión equipo 10:00', '🗓 6 julio - Cliente Z 15:30']}
@@ -352,28 +355,10 @@ export default function DashboardPage() {
                 >
                   Editar perfil
                 </Link>
-              </div>
+              </div>  
             }
           />
 
-          {/* 👇 Chat reciente con Link */}
-          <Card
-            title="Chat reciente"
-            content={
-              <div className="bg-white/30 dark:bg-white/10 p-3 rounded-md text-sm text-muted-foreground backdrop-blur-md">
-                <p><strong>Juan:</strong> ¿Nos conectamos ahora?</p>
-                <p><strong>Vos:</strong> Dame 5 minutos 🙌</p>
-              </div>
-            }
-            buttonText={
-              <Link
-                href="/protected/chats"
-                className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold w-fit mt-3 hover:brightness-105 transition"
-              >
-                Ir al chat
-              </Link>
-            }
-          />
         </section>
       </main>
     </div>
@@ -388,6 +373,7 @@ function Card({
   list,
   content,
   buttonText,
+  className,
 }: {
   title: string;
   description?: string;
@@ -395,9 +381,10 @@ function Card({
   list?: string[];
   content?: React.ReactNode;
   buttonText?: string | React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="bg-white/30 dark:bg-white/10 rounded-xl p-6 shadow-lg backdrop-blur-md border border-white/20 flex flex-col justify-between">
+    <div className={`bg-white/30 dark:bg-white/10 rounded-xl p-6 shadow-lg backdrop-blur-md border border-white/20 flex flex-col justify-between ${className ?? ''}`}>
       <div>
         <h2 className="text-orange-500 font-semibold text-lg mb-2">{title}</h2>
         {description && <p className="text-muted-foreground mb-4">{description}</p>}
