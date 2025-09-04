@@ -49,7 +49,8 @@ const filterInputCls =
   "border border-orange-200/80 dark:border-orange-500/40 " +
   "text-zinc-900 dark:text-zinc-100 placeholder-zinc-500 " +
   "shadow-sm hover:border-orange-300 dark:hover:border-orange-400 " +
-  "focus:outline-none focus:ring-2 focus:ring-orange-400/70 focus:border-orange-400";
+  "focus:outline-none focus:ring-2 focus:ring-orange-400/70 focus:border-orange-400 " +
+  "px-3";
 
 
 function formatTime(ts: string) {
@@ -195,17 +196,18 @@ export default function CallHistoryPage() {
       {/* Filtros (compactos) */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end mb-6">
         {/* Buscar */}
-        <div className="md:col-span-5">
+        <div className="md:col-span-4">
           <div className="relative">
-            <input
-              className={`${filterInputCls} w-full pl-10`}
-              placeholder="Buscar por nombre, apodo o resumen…"
-              value={filters.search}
-              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-            />
             <i
               data-feather="search"
               className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-500/80"
+            />
+            <input
+              type="text"
+              className={`${filterInputCls} w-full pl-10`}
+              placeholder="Buscar por nombre o apodo"
+              value={filters.search ?? ""}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
             />
           </div>
         </div>
@@ -216,7 +218,7 @@ export default function CallHistoryPage() {
           <label htmlFor="estado" className="block mb-1 text-xs text-zinc-600 dark:text-zinc-300">Estado</label>
           <select
             id="estado"
-            className={`${filterInputCls} w-full`}
+            className={`${filterInputCls} w-full pr-10`}
             value={filters.state}
             onChange={(e) =>
               setFilters((f) => ({ ...f, state: e.target.value as Filters['state'] }))
@@ -230,13 +232,13 @@ export default function CallHistoryPage() {
         </div>
 
         {/* Fecha desde */}
-        <div className="md:col-span-1">
+        <div className="md:col-span-2">
           <label htmlFor="from" className="block mb-1 text-xs opacity-70">Desde</label>
           <input
             id="from"
             type="date"
             ref={fromRef}
-            className={`${filterInputCls} w-full`}
+            className={`${filterInputCls} w-full min-w-[9.5rem] sm:min-w-[10.5rem] pr-3`}
             value={filters.dateFrom ?? ''}
             onChange={(e) => {
               const v = e.target.value;
@@ -246,13 +248,13 @@ export default function CallHistoryPage() {
         </div>
 
         {/* Fecha hasta */}
-        <div className="md:col-span-1">
+        <div className="md:col-span-2">
           <label htmlFor="to" className="block mb-1 text-xs opacity-70">Hasta</label>
           <input
             id="to"
             type="date"
             ref={toRef}
-            className={`${filterInputCls} w-full`}
+            className={`${filterInputCls} w-full min-w-[9.5rem] sm:min-w-[10.5rem] pr-3`}
             value={filters.dateTo ?? ''}
             min={filters.dateFrom ?? undefined}
             onChange={(e) => {
@@ -263,11 +265,10 @@ export default function CallHistoryPage() {
         </div>
 
         {/* Limpiar filtros */}
-        <div className="md:col-span-1 flex md:justify-end">
+        <div className="md:col-span-2 flex md:justify-end">
           <button
             type="button"
-            className="h-10 px-3 text-sm rounded-xl border border-white/20 bg-white/10 
-                      hover:bg-white/20 transition w-full md:w-auto"
+            className="h-10 px-3 text-sm rounded-xl border … whitespace-nowrap"
             onClick={() => {
               setFilters({ ...initialFilters, dateFrom: undefined, dateTo: undefined });
               // Limpiar visualmente aunque el input tenga foco
@@ -281,16 +282,17 @@ export default function CallHistoryPage() {
             Limpiar
           </button>
         </div>
+      </div> 
 
 
-      {/* Lista */}
-      <div className="rounded-3xl border border-white/20 bg-white/5 backdrop-blur p-2">
-        <div className="grid grid-cols-12 px-3 py-2 text-xs uppercase tracking-wide opacity-60">
-          <div className="col-span-5 md:col-span-6">Llamada</div>
-          <div className="col-span-3 md:col-span-2">Fecha</div>
-          <div className="col-span-2 md:col-span-2">Duración</div>
-          <div className="col-span-2 md:col-span-2 text-right">Acciones</div>
-        </div>
+        {/* Lista */}
+        <div className="rounded-3xl border border-white/20 bg-white/5 backdrop-blur p-2">
+          <div className="grid grid-cols-12 px-3 py-2 text-xs uppercase tracking-wide opacity-60">
+            <div className="col-span-5 md:col-span-6">Llamada</div>
+            <div className="col-span-3 md:col-span-2">Fecha</div>
+            <div className="col-span-2 md:col-span-2">Duración</div>
+            <div className="col-span-2 md:col-span-2 text-right">Acciones</div>
+          </div>
 
         <div className="divide-y divide-white/10">
           {loading && <div className="p-6 text-center opacity-70">Cargando historial…</div>}
@@ -423,10 +425,9 @@ export default function CallHistoryPage() {
               )}
             </div>
           </div>
-        </div>
+        </div>  
       )}
     </main>
     </div>
     )
-
 }
