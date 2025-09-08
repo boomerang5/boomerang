@@ -4,6 +4,7 @@ import contactoRoutes from './routes/contactoRoutes';
 import grupoRoutes from './routes/grupoRoutes';
 import chatRoutes from './routes/chatRoutes';
 import mensajeRoutes from './routes/mensajeRoutes'
+import llamadaRoutes from './routes/llamadaRoutes'
 import swaggerUi from 'swagger-ui-express';
 const swaggerJsdoc = require('swagger-jsdoc');
 
@@ -37,6 +38,7 @@ app.use('/api/contacts', contactoRoutes);
 app.use('/api/groups', grupoRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/mensajes', mensajeRoutes);
+app.use('/api/llamadas', llamadaRoutes);
 
 const PORT = 3001;
 app.listen(PORT, () => {

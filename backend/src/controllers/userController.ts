@@ -7,6 +7,7 @@ import { getUserByIdUsuario } from "../services/user/getUserByIdUsuarioService";
 import { changeStateUser } from '../services/user/changeStateUserService';
 import { getStateUser } from '../services/user/getStateUserService';
 import { updateUserProfilePhoto } from '../services/user/updateUserProfilePhotoService';
+import { getUserLanguageService } from '../services/user/getUserLanguageService';
 
 
 // GET_ALL_CONTACTS
@@ -176,6 +177,23 @@ export const update_user_profile_photo = async (req: Request, res: Response) => 
   } catch (err) {
     console.error('❌ Error en updateUsuarioProfilePhoto:', err);
     return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+}
+
+// GET_USER_LANGUAGE
+export const get_user_language = async (req: Request, res: Response) => {
+  const idUsuario = parseInt(req.query.id_usuario as string);
+
+  if (isNaN(idUsuario)) {
+    return res.status(400).json({ error: 'ID de usuario inválido' });
+  }
+
+  try {
+    const data = await getUserLanguageService(idUsuario);
+    return res.status(200).json(data);
+  } catch (error: any) {
+    console.error("❌ Error en get_user_language:", error);
+    return res.status(500).json({ error: error.message });
   }
 }
 
