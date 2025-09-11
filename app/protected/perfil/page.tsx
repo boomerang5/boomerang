@@ -80,12 +80,7 @@ export default function VerPerfilPage() {
   }, [supabase]);
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <Sidebar />
-
-      {/* Contenido */}
-      <main className="flex-1 mx-auto max-w-4xl p-6">
+    <main className="flex-1 mx-auto max-w-4xl p-6">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-3xl font-bold text-transparent">
@@ -143,33 +138,6 @@ export default function VerPerfilPage() {
           </Link>
         </div>
       </main>
-    </div>
-  );
-}
-
-/* Sidebar component */
-function Sidebar() {
-  return (
-    <aside className="w-20 shrink-0 border-r border-white/10 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
-      <div className="flex flex-col items-center gap-6 mt-4">
-        <Link href="/protected" title="Inicio">
-          <i data-feather="home" className="w-5 h-5 text-orange-500 hover:text-orange-400" />
-        </Link>
-        <Link href="/protected/perfil" title="Perfil">
-          <i data-feather="user" className="w-5 h-5 text-black dark:text-white" />
-        </Link>
-        <i data-feather="video" className="w-5 h-5 text-black dark:text-white" />
-        <Link href="/protected/contactos" title="Contactos">
-          <i data-feather="users" className="w-5 h-5 text-black dark:text-white" />
-        </Link>
-        <i data-feather="message-circle" className="w-5 h-5 text-black dark:text-white" />
-        <i data-feather="calendar" className="w-5 h-5 text-black dark:text-white" />
-      </div>
-      <div className="flex flex-col items-center gap-5 mb-4">
-        <i data-feather="help-circle" className="w-5 h-5 text-black dark:text-white" />
-        <i data-feather="settings" className="w-5 h-5 text-black dark:text-white" />
-      </div>
-    </aside>
   );
 }
 

@@ -178,39 +178,7 @@ export default function ChatsPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d]">
-      {/* ===== Sidebar (igual a dashboard) ===== */}
-      <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
-        <div className="flex flex-col items-center gap-6 mt-4">
-          <Link href="/protected">
-            <i data-feather="home" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          <Link href="/protected/perfil">
-            <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
-
-          <Link href="/protected/contactos">
-            <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          {/* Chat (activo) */}
-          <Link href="/protected/chats" aria-label="Ir a chats">
-            <i data-feather="message-circle" className="text-orange-500 w-5 h-5" />
-          </Link>
-
-          <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
-        </div>
-        <div className="flex flex-col items-center gap-5 mb-4">
-          <i data-feather="help-circle" className="text-black dark:text-white w-5 h-5" />
-          <i data-feather="settings" className="text-black dark:text-white w-5 h-5" />
-        </div>
-      </aside>
-
-      {/* ===== Main (UI de chats) ===== */}
-      <main className="flex-1 px-4 py-6">
+    <main className="flex-1 px-4 py-6">
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-[320px_1fr]">
           {/* Columna izquierda: lista de chats */}
           <aside className="rounded-2xl bg-white/70 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
@@ -531,7 +499,6 @@ export default function ChatsPage() {
             </section>
           )}
         </div>
-      </main>
-    </div>
+    </main>
   );
 }
