@@ -2,9 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import type { SupabaseClient } from '@supabase/supabase-js' // 👈 fix tipos
+import type { SupabaseClient } from '@supabase/supabase-js'
 // @ts-ignore
 import feather from 'feather-icons'
+import Link from 'next/link'
+
+// === Backend base (llamamos directo, no al proxy de Next) ===
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.API_BASE ||
+  'http://localhost:3001'; // ajustá si tu backend corre en otro host/puerto
+
 
 /* =============== Tipos =============== */
 type ContactoAgenda = {
@@ -16,7 +24,7 @@ type ContactoAgenda = {
   favorito?: boolean
   fh_alta?: string | null
   id_estado?: number | null
-  nombreEstado?: string | null
+  nombreEstado?: string | null 
 }
 
 type UsuarioBusqueda = {
@@ -29,13 +37,10 @@ type UsuarioBusqueda = {
 }
 
 /* =============== Helpers =============== */
-// 👇 Cambiamos el tipo para que acepte el cliente sin pelearse con genéricos
 async function getJwt(supabaseClient: SupabaseClient | any) {
   const { data } = await supabaseClient.auth.getSession()
   return data.session?.access_token ?? ''
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, '') || ''
 
 function fullName(n?: string, a?: string) {
   return `${n ?? ''} ${a ?? ''}`.trim()
@@ -51,7 +56,6 @@ function formatARDate(iso?: string | null) {
 }
 
 export default function ContactosPage() {
-  // 👇 Si no tenés tipos generados, esto ayuda a silenciar genéricos
   const supabase = useSupabaseClient<any>()
 
   // ====== Estado general
@@ -76,48 +80,80 @@ export default function ContactosPage() {
   useEffect(() => { feather.replace() }, [])
   useEffect(() => { feather.replace() }, [contactos.length, results.length, q, isModalOpen, modalResults.length, selectedUser])
 
-  // ====== Obtener idUsuario interno
+  // ====== Obtener idUsuario interno (SIN RPC, consultando la tabla Usuario)
   useEffect(() => {
     (async () => {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const user_uuid = sessionData.session?.user.id
-      if (!user_uuid) return
+      try {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const user_uuid = sessionData.session?.user.id
+        if (!user_uuid) return
 
-      const { data, error } = await supabase.rpc('get_usuario_uuid', { p_user_id: user_uuid })
-      if (!error && data) {
-        const perfil = Array.isArray(data) ? data[0] : data
-        const idNum = Number(perfil?.id)
+        // Buscamos el id interno con el User_id (uuid) del usuario autenticado
+        const { data, error, status } = await supabase
+          .from('Usuario')
+          .select('id')
+          .eq('User_id', user_uuid)
+          .single()
+
+        if (error || !data?.id) {
+          console.error('No se pudo obtener id interno desde Usuario:', { status, error, data })
+          return
+        }
+
+        const idNum = Number(data.id)
         if (!Number.isNaN(idNum)) setIdUsuario(idNum)
-      } else {
-        console.error('Error get_usuario_uuid:', error)
+      } catch (err) {
+        console.error('Error al resolver idUsuario:', err)
       }
     })()
   }, [supabase])
 
-  // ====== Traer agenda
-  const fetchAgenda = useCallback(
-    async (busqueda: string = '') => {
-      if (!idUsuario) return
-      setLoadingAgenda(true)
-      setAgendaError(null)
-      try {
-        const { data, error } = await supabase.rpc('get_my_contacts', {
-          p_id_usuario: idUsuario,
-          p_busqueda: busqueda?.trim() || '',
-        })
-        if (error) {
-          console.error('Error get_my_contacts:', error)
-          setAgendaError('No se pudieron cargar los contactos.')
-          setContactos([])
-        } else {
-          setContactos(Array.isArray(data) ? (data as ContactoAgenda[]) : [])
-        }
-      } finally {
-        setLoadingAgenda(false)
+  const agendaIds = useMemo(() => {
+    const ids = new Set<number>()
+    for (const c of contactos) {
+      const id = Number(c.id_usuario_contacto ?? c.id)
+      if (!Number.isNaN(id)) ids.add(id)
+    }
+    return ids
+  }, [contactos])
+
+// ====== Traer agenda (directo al BACKEND /api/contacts/misContactos)
+const fetchAgenda = useCallback(
+  async (busqueda: string = '') => {
+    if (!idUsuario) return
+    setLoadingAgenda(true)
+    setAgendaError(null)
+    try {
+      const token = await getJwt(supabase)
+      const url =
+      `${API_BASE}/api/contacts/misContactos` +
+      `?id_usuario=${encodeURIComponent(idUsuario)}` +
+      (busqueda.trim() ? `&busqueda=${encodeURIComponent(busqueda.trim())}` : '');
+
+
+      const r = await fetch(url, {
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        cache: 'no-store',
+      })
+
+      if (!r.ok) {
+        const t = await r.text().catch(() => '')
+        console.error('misContactos error', r.status, t)
+        setAgendaError('No se pudieron cargar los contactos.')
+        setContactos([])
+      } else {
+        const data = await r.json().catch(() => [])
+        setContactos(Array.isArray(data) ? (data as ContactoAgenda[]) : [])
       }
-    },
-    [idUsuario, supabase]
-  )
+    } finally {
+      setLoadingAgenda(false)
+    }
+  },
+  [idUsuario, supabase]
+)
 
   useEffect(() => {
     if (idUsuario) void fetchAgenda('')
@@ -135,42 +171,64 @@ export default function ContactosPage() {
     }
   }, [idUsuario, q, fetchAgenda])
 
-  // ====== Búsqueda de la página (debounce)
+  // ====== Búsqueda de la página (debounce) — vía API /api/users/contacts
   useEffect(() => {
     const t = setTimeout(async () => {
       if (!idUsuario) return
       const term = q.trim()
       if (!term) { setResults([]); return }
-      setLoadingSearch(true)
-      const { data, error } = await supabase.rpc('get_all_contacts', {
-        p_id_usuario: idUsuario,
-        p_busqueda: term,
-      })
-      if (!error && data) setResults(data as UsuarioBusqueda[])
-      else { setResults([]); console.error('Error get_all_contacts:', error) }
-      setLoadingSearch(false)
+
+      try {
+        setLoadingSearch(true)
+        const token = await getJwt(supabase)
+        const url =
+        `${API_BASE}/api/users/contacts` +
+        `?id_usuario=${encodeURIComponent(idUsuario)}` +
+        `&busqueda=${encodeURIComponent(term)}`;
+        const r = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        })
+        if (!r.ok) {
+          const txt = await r.text().catch(() => '')
+          console.error('search error', r.status, txt)
+          setResults([])
+        } else {
+          const data = await r.json().catch(() => [])
+          const mapped: UsuarioBusqueda[] = (data ?? []).map((u: any) => ({
+            id: Number(u.id),
+            nombre: u.nombre,
+            apellido: u.apellido,
+            apodo: u.apodo ?? null,
+            mail: u.mail,
+            en_agenda: agendaIds.has(Number(u.id)),
+          }))
+          setResults(mapped)
+        }
+      } finally {
+        setLoadingSearch(false)
+      }
     }, 350)
     return () => clearTimeout(t)
-  }, [q, idUsuario, supabase])
+  }, [q, idUsuario, supabase, agendaIds])
 
-  // ====== Agregar contacto
+  // ====== Agregar contacto — vía API /api/contacts/add
   const addContacto = useCallback(
     async (idUsuarioContacto: number) => {
       if (!idUsuario) return
       try {
-        const token = await getJwt(supabase) // 👈 tipos ok
-        const url = `${API_BASE}/api/contacts/add` || '/api/contacts/add'
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            id_usuario: idUsuario,
-            id_usuario_contacto: idUsuarioContacto,
-          }),
-        })
+        const token = await getJwt(supabase)
+        const res = await fetch(`${API_BASE}/api/contacts/add`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id_usuario: idUsuario,                 
+          id_usuario_contacto: idUsuarioContacto
+        }),
+      })
         if (res.ok) {
           setResults(prev => prev.map(r => r.id === idUsuarioContacto ? { ...r, en_agenda: true } : r))
           await fetchAgenda(q)
@@ -191,7 +249,7 @@ export default function ContactosPage() {
     [idUsuario, supabase, fetchAgenda, q, isModalOpen]
   )
 
-  // ====== Acciones fake (faltaban estas dos funciones)
+  // ====== Acciones fake
   const handleLlamada = (c: ContactoAgenda) =>
     alert(`Iniciando llamada de audio con ${fullName(c.nombre, c.apellido)}`)
   const handleVideollamada = (c: ContactoAgenda) =>
@@ -212,24 +270,49 @@ export default function ContactosPage() {
     setSelectedUser(null)
   }
 
-  // Debounce búsqueda dentro del modal
+  // ====== Búsqueda dentro del modal — vía API /api/users/contacts
   useEffect(() => {
     if (!isModalOpen) return
     const t = setTimeout(async () => {
       if (!idUsuario) return
       const term = modalQ.trim()
       if (!term) { setModalResults([]); return }
-      setModalLoading(true)
-      const { data, error } = await supabase.rpc('get_all_contacts', {
-        p_id_usuario: idUsuario,
-        p_busqueda: term,
-      })
-      if (!error && data) setModalResults(data as UsuarioBusqueda[])
-      else { setModalResults([]); console.error('Error get_all_contacts (modal):', error) }
-      setModalLoading(false)
+
+      try {
+        setModalLoading(true)
+        const token = await getJwt(supabase)
+        const url =
+        `${API_BASE}/api/users/contacts` +
+        `?id_usuario=${encodeURIComponent(idUsuario)}` +
+        `&busqueda=${encodeURIComponent(term)}`;
+
+        const r = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        })
+
+        if (!r.ok) {
+          const txt = await r.text().catch(() => '')
+          console.error('search (modal) error', r.status, txt)
+          setModalResults([])
+        } else {
+          const data = await r.json().catch(() => [])
+          const mapped: UsuarioBusqueda[] = (data ?? []).map((u: any) => ({
+            id: Number(u.id),
+            nombre: u.nombre,
+            apellido: u.apellido,
+            apodo: u.apodo ?? null,
+            mail: u.mail,
+            en_agenda: agendaIds.has(Number(u.id)),
+          }))
+          setModalResults(mapped)
+        }
+      } finally {
+        setModalLoading(false)
+      }
     }, 350)
     return () => clearTimeout(t)
-  }, [modalQ, idUsuario, supabase, isModalOpen])
+  }, [modalQ, idUsuario, supabase, isModalOpen, agendaIds])
 
   // Cerrar con ESC / confirmar con Enter
   useEffect(() => {
@@ -246,14 +329,32 @@ export default function ContactosPage() {
 
   return (
     <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d]">
+
       {/* Sidebar */}
       <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
         <div className="flex flex-col items-center gap-6 mt-4">
-          <i data-feather="home" className="text-black dark:text-white w-5 h-5" />
-          <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
+          <Link href="/protected">
+            <i data-feather="home" className="text-orange-500 hover:text-orange-400 w-5 h-5" />
+          </Link>
+
+          <Link href="/protected/perfil">
+            <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
           <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
-          <i data-feather="users" className="text-orange-500 w-5 h-5" />
-          <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
+
+          <Link href="/protected/historial-llamada">
+            <i data-feather="clock" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          <Link href="/protected/contactos">
+            <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          <Link href="/protected/chats" aria-label="Ir a chats">
+            <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
           <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
         </div>
         <div className="flex flex-col items-center gap-5 mb-4">
@@ -419,7 +520,7 @@ export default function ContactosPage() {
                 <button
                   key={u.id}
                   onClick={() => setSelectedUser(u)}
-                  className={`w-full text-left bg-white/60 dark:bg白/5 border border-white/30 rounded-lg p-3 hover:bg-white/80 dark:hover:bg-white/10 transition ${
+                  className={`w-full text-left bg-white/60 dark:bg-white/5 border border-white/30 rounded-lg p-3 hover:bg-white/80 dark:hover:bg-white/10 transition ${
                     selectedUser?.id === u.id ? 'ring-2 ring-orange-400' : ''
                   }`}
                 >
@@ -439,9 +540,9 @@ export default function ContactosPage() {
             {/* Confirmación */}
             <div className="mt-5 flex items-center justify-between gap-3">
               <div className="text-sm text-muted-foreground">
-                {selectedUser
-                  ? <>¿Agregar a <span className="font-medium">{selectedUser.nombre} {selectedUser.apellido}</span>?</>
-                  : 'Seleccioná un contacto de la lista.'}
+                {selectedUser &&
+                  <>¿Agregar a <span className="font-medium">{selectedUser.nombre} {selectedUser.apellido}</span>?</>
+                }
               </div>
 
               <div className="flex gap-2">

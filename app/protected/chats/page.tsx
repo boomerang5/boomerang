@@ -7,7 +7,13 @@ import feather from "feather-icons";
 import { useSupabaseClient } from "@supabase/auth-helpers-react";
 
 /* ===== Tipos ===== */
-type Msg = { from: "me" | "them"; text: string; time: string };
+type Msg = {
+  id?: number; // id fila de Mensaje
+  from: "me" | "them";
+  text: string;
+  time: string;
+  eliminado?: boolean | null;
+};
 type Chat = {
   id: string;
   name: string;
@@ -23,6 +29,17 @@ type Chat = {
 type RawContact = Record<string, any>;
 type Contact = { id: string; name: string; initials?: string };
 
+// Fila cruda de DB (Mensaje)
+type DBMessage = {
+  id: number;
+  id_chat: number;
+  id_emisor: number;
+  fecha: string;
+  texto: string;
+  eliminado: boolean | null;
+  id_archivo?: number | null;
+};
+
 /* ===== Helpers ===== */
 function initialsFromName(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -30,8 +47,16 @@ function initialsFromName(name: string) {
   const b = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : parts[0]?.[1] ?? "";
   return (a + b).toUpperCase();
 }
-function nowHHMM() {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function nowHHMM(ts?: string | number | Date) {
+  try {
+    return new Date(ts ?? Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+function toMillis(s: string | number | Date | undefined) {
+  const t = s ? new Date(s).getTime() : NaN;
+  return Number.isFinite(t) ? t : Date.now();
 }
 
 /** ====== Mapeo robusto del listado de chats ====== */
@@ -41,7 +66,6 @@ function mapRawChatToUI(r: any): Chat {
     Boolean(r?.is_group ?? r?.grupo ?? r?.es_grupo) ||
     (r?.tipo && String(r.tipo).toLowerCase() === "grupo");
 
-  // 👇 Preferimos SIEMPRE el 'nombre' que devuelve /api/chats/user
   const fallbackName = `Chat ${id}`;
   const name =
     r?.nombre ??
@@ -98,6 +122,7 @@ export default function ChatsPage() {
   /* ===== Estado ===== */
   const [chats, setChats] = useState<Chat[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
+
   const [muted, setMuted] = useState<Record<string, boolean>>({});
   const [archived, setArchived] = useState<Record<string, boolean>>({});
   const [unreadById, setUnreadById] = useState<Record<string, number>>({});
@@ -108,9 +133,20 @@ export default function ChatsPage() {
   const [chatsLoading, setChatsLoading] = useState(false);
   const [chatsError, setChatsError] = useState<string | null>(null);
 
+  // Para mapear me/them
+  const [myUserId, setMyUserId] = useState<number | null>(null);
+
+  // Solo mensajes no eliminados
+  const ONLY_ACTIVE = true;
+
+  // Última actividad por chat (para ordenar por "reciente primero")
+  const [lastActivityById, setLastActivityById] = useState<Record<string, number>>({});
+
   /* ===== Refs ===== */
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const globalChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   /* ===== Menús ===== */
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -138,12 +174,29 @@ export default function ChatsPage() {
   const [contactsError, setContactsError] = useState<string | null>(null);
 
   /* ===== Derivados ===== */
+  const [search, setSearch] = useState("");
   const selectedChat = useMemo(() => chats.find((c) => c.id === selectedId), [chats, selectedId]);
+
+  // Orden visible de chats + filtro por búsqueda
   const visibleChats = useMemo(() => {
-    const list = [...chats];
-    list.sort((a, b) => Number(!!archived[a.id]) - Number(!!archived[b.id]));
+    const query = search.trim().toLowerCase();
+    const list = query
+      ? chats.filter(
+          (c) =>
+            c.name.toLowerCase().includes(query) ||
+            (c.preview || "").toLowerCase().includes(query)
+        )
+      : [...chats];
+
+    list.sort((a, b) => {
+      const archCmp = Number(!!archived[a.id]) - Number(!!archived[b.id]);
+      if (archCmp !== 0) return archCmp;
+      const la = lastActivityById[a.id] ?? 0;
+      const lb = lastActivityById[b.id] ?? 0;
+      return lb - la;
+    });
     return list;
-  }, [chats, archived]);
+  }, [search, chats, archived, lastActivityById]);
 
   const contactsForSearch = remoteContacts ?? [];
   const filteredContacts = useMemo(() => {
@@ -152,7 +205,7 @@ export default function ChatsPage() {
   }, [contactsForSearch, contactQuery]);
   const contactMap = useMemo(() => new Map(contactsForSearch.map((c) => [c.id, c] as const)), [contactsForSearch]);
 
-  /* ===== Efectos ===== */
+  /* ===== Efectos UI ===== */
   useEffect(() => {
     if (!selectedChat) return;
     scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" });
@@ -236,8 +289,8 @@ export default function ChatsPage() {
     if (!uuid) throw new Error("No se pudo resolver el UUID del usuario");
 
     const { data: row, error } = await supabase.from("Usuario").select("id").eq("User_id", uuid).maybeSingle();
-
     if (error) throw error;
+
     const idUsuario = Number(row?.id);
     if (!idUsuario) throw new Error("No se encontró el id de Usuario");
 
@@ -314,8 +367,16 @@ export default function ChatsPage() {
       setUnreadById(Object.fromEntries(mapped.map((c) => [c.id, c.unread ?? 0])));
       setSelectedId((prev) => prev || (mapped[0]?.id ?? ""));
 
-      // Enriquecer nombres con /api/chats/info (para privados sin nombre)
+      // Inicializamos "última actividad"
+      const base = Date.now();
+      const initLA = Object.fromEntries(mapped.map((c, i) => [c.id, base - i])) as Record<string, number>;
+      setLastActivityById(initLA);
+
+      // Enriquecer nombres/miembros
       await enrichChatsWithInfo(mapped);
+
+      // Guardar mi id_usuario
+      setMyUserId(idUsuario);
     } catch (err: any) {
       setChats([]);
       setMessagesById({});
@@ -327,7 +388,7 @@ export default function ChatsPage() {
     }
   }
 
-  // ===== Enriquecer nombres/miembros con /api/chats/info =====
+  // ===== Enriquecer nombres/miembros con /api/chats/info (bulk) =====
   async function enrichChatsWithInfo(list: Chat[]) {
     if (!list.length) return;
 
@@ -365,6 +426,8 @@ export default function ChatsPage() {
     setChats((prev) => {
       const byId = new Map(prev.map((x) => [x.id, x] as const));
 
+      const updatesLA: Record<string, number> = {};
+
       for (const { id, info } of results) {
         if (!info) continue;
         const current = byId.get(id);
@@ -372,7 +435,9 @@ export default function ChatsPage() {
 
         const isGroup =
           Boolean(info?.is_group ?? info?.grupo ?? info?.es_grupo) ||
-          (info?.tipo && String(info.tipo).toLowerCase() === "grupo");
+          (info?.tipo && String(info.tipo).toLowerCase() === "grupo") ||
+          (Array.isArray(info?.participantes ?? info?.members) &&
+            (info?.participantes ?? info?.members).length >= 3);
 
         const members: string[] = Array.from(
           (info?.miembros ?? info?.members ?? info?.participantes ?? []) as any[]
@@ -387,18 +452,20 @@ export default function ChatsPage() {
           const contacto = info?.contacto ?? info?.peer ?? info?.otro ?? null;
           if (contacto) {
             const firstTry = contacto?.nombre_completo ?? full(contacto);
-            name = (firstTry && String(firstTry).trim())
-              || (contacto?.apodo && String(contacto.apodo).trim())
-              || (contacto?.nombre && String(contacto.nombre).trim())
-              || current.name;
+            name =
+              (firstTry && String(firstTry).trim()) ||
+              (contacto?.apodo && String(contacto.apodo).trim()) ||
+              (contacto?.nombre && String(contacto.nombre).trim()) ||
+              current.name;
           } else if (Array.isArray(info?.participantes ?? info?.members)) {
             const p = firstNonMe(info?.participantes ?? info?.members);
             if (p) {
               const firstTry = p?.nombre_completo ?? full(p);
-              name = (firstTry && String(firstTry).trim())
-                || (p?.apodo && String(p.apodo).trim())
-                || (p?.nombre && String(p.nombre).trim())
-                || current.name;
+              name =
+                (firstTry && String(firstTry).trim()) ||
+                (p?.apodo && String(p.apodo).trim()) ||
+                (p?.nombre && String(p.nombre).trim()) ||
+                current.name;
             }
           }
         }
@@ -406,6 +473,10 @@ export default function ChatsPage() {
         const initials = initialsFromName(name || current.name);
         const preview = (info?.ultimo_mensaje ?? info?.last_message?.texto) ?? current.preview;
         const time = (info?.ultima_hora ?? info?.last_message?.hora) ?? current.time;
+
+        if (info?.ultima_hora || info?.last_message?.hora) {
+          updatesLA[id] = toMillis(info?.ultima_hora ?? info?.last_message?.hora);
+        }
 
         byId.set(id, {
           ...current,
@@ -418,8 +489,81 @@ export default function ChatsPage() {
         });
       }
 
+      if (Object.keys(updatesLA).length) {
+        setLastActivityById((prev) => ({ ...prev, ...updatesLA }));
+      }
+
       return Array.from(byId.values());
     });
+  }
+
+  /* ===== Nuevo: refrescar info del chat seleccionado (para grupos antiguos) ===== */
+  async function refreshSingleChatInfo(chatId: string) {
+    try {
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
+
+      const url = `/api/chats/info?id_usuario=${encodeURIComponent(
+        String(idUsuario)
+      )}&id_chat=${encodeURIComponent(String(chatId))}`;
+
+      const r = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      });
+      if (!r.ok) {
+        // Silencioso: no rompemos UI si falla
+        return;
+      }
+      const info = await r.json();
+
+      const isGroup =
+        Boolean(info?.is_group ?? info?.grupo ?? info?.es_grupo) ||
+        (info?.tipo && String(info.tipo).toLowerCase() === "grupo") ||
+        (Array.isArray(info?.participantes ?? info?.members) &&
+          (info?.participantes ?? info?.members).length >= 3);
+
+      const members: string[] = Array.from(
+        (info?.miembros ?? info?.members ?? info?.participantes ?? []) as any[]
+      ).map((m: any) => String(m?.id ?? m?.id_usuario ?? m));
+
+      // Nombre/initials
+      const full = (o: any) => [o?.nombre, o?.apellido].filter(Boolean).join(" ").trim();
+      let newName = "";
+      if (isGroup) {
+        newName =
+          info?.nombre ??
+          info?.titulo ??
+          info?.group_name ??
+          info?.nombre_grupo ??
+          "";
+      } else {
+        const contacto = info?.contacto ?? info?.peer ?? info?.otro ?? null;
+        if (contacto) {
+          newName =
+            contacto?.nombre_completo ??
+            full(contacto) ??
+            contacto?.apodo ??
+            contacto?.nombre ??
+            "";
+        }
+      }
+
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === chatId
+            ? {
+                ...c,
+                isGroup,
+                members: members.length ? members : c.members,
+                name: newName ? String(newName).trim() : c.name,
+                initials: initialsFromName(newName ? String(newName).trim() : c.name),
+              }
+            : c
+        )
+      );
+    } catch {
+      // Silencioso
+    }
   }
 
   /* ===== cargar al entrar ===== */
@@ -427,6 +571,218 @@ export default function ChatsPage() {
     loadUserChatsFromBackend();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ===== Suscripción Realtime por chat seleccionado ===== */
+  useEffect(() => {
+    // Cada vez que cambiamos de chat, si ese chat no tiene marcada la info de grupo,
+    // la refrescamos para que aparezca el ícono de "participantes" en grupos antiguos.
+    if (selectedId) {
+      const sc = chats.find((c) => c.id === selectedId);
+      if (sc && (!sc.isGroup || !sc.members || sc.members.length === 0)) {
+        void refreshSingleChatInfo(selectedId);
+      }
+    }
+
+    const unsubscribe = async () => {
+      const ch = channelRef.current;
+      if (ch) {
+        try {
+          await ch.unsubscribe();
+        } catch {}
+        channelRef.current = null;
+      }
+    };
+
+    if (!selectedId) {
+      unsubscribe();
+      return;
+    }
+
+    (async () => {
+      try {
+        const { idUsuario } = await resolveIdUsuarioAndToken();
+        setMyUserId(idUsuario);
+
+        await loadHistoryFromDB(selectedId, idUsuario);
+
+        const chatNum = Number(selectedId);
+        const ch = supabase
+          .channel(`mensaje-chat-${chatNum}`)
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "Mensaje", filter: `id_chat=eq.${chatNum}` },
+            (payload) => {
+              const row = payload.new as DBMessage;
+              if (ONLY_ACTIVE && row.eliminado === true) return;
+              appendIncomingRow(row, idUsuario);
+            }
+          )
+          .on(
+            "postgres_changes",
+            { event: "UPDATE", schema: "public", table: "Mensaje", filter: `id_chat=eq.${chatNum}` },
+            (payload) => {
+              const row = payload.new as DBMessage;
+              if (ONLY_ACTIVE && row.eliminado === true) {
+                setMessagesById((prev) => ({
+                  ...prev,
+                  [selectedId]: (prev[selectedId] ?? []).filter((m) => m.id !== row.id),
+                }));
+                return;
+              }
+              setMessagesById((prev) => {
+                const list = prev[selectedId] ?? [];
+                const idx = list.findIndex((m) => m.id === row.id);
+                const msg = dbRowToMsg(row, idUsuario);
+                if (idx === -1) return { ...prev, [selectedId]: [...list, msg] };
+                const next = [...list];
+                next[idx] = msg;
+                return { ...prev, [selectedId]: next };
+              });
+              setLastActivityById((prev) => ({ ...prev, [String(row.id_chat)]: toMillis(row.fecha) }));
+            }
+          )
+          .subscribe();
+
+        channelRef.current = ch;
+      } catch (e) {
+        console.error("Realtime subscribe error:", e);
+      }
+    })();
+
+    return () => {
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  /* ===== Suscripción global a nuevos mensajes ===== */
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      if (globalChannelRef.current) {
+        try {
+          await globalChannelRef.current.unsubscribe();
+        } catch {}
+        globalChannelRef.current = null;
+      }
+
+      const ch = supabase
+        .channel("mensaje-global")
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "Mensaje" },
+          (payload) => {
+            if (!active) return;
+            const row = payload.new as DBMessage;
+            if (ONLY_ACTIVE && row.eliminado === true) return;
+
+            const chatId = String(row.id_chat);
+
+            setLastActivityById((prev) => ({ ...prev, [chatId]: toMillis(row.fecha) }));
+
+            setChats((prev) => {
+              const exists = prev.some((c) => c.id === chatId);
+              if (!exists) return prev;
+              return prev.map((c) =>
+                c.id === chatId ? { ...c, preview: row.texto ?? c.preview, time: nowHHMM(row.fecha) } : c
+              );
+            });
+
+            setUnreadById((prev) => {
+              if (chatId === selectedId) return prev;
+              const nextVal = (prev[chatId] ?? 0) + 1;
+              return { ...prev, [chatId]: nextVal };
+            });
+          }
+        )
+        .subscribe();
+
+      globalChannelRef.current = ch;
+    })();
+
+    return () => {
+      active = false;
+      (async () => {
+        if (globalChannelRef.current) {
+          try {
+            await globalChannelRef.current.unsubscribe();
+          } catch {}
+          globalChannelRef.current = null;
+        }
+      })();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, selectedId, ONLY_ACTIVE]);
+
+  /* ===== Helpers de mensajes (DB <-> UI) ===== */
+  function dbRowToMsg(row: DBMessage, myId: number): Msg {
+    return {
+      id: row.id,
+      from: row.id_emisor === myId ? "me" : "them",
+      text: row.texto ?? "",
+      time: nowHHMM(row.fecha),
+      eliminado: row.eliminado,
+    };
+  }
+
+  async function loadHistoryFromDB(chatId: string, myId: number) {
+    const chatNum = Number(chatId);
+    let query = supabase
+      .from("Mensaje")
+      .select("*")
+      .eq("id_chat", chatNum)
+      .order("fecha", { ascending: true })
+      .limit(50);
+
+    if (ONLY_ACTIVE) query = query.is("eliminado", false);
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("loadHistoryFromDB:", error);
+      return;
+    }
+    const mapped = (data ?? []).map((r) => dbRowToMsg(r as DBMessage, myId));
+    setMessagesById((prev) => ({ ...prev, [chatId]: mapped }));
+    const last = (data ?? [])[data!.length - 1] as DBMessage | undefined;
+    if (last) {
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === chatId
+            ? { ...c, preview: last.texto ?? "", time: nowHHMM(last.fecha) }
+            : c
+        )
+      );
+      setLastActivityById((prev) => ({ ...prev, [chatId]: toMillis(last.fecha) }));
+    }
+    setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 0);
+  }
+
+  function appendIncomingRow(row: DBMessage, myId: number) {
+    const msg = dbRowToMsg(row, myId);
+    const chatKey = String(row.id_chat);
+
+    setMessagesById((prev) => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), msg] }));
+
+    // actualizar preview/hora
+    setChats((prev) =>
+      prev.map((c) =>
+        c.id === chatKey ? { ...c, preview: row.texto ?? "", time: nowHHMM(row.fecha) } : c
+      )
+    );
+
+    // actualizar última actividad
+    setLastActivityById((prev) => ({ ...prev, [chatKey]: toMillis(row.fecha) }));
+
+    // si no está seleccionado, sumar no leídos
+    if (chatKey !== selectedId) {
+      setUnreadById((prev) => ({ ...prev, [chatKey]: (prev[chatKey] ?? 0) + 1 }));
+    }
+
+    if (chatKey === selectedId) {
+      setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 0);
+    }
+  }
 
   /* ===== Menú “+” ===== */
   const startPrivateFlow = async () => {
@@ -495,6 +851,10 @@ export default function ChatsPage() {
       setChats((prev) => [...prev, newChat]);
       setMessagesById((prev) => ({ ...prev, [newChat.id]: [] }));
       setUnreadById((prev) => ({ ...prev, [newChat.id]: 0 }));
+
+      // actividad reciente
+      setLastActivityById((prev) => ({ ...prev, [newChat.id]: Date.now() }));
+
       handleSelect(newChat.id);
       closeAllPickers();
       setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 50);
@@ -514,18 +874,18 @@ export default function ChatsPage() {
         .map((s) => Number(s))
         .filter((n) => !Number.isNaN(n));
 
-      const r = await fetch("/api/chats/create", {
+      // endpoint para crear grupo + chat
+      const r = await fetch("/api/chats/create-group-with-chat", {
         method: "POST",
         headers: {
           "content-type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          id_usuario: idUsuario,
+          id_usuario_creador: idUsuario,
           nombre: name,
-          id_contactos: ids,
-          miembros: ids,
-          tipo: "grupo",
+          descripcion: "",
+          participantes: ids,
         }),
       });
 
@@ -534,7 +894,7 @@ export default function ChatsPage() {
         const json = await r.json().catch(() => ({}));
         if (json?.id_chat != null) newId = String(json.id_chat);
       } else {
-        console.warn("[/api/chats/create] status:", r.status, await r.text());
+        console.warn("[/api/chats/create-group-with-chat] status:", r.status, await r.text());
       }
 
       const newChat: Chat = {
@@ -551,6 +911,10 @@ export default function ChatsPage() {
       setChats((prev) => [...prev, newChat]);
       setMessagesById((prev) => ({ ...prev, [newChat.id]: [] }));
       setUnreadById((prev) => ({ ...prev, [newChat.id]: 0 }));
+
+      // actividad reciente
+      setLastActivityById((prev) => ({ ...prev, [newChat.id]: Date.now() }));
+
       handleSelect(newChat.id);
       closeAllPickers();
       setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 50);
@@ -559,19 +923,41 @@ export default function ChatsPage() {
     }
   };
 
-  /* ===== Envío local ===== */
-  const handleSend = () => {
+  /* ===== Envío a DB (realtime lo agrega) ===== */
+  const sendMessageToDB = async () => {
     const txt = messageText.trim();
     if (!txt || !selectedId || sending) return;
-    setSending(true);
-    const msg: Msg = { from: "me", text: txt, time: nowHHMM() };
-    setMessagesById((prev) => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), msg] }));
-    setChats((prev) => prev.map((c) => (c.id === selectedId ? { ...c, preview: txt, time: msg.time } : c)));
-    setMessageText("");
-    setTimeout(() => {
-      scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" });
+
+    try {
+      setSending(true);
+      const { idUsuario } = await resolveIdUsuarioAndToken();
+
+      const { error } = await supabase
+        .from("Mensaje")
+        .insert({
+          id_chat: Number(selectedId),
+          id_emisor: idUsuario,
+          texto: txt,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("insert Mensaje:", error);
+      } else {
+        setMessageText("");
+        setLastActivityById((prev) => ({ ...prev, [selectedId]: Date.now() }));
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
       setSending(false);
-    }, 0);
+    }
+  };
+
+  /* ===== Envío (acción de UI) ===== */
+  const handleSend = () => {
+    void sendMessageToDB();
   };
 
   return (
@@ -608,9 +994,10 @@ export default function ChatsPage() {
 
       {/* ===== Main ===== */}
       <main className="flex-1 px-4 py-6">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-[320px_1fr]">
+        {/* AUMENTAMOS EL ANCHO DE LA COLUMNA IZQUIERDA: 360px */}
+        <div className="mx-auto grid max-w-[1260px] grid-cols-1 gap-6 md:grid-cols-[360px_1fr]">
           {/* ===== Lista de chats ===== */}
-          <aside className="rounded-2xl bg-white/70 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
+          <aside className="flex h-[72vh] min-h-[72vh] flex-col overflow-hidden rounded-2xl bg-white/70 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-[#f16f24]">Mis chats</h2>
               <Link href="/protected" className="text-sm text-[#de4435] hover:underline">
@@ -629,6 +1016,8 @@ export default function ChatsPage() {
                 <input
                   id="chat-search"
                   placeholder="Buscar contacto o chat..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
                   className="w-full bg-transparent px-2 py-2 text-sm outline-none placeholder:text-black/40"
                 />
                 <button
@@ -656,79 +1045,82 @@ export default function ChatsPage() {
               )}
             </div>
 
-            <ul className="space-y-2">
-              {chatsLoading && <li className="px-2 py-2 text-sm text-black/60">Cargando tus chats…</li>}
-              {!chatsLoading && chatsError && <li className="px-2 py-2 text-sm text-red-600">{chatsError}</li>}
+            {/* scroll interno de la lista */}
+            <div className="min-h-0 flex-1 overflow-y-auto pr-2">
+              <ul className="space-y-2">
+                {chatsLoading && <li className="px-2 py-2 text-sm text-black/60">Cargando tus chats…</li>}
+                {!chatsLoading && chatsError && <li className="px-2 py-2 text-sm text-red-600">{chatsError}</li>}
 
-              {visibleChats.map((c) => {
-                const isActive = c.id === selectedId;
-                const isMuted = !!muted[c.id];
-                const isArchived = !!archived[c.id];
-                const unread = unreadById[c.id] ?? 0;
-                return (
-                  <li key={c.id}>
-                    <button
-                      onClick={() => handleSelect(c.id)}
-                      type="button"
-                      className={[
-                        "w-full rounded-xl p-3 text-left shadow-sm transition",
-                        isActive
-                          ? "border border-[#f16f24]/20 bg-gradient-to-tr from-[#fff7f1] to-white hover:shadow"
-                          : "border border-transparent bg-white hover:border-[#f16f24]/20 hover:shadow-md",
-                        isArchived ? "opacity-70" : "",
-                      ].join(" ")}
-                      aria-current={isActive ? "page" : undefined}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
-                          {c.initials}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between">
-                            <p className="truncate font-medium text-[#2b2b2b] flex items-center gap-1">
-                              {c.name}
-                              {c.isGroup && (
-                                <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Grupo</span>
-                              )}
-                              {isArchived && (
-                                <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Archivado</span>
-                              )}
-                              {isMuted && (
-                                <span title="Silenciado" className="text-black/50">
-                                  <svg width="12" height="12" viewBox="0 0 24 24" className="inline">
-                                    <path
-                                      fill="currentColor"
-                                      d="m2 3.27l1.28-1.27l18 18l-1.27 1.27l-2.12-2.12H4v-2h1v-7a7 7 0 0 1 7-7c1.12 0 2.17.27 3.09.73l-1.5 1.5A5 5 0 0 0 12 4a5 5 0 0 0-5 5v7h9.73L2 3.27ZM20 17h2v2h-2v-2Zm-8 5a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Z"
-                                    />
-                                  </svg>
-                                </span>
-                              )}
-                            </p>
-                            <span className="shrink-0 text-xs text-black/50">{c.time}</span>
+                {visibleChats.map((c) => {
+                  const isActive = c.id === selectedId;
+                  const isMuted = !!muted[c.id];
+                  const isArchived = !!archived[c.id];
+                  const unread = unreadById[c.id] ?? 0;
+                  return (
+                    <li key={c.id}>
+                      <button
+                        onClick={() => handleSelect(c.id)}
+                        type="button"
+                        className={[
+                          "w-full rounded-xl p-3 text-left shadow-sm transition",
+                          isActive
+                            ? "border border-[#f16f24]/20 bg-gradient-to-tr from-[#fff7f1] to-white hover:shadow"
+                            : "border border-transparent bg-white hover:border-[#f16f24]/20 hover:shadow-md",
+                          isArchived ? "opacity-70" : "",
+                        ].join(" ")}
+                        aria-current={isActive ? "page" : undefined}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
+                            {c.initials}
                           </div>
-                          <p className="truncate text-sm text-black/60">{c.preview}</p>
-                        </div>
 
-                        {unread > 0 && (
-                          <span className="ml-2 shrink-0 rounded-full bg-[#de4435] px-2 py-0.5 text-xs font-medium text-white">
-                            {unread}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-              {!chatsLoading && !chatsError && !visibleChats.length && (
-                <li className="px-2 py-2 text-sm text-black/60">Todavía no tenés chats. Creá uno con el botón “+”.</li>
-              )}
-            </ul>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                              <p className="truncate font-medium text-[#2b2b2b] flex items-center gap-1">
+                                {c.name}
+                                {c.isGroup && (
+                                  <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Grupo</span>
+                                )}
+                                {isArchived && (
+                                  <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Archivado</span>
+                                )}
+                                {isMuted && (
+                                  <span title="Silenciado" className="text-black/50">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" className="inline">
+                                      <path
+                                        fill="currentColor"
+                                        d="m2 3.27l1.28-1.27l18 18l-1.27 1.27l-2.12-2.12H4v-2h1v-7a7 7 0 0 1 7-7c1.12 0 2.17.27 3.09.73l-1.5 1.5A5 5 0 0 0 12 4a5 5 0 0 0-5 5v7h9.73L2 3.27ZM20 17h2v2h-2v-2Zm-8 5a2 2 0 0 1-2-2h4a2 2 0 0 1-4 0Z"
+                                      />
+                                    </svg>
+                                  </span>
+                                )}
+                              </p>
+                              <span className="shrink-0 text-xs text-black/50">{c.time}</span>
+                            </div>
+                            <p className="truncate text-sm text-black/60">{c.preview}</p>
+                          </div>
+
+                          {unread > 0 && (
+                            <span className="ml-2 shrink-0 rounded-full bg-[#de4435] px-2 py-0.5 text-xs font-medium text-white">
+                              {unread}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+                {!chatsLoading && !chatsError && !visibleChats.length && (
+                  <li className="px-2 py-2 text-sm text-black/60">Todavía no tenés chats. Creá uno con el botón “+”.</li>
+                )}
+              </ul>
+            </div>
           </aside>
 
           {/* ===== Conversación ===== */}
           {selectedChat ? (
-            <section className="relative flex min-h-[70vh] flex-col rounded-2xl bg-white/70 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
+            <section className="relative flex h-[72vh] flex-col overflow-hidden rounded-2xl bg-white/70 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
               {/* Header */}
               <header className="flex items-center justify-between gap-4 border-b border-black/5 px-5 py-4">
                 <div className="flex items-center gap-3">
@@ -762,81 +1154,28 @@ export default function ChatsPage() {
                   </div>
                 </div>
 
-                {/* Acciones */}
+                {/* Acciones: Participantes (solo grupos) + Trash + X */}
                 <div className="flex items-center gap-2" ref={menuRef}>
-                  <button
-                    title="Llamar"
-                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M6.6,10.8C7.9,13.3,10.2,15.6,12.7,16.9L15,14.6c0.3-0.3,0.8-0.4,1.2-0.3c1.3,0.4,2.6,0.6,4,0.6 c0.7,0,1.3,0.6,1.3,1.3v3.9c0,0.7-0.6,1.3-1.3,1.3C10.6,21.5,2.5,13.4,2.5,3.3C2.5,2.6,3.1,2,3.8,2h3.9c0.7,0,1.3,0.6,1.3,1.3 c0,1.4,0.2,2.7,0.6,4C9.8,7.9,9.7,8.4,9.4,8.7L6.6,10.8z" />
-                    </svg>
-                  </button>
-
-                  <button
-                    title="Videollamada"
-                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M17 10.5V7c0-0.55-0.45-1-1-1H4C3.45 6 3 6.45 3 7v10c0 0.55 0 1 1 1h12c0.55 0 1-0.45 1-1v-3.5l4 4v-11l-4 4z" />
-                    </svg>
-                  </button>
-
-                  <div className="relative">
+                  {selectedChat.isGroup && (
                     <button
-                      onClick={() => setMenuOpen((v) => !v)}
-                      title="Más opciones"
+                      title="Participantes"
                       className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen}
                     >
+                      {/* Ícono "users" */}
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="5" cy="12" r="2" />
-                        <circle cx="12" cy="12" r="2" />
-                        <circle cx="19" cy="12" r="2" />
+                        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5S5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05C16.38 13.74 18 14.68 18 16.5V19h6v-2.5c0-2.33-4.67-3.5-6-3.5z"/>
                       </svg>
                     </button>
+                  )}
 
-                    {menuOpen && (
-                      <div
-                        role="menu"
-                        className="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-xl border border-black/10 bg-white/95 shadow-xl backdrop-blur"
-                      >
-                        <button
-                          role="menuitem"
-                          onClick={toggleMute}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-black/80 hover:bg-black/5"
-                        >
-                          <svg width="18" height="18" viewBox="0 0 24 24" className="shrink-0" fill="currentColor">
-                            <path d="M10 21h4a2 2 0 0 1-4 0m10-4h-2v-7a6 6 0 1 0-12 0v7H4v2h16z" />
-                          </svg>
-                          {muted[selectedId] ? "Quitar silencio" : "Silenciar"}
-                        </button>
-
-                        <button
-                          role="menuitem"
-                          onClick={clearChat}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-black/80 hover:bg-black/5"
-                        >
-                          <svg width="18" height="18" viewBox="0 0 24 24" className="shrink-0" fill="currentColor">
-                            <path d="M9 3h6l1 2h5v2H3V5h5l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Zm-1 12h12a2 2 0 0 0 2-2V9H4v10a2 2 0 0 0 2 2Z" />
-                          </svg>
-                          Vaciar chat
-                        </button>
-
-                        <button
-                          role="menuitem"
-                          onClick={toggleArchive}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-black/80 hover:bg-black/5"
-                        >
-                          <svg width="18" height="18" viewBox="0 0 24 24" className="shrink-0" fill="currentColor">
-                            <path d="M3 3h18v4H3V3Zm2 6h14v12H5V9Zm2 2v8h10v-8H7Z" />
-                          </svg>
-                          {archived[selectedId] ? "Desarchivar" : "Archivar"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    title="Eliminar chat"
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M9 3h6l1 2h5v2H3V5h5l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Zm-1 12h12a2 2 0 0 0 2-2V9H4v10a2 2 0 0 0 2 2Z" />
+                    </svg>
+                  </button>
 
                   <button
                     onClick={() => {
@@ -901,7 +1240,7 @@ export default function ChatsPage() {
                 </div>
               )}
 
-              {/* Historial */}
+              {/* Historial (scroll) */}
               <div ref={scrollRef} className="flex-1 space-y-6 overflow-y-auto px-5 py-6">
                 <div className="flex items-center gap-3">
                   <div className="h-px flex-1 bg-black/10" />
@@ -912,7 +1251,7 @@ export default function ChatsPage() {
                 {messagesById[selectedId]?.length ? (
                   messagesById[selectedId].map((m, i) =>
                     m.from === "them" ? (
-                      <div key={i} className="flex items-end gap-3">
+                      <div key={m.id ?? i} className="flex items-end gap-3">
                         <div className="h-9 w-9 shrink-0 rounded-full bg-[#f16f24]/10 text-center leading-9 text-[#f16f24] font-semibold">
                           {selectedChat.initials[0]}
                         </div>
@@ -922,7 +1261,7 @@ export default function ChatsPage() {
                         </div>
                       </div>
                     ) : (
-                      <div key={i} className="flex items-end justify-end gap-3">
+                      <div key={m.id ?? i} className="flex items-end justify-end gap-3">
                         <div className="max-w-[70%] rounded-2xl rounded-tr-md bg-gradient-to-br from-[#f16f24] to-[#de4435] p-3 text-white shadow-sm">
                           <p className="text-sm">{m.text}</p>
                           <div className="mt-1 text-right text-[11px] opacity-80">{m.time}</div>
@@ -984,7 +1323,7 @@ export default function ChatsPage() {
               </footer>
             </section>
           ) : (
-            <section className="flex min-h-[70vh] items-center justify-center rounded-2xl bg-white/70 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
+            <section className="flex h-[72vh] items-center justify-center rounded-2xl bg-white/70 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
               <div className="text-center">
                 <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-[#f16f24]/10" />
                 <p className="text-sm text-black/60">Selecciona un chat para comenzar</p>
@@ -995,7 +1334,6 @@ export default function ChatsPage() {
       </main>
 
       {/* ===== MODALES ===== */}
-
       {/* PRIVADO */}
       {pickerMode === "private" && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
