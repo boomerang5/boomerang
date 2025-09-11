@@ -5,6 +5,7 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react';
 // @ts-ignore
 import feather from 'feather-icons';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 type Perfil = { nombre: string | null; apellido: string | null; mail: string | null };
 
@@ -19,6 +20,34 @@ type Contact = {
   foto?: string | null;
 };
 
+type NotifType = 'friend_request' | 'calendar' | 'scheduled_call' | 'missed_call' | 'system' | 'meeting';
+
+type NotificationItem = {
+  id: string | number;
+  type: NotifType;
+  title: string; //ej: solicitud de amistad
+  message?: string | null; //algun detalle
+  when?: string | null;
+  avatar?: string | null; //foto por las dudas
+  meta?: Record<string, any>; //payload extra 
+};
+
+type FriendRequest = {
+  id: number;
+  id_solicitante: number;
+  id_receptor: number;
+  estado: string;
+  mensaje?: string | null;
+  fecha_solicitud?: string | null;
+};
+
+type Reunion = {
+  id: number;
+  titulo: string;
+  fecha_programada: string;
+};
+
+//HELPERS
 function stateDot(estado: string) {
   const color =
     /busy|ocupado/i.test(estado) ? 'bg-red-500' :
@@ -46,11 +75,12 @@ function useDebouncedValue<T>(value: T, delay = 300) {
 
 export default function DashboardPage() {
   const supabase = useSupabaseClient();
+  const router = useRouter();
   const [estado, setEstado] = useState('available');
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [cargando, setCargando] = useState(true);
 
-  // ---- ID de usuario (para Swagger) ----
+  // ---- ID de usuario ----
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
 
   // ---- Estado Contactos (REST) ----
@@ -60,45 +90,184 @@ export default function DashboardPage() {
   const [q, setQ] = useState('');
   const qDebounced = useDebouncedValue(q, 350);
 
+  //Estado de notificaciones 
+  const [notifs, setNotifs] = useState<NotificationItem[]>([]);
+  const [notifsLoading, setNotifsLoading] = useState(true);
+  const [notifsError, setNotifsError] = useState<string | null>(null);
+
+  //Notificaciones de solicitudes de amistad (para acciones rápidas)
+  const [requests, setRequests] = useState<FriendRequest[]>([
+    {
+      id: 1,
+      id_solicitante: 123,
+      id_receptor: 456,
+      estado: 'pendiente',
+      mensaje: 'Hola! Me gustaría agregarte como contacto',
+      fecha_solicitud: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() // 2 horas atrás
+    },
+    {
+      id: 2,
+      id_solicitante: 789,
+      id_receptor: 456,
+      estado: 'pendiente',
+      mensaje: null,
+      fecha_solicitud: new Date(Date.now() - 30 * 60 * 1000).toISOString() // 30 min atrás
+    }
+  ]);
+  const [reqLoading, setReqLoading] = useState(false);
+
+  // Reuniones de hoy
+  const [reuniones, setReuniones] = useState<Reunion[]>([
+    {
+      id: 1,
+      titulo: "Reunión de equipo semanal",
+      fecha_programada: new Date(Date.now() + 15 * 60 * 1000).toISOString() // 15 min en el futuro
+    },
+    {
+      id: 2,
+      titulo: "Presentación con cliente",
+      fecha_programada: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() // 2 horas en el futuro
+    },
+    {
+      id: 3,
+      titulo: "Reunión de seguimiento",
+      fecha_programada: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString() // 1 hora atrás (pasada)
+    }
+  ]);
+
+  // Estado para hora y fecha actual
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+
+  // Combinar solicitudes y reuniones en una sola lista de notificaciones
+  const combinedNotifications = useMemo(() => {
+    const notifications: NotificationItem[] = [];
+    
+    // Agregar solicitudes de amistad
+    requests.forEach(req => {
+      notifications.push({
+        id: `req_${req.id}`,
+        type: 'friend_request',
+        title: 'Solicitud de amistad',
+        message: req.mensaje || `Usuario ${req.id_solicitante} quiere agregarte`,
+        when: req.fecha_solicitud || new Date().toISOString(),
+        meta: req
+      });
+    });
+    
+    // Agregar reuniones de hoy
+    reuniones.forEach(reunion => {
+      const meetingTime = new Date(reunion.fecha_programada);
+      const now = new Date();
+      const timeDiff = meetingTime.getTime() - now.getTime();
+      const hoursUntil = Math.floor(timeDiff / (1000 * 60 * 60));
+      
+      let title = 'Reunión programada';
+      if (hoursUntil <= 1 && hoursUntil >= 0) {
+        title = 'Reunión próxima';
+      } else if (hoursUntil < 0) {
+        title = 'Reunión pasada';
+      }
+      
+      notifications.push({
+        id: `meeting_${reunion.id}`,
+        type: 'meeting',
+        title,
+        message: `${reunion.titulo} - ${meetingTime.toLocaleTimeString()}`,
+        when: reunion.fecha_programada,
+        meta: reunion
+      });
+    });
+    
+    // Ordenar por fecha (más recientes primero)
+    return notifications.sort((a, b) => {
+      const dateA = new Date(a.when || 0).getTime();
+      const dateB = new Date(b.when || 0).getTime();
+      return dateB - dateA;
+    });
+  }, [requests, reuniones]);
+
+
+  //Helpers
+  function iconFor(type: NotifType): string {
+    switch (type) {
+      case 'friend_request':  return 'user-plus';
+      case 'calendar':        return 'calendar';
+      case 'scheduled_call':  return 'phone-outgoing';
+      case 'missed_call':     return 'phone-missed';
+      case 'meeting':         return 'calendar';
+      default:                return 'info';
+    }
+  }
+
+  async function handleNotifAccept(n: NotificationItem) {
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess.session?.access_token ?? '';
+      
+      if (n.type === 'friend_request') {
+        const req = n.meta as FriendRequest;
+        await handleAccept(req);
+      } else if (n.type === 'meeting') {
+        // Navegar al calendario para ver la reunión
+        router.push('/protected/calendario');
+      } else if (n.type === 'calendar') {
+        // abrir detalle / marcar como leída
+      } else if (n.type === 'scheduled_call') {
+        // unirse / abrir sala programada
+      }
+      
+      // Actualizar la lista de solicitudes si era una solicitud
+      if (n.type === 'friend_request') {
+        fetchRequests();
+      }
+    } catch {
+      setNotifsError('No se pudo procesar la acción.');
+    }
+  }
+
+  async function handleNotifReject(n: NotificationItem) {
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess.session?.access_token ?? '';
+      
+      if (n.type === 'friend_request') {
+        const req = n.meta as FriendRequest;
+        await handleReject(req);
+      } else {
+        // marcar como descartada / leída
+        console.log('Descartar notificación:', n);
+      }
+      
+      // Actualizar la lista de solicitudes si era una solicitud
+      if (n.type === 'friend_request') {
+        fetchRequests();
+      }
+    } catch {
+      setNotifsError('No se pudo procesar la acción.');
+    }
+  }
+
+  function whenLabel(iso?: string | null) {
+    if (!iso) return null;
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
+  }
+    
   // Render de íconos
   useEffect(() => { feather.replace(); });
 
-  // Perfil + resolvemos id_usuario desde Supabase (uuid -> Usuario.id)
+  // Actualizar hora cada minuto
   useEffect(() => {
-    const fetchPerfil = async () => {
-      setCargando(true);
+    // Establecer tiempo inicial
+    setCurrentTime(new Date());
+    
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000); // Actualizar cada minuto
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const sessionUuid = sessionData?.session?.user?.id ?? null;
+    return () => clearInterval(timer);
+  }, []);
 
-      const { data: uuidData } = await supabase.rpc('get_usuario_uuid');
-      const uuid =
-        (typeof uuidData === 'string' && uuidData) ||
-        (uuidData && (uuidData as any).uuid) ||
-        (uuidData && (uuidData as any).user_uuid) ||
-        sessionUuid;
-
-      if (!uuid) { setCargando(false); return; }
-
-      const { data: row } = await supabase
-        .from('Usuario')
-        .select('id')
-        .eq('User_id', uuid)
-        .maybeSingle();
-
-      if (!row?.id) { setCargando(false); return; }
-      setIdUsuario(row.id);
-
-      const { data: userData } = await supabase.rpc('get_user_by_id_usuario', { p_id_usuario: row.id });
-      const u = Array.isArray(userData) ? userData[0] : userData;
-      if (u) {
-        setPerfil({ nombre: u.nombre ?? null, apellido: u.apellido ?? null, mail: u.mail ?? null });
-      }
-      setCargando(false);
-    };
-    fetchPerfil();
-  }, [supabase]);
-
+  // ---- Cargar notificaciones
   // Contactos desde tu backend vía PROXY
   useEffect(() => {
     const ctrl = new AbortController();
@@ -159,6 +328,183 @@ export default function DashboardPage() {
     return () => ctrl.abort();
   }, [idUsuario, qDebounced, supabase]);
 
+
+  // Perfil + resolvemos id_usuario desde Supabase (uuid -> Usuario.id)
+  useEffect(() => {
+    const fetchPerfil = async () => {
+      setCargando(true);
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const sessionUuid = sessionData?.session?.user?.id ?? null;
+      const { data: uuidData } = await supabase.rpc('get_usuario_uuid');
+      const uuid =
+        (typeof uuidData === 'string' && uuidData) ||
+        (uuidData && (uuidData as any).uuid) ||
+        (uuidData && (uuidData as any).user_uuid) ||
+        sessionUuid;
+
+      if (!uuid) { setCargando(false); return; }
+
+      const { data: row } = await supabase
+        .from('Usuario')
+        .select('id')
+        .eq('User_id', uuid)
+        .maybeSingle();
+
+      if (!row?.id) { setCargando(false); return; }
+      setIdUsuario(row.id);
+
+      const { data: userData } = await supabase.rpc('get_user_by_id_usuario', { p_id_usuario: row.id });
+      const u = Array.isArray(userData) ? userData[0] : userData;
+      if (u) {
+        setPerfil({ nombre: u.nombre ?? null, apellido: u.apellido ?? null, mail: u.mail ?? null });
+      }
+      setCargando(false);
+    };
+    fetchPerfil();
+  }, [supabase]);
+
+  // ---- Cargar notificaciones
+  useEffect(() => {
+    const ctrl = new AbortController();
+
+    (async () => {
+      if (!idUsuario) { setNotifs([]); setNotifsLoading(false); return; }
+
+      setNotifsLoading(true);
+      setNotifsError(null);
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const accessToken = sess.session?.access_token ?? '';
+        if (!accessToken) throw new Error('Sin sesión');
+
+        const params = new URLSearchParams({ id_usuario: String(idUsuario) });
+        const res = await fetch(`/api/notificaciones?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: ctrl.signal,
+          cache: 'no-store',
+        });
+
+        if (!res.ok) throw new Error(await res.text().catch(() => `Error ${res.status}`));
+        
+        const json = await res.json();
+        const arr = Array.isArray(json) ? json : (json?.items ?? json?.data ?? []);
+
+        // Mapeo flexible para normalizar tu payload
+        const mapped: NotificationItem[] = arr.map((n: any) => ({
+          id: n.id ?? crypto.randomUUID(),
+          type:
+            (n.type as NotifType) ??
+            (n.kind as NotifType) ??
+            (n.categoria as NotifType) ??
+            'system',
+          title: n.title ?? n.titulo ?? n.asunto ?? 'Notificación',
+          message: n.message ?? n.mensaje ?? null,
+          when: n.when ?? n.fecha ?? n.created_at ?? null,
+          avatar: n.avatar ?? n.foto ?? n.path_foto_perfil ?? null,
+          meta: n,
+        }));
+
+        setNotifs(mapped);
+      } catch (e) {
+        if ((e as any)?.name !== 'AbortError') setNotifsError('Error al cargar notificaciones.');
+      } finally {
+        if (!ctrl.signal.aborted) setNotifsLoading(false);
+      }
+    })();
+
+    return () => ctrl.abort();
+  }, [idUsuario, supabase]);
+
+  // ---- Cargar solicitudes de amistad
+  const fetchRequests = async () => {
+    if (!idUsuario) return;
+    
+    setReqLoading(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess.session?.access_token ?? '';
+      if (!accessToken) throw new Error('Sin sesión');
+
+      const res = await fetch(`/api/solicitudes?usuario_id=${idUsuario}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setRequests(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      console.error('Error cargando solicitudes:', e);
+    } finally {
+      setReqLoading(false);
+    }
+  };
+
+  // Cargar solicitudes iniciales - movido al useEffect
+
+  // ---- Realtime para solicitudes
+  useEffect(() => {
+    if (!idUsuario) return;
+
+    fetchRequests(); // Cargar inicial
+
+    const channel = supabase
+      .channel('solicitudes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'SolicitudContacto' },
+        payload => {
+          fetchRequests();
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [idUsuario, supabase]);
+
+  /* ===== Reuniones de hoy ===== */
+  useEffect(() => {
+    if (!idUsuario) return;
+    const fetchReuniones = async () => {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+
+      const { data, error } = await supabase
+        .from('EventoLlamada')
+        .select('id, titulo, fecha_programada')
+        .gte('fecha_programada', `${dateStr} 00:00:00`)
+        .lte('fecha_programada', `${dateStr} 23:59:59`);
+
+      if (!error && data) setReuniones(data as Reunion[]);
+    };
+    fetchReuniones();
+  }, [idUsuario, supabase]);
+
+  /* ===== Acciones solicitudes ===== */
+  async function handleAccept(r: FriendRequest) {
+    await supabase.rpc('accept_contact_request', {
+      p_id_solicitante: r.id_solicitante,
+      p_id_receptor: r.id_receptor,
+    });
+  }
+  async function handleReject(r: FriendRequest) {
+    await supabase.rpc('reject_contact_request', {
+      p_id_solicitante: r.id_solicitante,
+      p_id_receptor: r.id_receptor,
+    });
+  }
+  async function handleCancel(r: FriendRequest) {
+    await supabase.rpc('cancel_contact_request', {
+      p_id_solicitante: r.id_solicitante,
+      p_id_receptor: r.id_receptor,
+    });
+  }
+
+
   const filteredContacts = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return contacts;
@@ -173,7 +519,42 @@ export default function DashboardPage() {
   function handleChat(c: Contact)  { console.log('Chat con', c); }
 
   return (
-    <main className="flex-1 px-6 py-8 flex flex-col gap-8">
+    <div className="flex min-h-screen bg-orange-50 dark:bg-gray-600">
+      {/* Sidebar */}
+      <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
+        <div className="flex flex-col items-center gap-6 mt-4">
+          <Link href="/protected">
+            <i data-feather="home" className="text-orange-500 hover:text-orange-400 w-5 h-5" />
+          </Link>
+
+          <Link href="/protected/perfil">
+            <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
+
+          <Link href="/protected/historial-llamada">
+            <i data-feather="clock" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          <Link href="/protected/contactos">
+            <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          <Link href="/protected/chats" aria-label="Ir a chats">
+            <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
+        </div>
+        <div className="flex flex-col items-center gap-5 mb-4">
+          <i data-feather="help-circle" className="text-black dark:text-white w-5 h-5" />
+          <i data-feather="settings" className="text-black dark:text-white w-5 h-5" />
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className="flex-1 px-6 py-8 flex flex-col gap-8">
         {/* Header */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-4">
@@ -201,77 +582,107 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {/* Cards */}
-        <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          <Card title="Iniciar reunión" description="Crea una sala e invita a otros." buttonText="Crear reunión" />
-          <Card title="Unirse con código" inputPlaceholder="Código de reunión" buttonText="Unirse" />
+        {/* Banner con hora, fecha y mascota */}
+        <div className="bg-gradient-to-r from-orange-400 to-orange-600 rounded-xl p-4 mb-6 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              {currentTime ? (
+                <>
+                  <div className="text-3xl font-bold text-white">
+                    {currentTime.toLocaleTimeString('es-ES', { 
+                      hour: '2-digit', 
+                      minute: '2-digit',
+                      hour12: true 
+                    })}
+                  </div>
+                  <div className="text-orange-100 text-lg">
+                    {currentTime.toLocaleDateString('es-ES', { 
+                      weekday: 'long', 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="text-3xl font-bold text-white">Cargando...</div>
+              )}
+            </div>
+            <div className="flex items-center">
+              <div className="text-right text-white mr-4">
+                <div className="text-sm opacity-90">¡Hola!</div>
+                <div className="text-xs opacity-75">¿En qué puedo ayudarte hoy?</div>
+              </div>
+              <div className="w-20 h-20 bg-orange-200 rounded-full flex items-center justify-center backdrop-blur-sm overflow-hidden">
+                <img 
+                  src="/mascota.png" 
+                  alt="Mascota" 
+                  className="w-16 h-16 object-contain" 
+                />
+              </div>
+            </div>
+          </div>
+        </div>
 
-          {/* Contactos */}
+        {/* Cards */}
+        <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch auto-rows-[minmax(0,1fr)]">
+          <Card title="Iniciar reunión" description="Crea una sala e invita a otros." buttonText="Crear reunión" />
+          
+          {/* Notificaciones */}
           <Card
-            title="Contactos"
+            title="Notificaciones"
             content={
               <div className="flex flex-col gap-3">
-                <div className="relative">
-                  <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="Buscar por nombre, apellido o apodo…"
-                    className="w-full px-3 py-2 pr-8 rounded-md bg-white/20 border border-white/30 text-foreground backdrop-blur-sm"
-                  />
-                  <i data-feather="search" className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-500 w-4 h-4" />
-                </div>
-
-                {contactsLoading ? (
-                  <p className="text-sm text-muted-foreground">Cargando…</p>
-                ) : contactsError ? (
-                  <p className="text-sm text-red-500">Error de red al obtener contactos.</p>
-                ) : filteredContacts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Sin resultados.</p>
+                {reqLoading ? (
+                  <p className="text-muted-foreground text-sm">Cargando…</p>
+                ) : combinedNotifications.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">No hay notificaciones nuevas.</p>
                 ) : (
-                  <ul className="divide-y divide-white/20 max-h-72 overflow-auto pr-1">
-                    {filteredContacts.map((c) => (
-                      <li key={c.id} className="py-2 flex items-center gap-3">
-                        {c.foto ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={c.foto} alt={c.apodo ?? c.nombre} className="w-9 h-9 rounded-full object-cover" />
-                        ) : (
-                          <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-xs">👤</div>
-                        )}
-
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">
-                            {c.nombre} {c.apellido ?? ''}
-                            {c.apodo ? <span className="opacity-70"> · {c.apodo}</span> : null}
-                          </div>
-                          {c.estado ? (
-                            <span className="text-xs opacity-70">
-                              {stateDot(c.estado)} {labelEstado(c.estado)}
-                            </span>
-                          ) : null}
+                  <ul className="divide-y divide-white/20 max-h-48 overflow-y-auto pr-2">
+                    {combinedNotifications.map((n: NotificationItem) => (
+                      <li key={n.id} className="py-3 flex items-start gap-3">
+                        <div className="flex-shrink-0 mt-1">
+                          <i data-feather={iconFor(n.type)} className="w-4 h-4 text-orange-500" />
                         </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            title="Llamar"
-                            className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                            onClick={() => handleCall(c)}
-                          >
-                            <i data-feather="phone" className="w-4 h-4" />
-                          </button>
-                          <button
-                            title="Videollamada"
-                            className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                            onClick={() => handleVideo(c)}
-                          >
-                            <i data-feather="video" className="w-4 h-4" />
-                          </button>
-                          <button
-                            title="Chat"
-                            className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                            onClick={() => handleChat(c)}
-                          >
-                            <i data-feather="message-circle" className="w-4 h-4" />
-                          </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm">{n.title}</div>
+                          {n.message && (
+                            <div className="text-xs text-muted-foreground mt-1">{n.message}</div>
+                          )}
+                          {n.when && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {whenLabel(n.when)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          {n.type === 'friend_request' && (n.meta as FriendRequest).estado === 'pendiente' && (
+                            <>
+                              <button 
+                                onClick={() => handleNotifAccept(n)}
+                                className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600"
+                                title="Aceptar"
+                              >
+                                <i data-feather="check" className="w-3 h-3" />
+                              </button>
+                              <button 
+                                onClick={() => handleNotifReject(n)}
+                                className="p-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-600"
+                                title="Rechazar"
+                              >
+                                <i data-feather="x" className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                          {n.type === 'meeting' && (
+                            <button 
+                              onClick={() => handleNotifAccept(n)}
+                              className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-600"
+                              title="Ver en calendario"
+                            >
+                              <i data-feather="calendar" className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </li>
                     ))}
@@ -281,6 +692,86 @@ export default function DashboardPage() {
             }
           />
 
+          {/* Contactos */}
+          <div className="md:row-span-2 flex flex-col">
+            <Card        
+              className="flex flex-col flex-1 min-h-0"
+              title="Contactos"
+              content={
+                <div className="flex flex-col gap-4 flex-1 min-h-0">
+                  <div className="relative flex-shrink-0">
+                    <input
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      placeholder="Buscar por nombre, apellido o apodo…"
+                      className="w-full px-3 py-2 pr-8 rounded-md bg-white/20 border border-white/30 text-foreground backdrop-blur-sm"
+                    />
+                    <i data-feather="search" className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-500 w-4 h-4" />
+                  </div>
+
+                  <div className="flex-1 min-h-0">
+                    {contactsLoading ? (
+                      <p className="text-sm text-muted-foreground">Cargando…</p>
+                    ) : contactsError ? (
+                      <p className="text-sm text-red-500">Error de red al obtener contactos.</p>
+                    ) : filteredContacts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Sin resultados.</p>
+                    ) : (
+                      <ul className="divide-y divide-white/20 max-h-96 overflow-y-auto pr-1">
+                        {filteredContacts.map((c: Contact) => (
+                          <li key={c.id} className="py-2 flex items-center gap-3">
+                            {c.foto ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={c.foto} alt={c.apodo ?? c.nombre} className="w-9 h-9 rounded-full object-cover" />
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-xs">👤</div>
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate">
+                                {c.nombre} {c.apellido ?? ''}
+                                {c.apodo ? <span className="opacity-70"> · {c.apodo}</span> : null}
+                              </div>
+                              {c.estado ? (
+                                <span className="text-xs opacity-70">
+                                  {stateDot(c.estado)} {labelEstado(c.estado)}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                title="Llamar"
+                                className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
+                                onClick={() => handleCall(c)}
+                              >
+                                <i data-feather="phone" className="w-4 h-4" />
+                              </button>
+                              <button
+                                title="Videollamada"
+                                className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
+                                onClick={() => handleVideo(c)}
+                              >
+                                <i data-feather="video" className="w-4 h-4" />
+                              </button>
+                              <button
+                                title="Chat"
+                                className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
+                                onClick={() => handleChat(c)} 
+                              >
+                                <i data-feather="message-circle" className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              }
+            />
+          </div> 
+      
           <Card
             title="Reuniones programadas"
             list={['🗓 5 julio - Reunión equipo 10:00', '🗓 6 julio - Cliente Z 15:30']}
@@ -320,32 +811,15 @@ export default function DashboardPage() {
                 >
                   Editar perfil
                 </Link>
-              </div>
+              </div>  
             }
           />
 
-          {/* 👇 Chat reciente con Link */}
-          <Card
-            title="Chat reciente"
-            content={
-              <div className="bg-white/30 dark:bg-white/10 p-3 rounded-md text-sm text-muted-foreground backdrop-blur-md">
-                <p><strong>Juan:</strong> ¿Nos conectamos ahora?</p>
-                <p><strong>Vos:</strong> Dame 5 minutos 🙌</p>
-              </div>
-            }
-            buttonText={
-              <Link
-                href="/protected/chats"
-                className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold w-fit mt-3 hover:brightness-105 transition"
-              >
-                Ir al chat
-              </Link>
-            }
-          />
         </section>
       </main>
   );
 }
+
 
 /* Card component */
 function Card({
@@ -355,6 +829,7 @@ function Card({
   list,
   content,
   buttonText,
+  className,
 }: {
   title: string;
   description?: string;
@@ -362,9 +837,10 @@ function Card({
   list?: string[];
   content?: React.ReactNode;
   buttonText?: string | React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="bg-white/30 dark:bg-white/10 rounded-xl p-6 shadow-lg backdrop-blur-md border border-white/20 flex flex-col justify-between">
+    <div className={`bg-orange-50/50 dark:bg-gray-700/50 rounded-xl p-6 shadow-lg backdrop-blur-md border border-orange-200/30 dark:border-gray-600/30 flex flex-col justify-between ${className ?? ''}`}>
       <div>
         <h2 className="text-orange-500 font-semibold text-lg mb-2">{title}</h2>
         {description && <p className="text-muted-foreground mb-4">{description}</p>}

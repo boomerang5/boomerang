@@ -2,7 +2,7 @@ import express from 'express';
 
 const router = express.Router();
 
-import { get_all_contacts, create_usuario_profile, update_usuario_profile, get_usuario_uuid, get_user_by_id_usuario, change_state_user, get_state_user, update_user_profile_photo} from '../controllers/userController';
+import { get_all_contacts, create_usuario_profile, update_usuario_profile, get_usuario_uuid, get_user_by_id_usuario, change_state_user, get_state_user, update_user_profile_photo, get_user_language} from '../controllers/userController';
 
 // GET GET_ALL_CONTACTS
 /**
@@ -270,6 +270,47 @@ router.post('/photo/update', update_user_profile_photo);
  *         description: Usuario no encontrado
  */
 router.get('/state', get_state_user);
+
+
+//-----------------------------------------------------------------------------------------------------------------
+// GET GET_USER_LANGUAGE
+/**
+ * @swagger
+ * /api/users/language:
+ *   get:
+ *     summary: Obtener el idioma del usuario
+ *     tags: [Usuarios]
+ *     parameters:
+ *       - in: query
+ *         name: id_usuario
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID del usuario
+ *     responses:
+ *       200:
+ *         description: Idioma del usuario
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id_idioma:
+ *                   type: integer
+ *                   example: 2
+ *                 nombre_idioma:
+ *                   type: string
+ *                   example: Ingles
+ *                 codigo_iso:
+ *                   type: string
+ *                   example: en-US
+ *       400:
+ *         description: ID de usuario inválido
+ *       404:
+ *         description: Usuario o idioma no encontrado
+ */
+router.get("/language", get_user_language);
+
 
 //-----------------------------------------------------------------------------------------------------------------
 // GET GET_USUARIO_UUID

@@ -55,7 +55,6 @@ export default function ProtectedSidebar() {
 
       <div className="flex flex-col items-center gap-5 mb-4">
         <i data-feather="help-circle" className="w-5 h-5 text-black dark:text-white" />
-        <i data-feather="settings" className="w-5 h-5 text-black dark:text-white" />
       </div>
     </aside>
   )

@@ -36,9 +36,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             disableTransitionOnChange
           >
             <main className="min-h-screen flex flex-col">
-              <nav className="w-full flex justify-center border-b border-b-foreground/10 h-16 px-6">
+              <nav className="w-full flex justify-center border-b border-b-orange-200 dark:border-b-orange-800 h-16 px-6 bg-orange-50 dark:bg-gray-600">
                 <div className="w-full max-w-7xl flex justify-between items-center text-sm">
-                  <div className="flex gap-5 items-center font-semibold">
+                  <div className="flex gap-5 items-center font-semibold text-orange-600 dark:text-orange-400">
                     <Link href="/">B O O M E R A N G</Link>
                   </div>
                   {!hasEnvVars ? <EnvVarWarning /> : <HeaderAuth />}
@@ -47,8 +47,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
               <div className="flex-1 w-full">{children}</div>
 
-              <footer className="w-full flex items-center justify-center border-t text-center text-xs gap-4 py-6">
-                <p>2025 Boomerang.</p>
+              <footer className="w-full flex items-center justify-center border-t border-t-orange-200 dark:border-t-orange-800 text-center text-xs gap-4 py-6 bg-orange-50 dark:bg-gray-600">
+                <p className="text-orange-600 dark:text-orange-400">2025 Boomerang.</p>
                 <ThemeSwitcher />
               </footer>
             </main>
