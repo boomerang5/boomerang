@@ -3,13 +3,9 @@ import userRoutes from './routes/userRoutes';
 import contactoRoutes from './routes/contactoRoutes';
 import grupoRoutes from './routes/grupoRoutes';
 import chatRoutes from './routes/chatRoutes';
-<<<<<<< HEAD
 import mensajeRoutes from './routes/mensajeRoutes'
 import llamadaRoutes from './routes/llamadaRoutes'
-=======
-import mensajeRoutes from './routes/mensajeRoutes';
 import calendarRoutes from './routes/calendarRoutes';
->>>>>>> 87bc30c29da3f1ee1917ffc0de53535237db1fe7
 import swaggerUi from 'swagger-ui-express';
 const swaggerJsdoc = require('swagger-jsdoc');
 
@@ -43,11 +39,8 @@ app.use('/api/contacts', contactoRoutes);
 app.use('/api/groups', grupoRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/mensajes', mensajeRoutes);
-<<<<<<< HEAD
 app.use('/api/llamadas', llamadaRoutes);
-=======
 app.use('/api/calendar', calendarRoutes);
->>>>>>> 87bc30c29da3f1ee1917ffc0de53535237db1fe7
 
 const PORT = 3003;
 app.listen(PORT, () => {
