@@ -1,3 +1,4 @@
+import Link from "next/link";
 import NextLogo from "./next-logo";
 import SupabaseLogo from "./supabase-logo";
 
@@ -12,11 +13,15 @@ export default function Header() {
         >
           <SupabaseLogo />
         </a>
+
         <span className="border-l rotate-45 h-6" />
-        <a href="https://nextjs.org/" target="_blank" rel="noreferrer">
+
+        {/* 👇 Ahora tu logo navega a la home protegida */}
+        <Link href="/protected" aria-label="Ir al inicio">
           <NextLogo />
-        </a>
+        </Link>
       </div>
+
       <h1 className="sr-only">Supabase and Next.js Starter Template</h1>
       <p className="text-3xl lg:text-4xl !leading-tight mx-auto max-w-xl text-center">
         The fastest way to build apps with{" "}
@@ -38,6 +43,7 @@ export default function Header() {
           Next.js
         </a>
       </p>
+
       <div className="w-full p-[1px] bg-gradient-to-r from-transparent via-foreground/10 to-transparent my-8" />
     </div>
   );

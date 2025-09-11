@@ -4,7 +4,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 // @ts-ignore
 import feather from 'feather-icons'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { signOutAction } from '@/app/actions'
+import { Button } from './ui/button'
 
 export default function ProtectedSidebar() {
   const pathname = usePathname()
@@ -27,10 +29,48 @@ export default function ProtectedSidebar() {
         <i data-feather="calendar" className="w-5 h-5 text-black dark:text-white" />
       </div>
 
-      <div className="flex flex-col items-center gap-5 mb-4">
-        <i data-feather="help-circle" className="w-5 h-5 text-black dark:text-white" />
-        <i data-feather="settings" className="w-5 h-5 text-black dark:text-white" />
-      </div>
+      <SettingsMenu />
     </aside>
+  )
+}
+
+function SettingsMenu() {
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (open && buttonRef.current && !buttonRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [open])
+
+  return (
+    <div className="flex flex-col items-center gap-5 mb-4 relative">
+      <i data-feather="help-circle" className="w-5 h-5 text-black dark:text-white" />
+      <Button
+        ref={buttonRef}
+        aria-label="Ajustes"
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 p-0"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <i data-feather="settings" className="w-5 h-5 text-black dark:text-white" />
+      </Button>
+      {open && (
+        <div className="absolute left-8 bottom-0 z-50 min-w-[10rem] rounded-md border bg-popover p-1 shadow-md">
+          <form action={signOutAction}>
+            <button type="submit" className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent">
+              Cerrar Sesion
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
   )
 }
