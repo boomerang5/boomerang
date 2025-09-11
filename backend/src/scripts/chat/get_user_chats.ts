@@ -14,6 +14,6 @@ async function getUserChats(idUsuario: number) {
 }
 
 //Prueba
-const idUsuario = 3;
+const idUsuario = 1;
 
 getUserChats(idUsuario);
