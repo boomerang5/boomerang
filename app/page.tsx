@@ -15,12 +15,12 @@ export default function Home() {
   return (
     <>
       {/* HERO */}
-      <section className="py-24 text-center bg-gradient-to-br from-orange-100/50 to-white/30 dark:from-orange-950/20 dark:to-orange-900/10 backdrop-blur-md rounded-xl mx-4 my-6 shadow-lg border border-orange-200 dark:border-orange-800 transition">
+      <section className="py-24 text-center bg-white dark:bg-gray-900 backdrop-blur-md rounded-xl mx-4 my-6 shadow-lg border border-gray-200 dark:border-gray-700 transition">
         <div className="w-full max-w-[1400px] mx-auto px-6 flex flex-col md:flex-row items-center gap-10">
           <div className="flex-1 space-y-6 text-left">
             <h1 className="text-5xl font-bold leading-tight text-foreground">
               Conectá el mundo<br />
-              <span className="bg-gradient-to-r from-orange-500 to-orange-700 bg-clip-text text-transparent">
+              <span className="text-gray-900 dark:text-white">
                 en tiempo real.
               </span>
             </h1>
@@ -30,13 +30,13 @@ export default function Home() {
             <div className="flex flex-wrap gap-4">
               <a
                 href="#"
-                className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-6 py-3 rounded-full font-semibold shadow-md transition"
+                className="bg-gray-900 hover:bg-black dark:bg-white dark:hover:bg-gray-100 text-white dark:text-black px-6 py-3 rounded-full font-semibold shadow-md transition"
               >
                 Iniciar llamada
               </a>
               <a
                 href="#"
-                className="border-2 border-orange-500 text-orange-600 hover:bg-orange-600 hover:text-white px-6 py-3 rounded-full font-semibold transition"
+                className="border-2 border-gray-900 dark:border-white text-gray-900 dark:text-white hover:bg-gray-900 hover:text-white dark:hover:bg-white dark:hover:text-black px-6 py-3 rounded-full font-semibold transition"
               >
                 Unirse
               </a>
@@ -46,7 +46,7 @@ export default function Home() {
             <img
               src="/videollamada.png"
               alt="Videollamada"
-              className="max-w-full rounded-xl shadow-xl border border-orange-200 dark:border-orange-700"
+              className="max-w-full rounded-xl shadow-xl border border-gray-200 dark:border-gray-600"
             />
           </div>
         </div>
@@ -78,9 +78,9 @@ export default function Home() {
             ].map(({ icon, title, desc }, i) => (
               <div
                 key={i}
-                className="bg-white/60 dark:bg-white/10 backdrop-blur-md border border-orange-100 dark:border-orange-700 p-6 rounded-2xl w-72 shadow-md hover:shadow-xl transition text-left"
+                className="bg-white dark:bg-gray-800 backdrop-blur-md border border-gray-200 dark:border-gray-600 p-6 rounded-2xl w-72 shadow-md hover:shadow-xl transition text-left"
               >
-                <h3 className="text-xl font-semibold mb-2 text-orange-600 dark:text-orange-400">
+                <h3 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">
                   {icon} {title}
                 </h3>
                 <p className="text-muted-foreground">{desc}</p>

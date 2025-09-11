@@ -123,19 +123,11 @@ export default function EditarPerfilPage() {
   }
 
   if (loading) return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-6">Cargando…</main>
-    </div>
+    <main className="flex-1 p-6">Cargando…</main>
   );
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <Sidebar />
-
-      {/* Contenido */}
-      <main className="flex-1 mx-auto max-w-3xl p-6">
+    <main className="flex-1 mx-auto max-w-3xl p-6">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-3xl font-bold text-transparent">
@@ -205,36 +197,6 @@ export default function EditarPerfilPage() {
           </form>
         )}
       </main>
-    </div>
-  );
-}
-
-/* Sidebar (igual a tu home) */
-function Sidebar() {
-  return (
-    <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
-      <div className="flex flex-col items-center gap-6 mt-4">
-        <Link href="/protected">
-          <i data-feather="home" className="text-orange-500 hover:text-orange-400 w-5 h-5" />
-        </Link>
-
-        {/* Usuario → Ver perfil (rutas en español) */}
-        <Link href="/protected/perfil">
-          <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
-        </Link>
-
-        <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
-        <Link href="/protected/contactos">
-          <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
-        </Link>
-        <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
-        <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
-      </div>
-      <div className="flex flex-col items-center gap-5 mb-4">
-        <i data-feather="help-circle" className="text-black dark:text-white w-5 h-5" />
-        <i data-feather="settings" className="text-black dark:text-white w-5 h-5" />
-      </div>
-    </aside>
   );
 }
 

@@ -158,35 +158,6 @@ export default function CallHistoryPage() {
   }, [filtered, selected, loading])
 
     return (
-    <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d]">
-    {/* Sidebar */}
-    <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
-      <div className="flex flex-col items-center gap-6 mt-4">
-        <Link href="/protected">
-          <i data-feather="home" className="text-orange-500 hover:text-orange-400 w-5 h-5" />
-        </Link>
-        <Link href="/protected/perfil">
-          <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
-        </Link>
-        <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
-        <Link href="/protected/historial-llamada">
-          <i data-feather="clock" className="text-black dark:text-white w-5 h-5" />
-        </Link>
-        <Link href="/protected/contactos">
-          <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
-        </Link>
-        <Link href="/protected/chats" aria-label="Ir a chats">
-          <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
-        </Link>
-        <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
-      </div>
-      <div className="flex flex-col items-center gap-5 mb-4">
-        <i data-feather="help-circle" className="text-black dark:text-white w-5 h-5" />
-        <i data-feather="settings" className="text-black dark:text-white w-5 h-5" />
-      </div>
-    </aside>
-
-    {/* Main */}
     <main className="flex-1 px-4 md:px-8 py-6">
       {/* Título */}
       <div className="flex items-center justify-between gap-3 mb-4">
@@ -428,6 +399,5 @@ export default function CallHistoryPage() {
         </div>  
       )}
     </main>
-    </div>
-    )
+  )
 }

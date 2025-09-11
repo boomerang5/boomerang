@@ -17,14 +17,40 @@ export default function ProtectedSidebar() {
   return (
     <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
       <div className="flex flex-col items-center gap-6 mt-4">
-        <Link href="/protected" aria-label="Inicio"><i data-feather="home" className={cls('/protected')} /></Link>
-        <Link href="/protected/perfil" aria-label="Perfil"><i data-feather="user" className={cls('/protected/perfil')} /></Link>
+        {/* Inicio */}
+        <Link href="/protected" aria-label="Inicio">
+          <i data-feather="home" className={cls('/protected')} />
+        </Link>
+        
+        {/* Perfil */}
+        <Link href="/protected/perfil" aria-label="Perfil">
+          <i data-feather="user" className={cls('/protected/perfil')} />
+        </Link>
+        
+        {/* Video (placeholder) */}
+        <div className="cursor-pointer">
+          <i data-feather="video" className="w-5 h-5 text-black dark:text-white hover:text-orange-500 transition" />
+        </div>
+        
+        {/* Historial de llamadas */}
         <Link href="/protected/historial-llamada" aria-label="Historial de llamadas">
           <i data-feather="clock" className={cls('/protected/historial-llamada')} />
         </Link>
-        <Link href="/protected/contactos" aria-label="Contactos"><i data-feather="users" className={cls('/protected/contactos')} /></Link>
-        <Link href="/protected/chats" aria-label="Chats"><i data-feather="message-circle" className={cls('/protected/chats')} /></Link>
-        <i data-feather="calendar" className="w-5 h-5 text-black dark:text-white" />
+        
+        {/* Contactos */}
+        <Link href="/protected/contactos" aria-label="Contactos">
+          <i data-feather="users" className={cls('/protected/contactos')} />
+        </Link>
+        
+        {/* Chats */}
+        <Link href="/protected/chats" aria-label="Chats">
+          <i data-feather="message-circle" className={cls('/protected/chats')} />
+        </Link>
+        
+        {/* Calendario */}
+        <Link href="/protected/calendario" aria-label="Calendario">
+          <i data-feather="calendar" className={cls('/protected/calendario')} />
+        </Link>
       </div>
 
       <div className="flex flex-col items-center gap-5 mb-4">
