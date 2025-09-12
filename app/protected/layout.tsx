@@ -10,13 +10,15 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
   if (!session) redirect('/sign-in');
 
   return (
-    <ClientProviders initialSession={session}>
-      <div className="flex h-screen bg-white dark:bg-black">
-        <ProtectedSidebar />
-        <main className="flex-1 overflow-hidden">
-          {children}
-        </main>
-      </div>
-    </ClientProviders>
-  );
+      <ClientProviders initialSession={session}>
+        <div className="flex min-h-screen bg-transparent">
+          <ProtectedSidebar />
+          <main className="flex-1 overflow-visible">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-10">
+              {children}
+            </div>
+          </main>
+        </div>
+      </ClientProviders>
+    );
 }

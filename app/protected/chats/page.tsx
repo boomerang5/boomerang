@@ -315,7 +315,7 @@ export default function ChatsPage() {
       params.set("id_usuario", String(idUsuario));
       if (search && search.trim()) params.set("busqueda", search.trim());
 
-      const url = `/api/contactos/misContactos?${params.toString()}`;
+      const url = `/api/contacts/misContactos?${params.toString()}`;
       const r = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: "no-store",

@@ -546,15 +546,13 @@ export default function DashboardPage() {
 
 
   return (
-    <div className="flex min-h-screen bg-orange-50 dark:bg-gray-600">
+    <div className="space-y-8">
       {/* aca antes estaba el Sidebar */}
 
-      {/* Main content */}
-      <main className="flex-1 px-6 py-8 flex flex-col gap-8">
         {/* Header */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-semibold text-foreground">
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-semibold text-foreground">
               {cargando ? 'Cargando…' : `¡Bienvenido, ${perfil?.nombre ?? 'Usuario'}!`}
             </h1>
             <select
@@ -568,6 +566,7 @@ export default function DashboardPage() {
             </select>
           </div>
 
+          {/* Comento este buscador 
           <div className="relative max-w-md w-full">
             <input
               type="text"
@@ -576,10 +575,12 @@ export default function DashboardPage() {
             />
             <i data-feather="search" className="absolute right-3 top-1/2 transform -translate-y-1/2 text-orange-500" />
           </div>
+          */}
+
         </header>
 
         {/* Banner con hora, fecha y mascota */}
-        <div className="bg-gradient-to-r from-orange-400 to-orange-600 rounded-xl p-4 mb-6 shadow-lg">
+        <div className="bg-gradient-to-r from-orange-400 to-orange-600 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <div className="flex flex-col">
               {currentTime ? (
@@ -621,8 +622,8 @@ export default function DashboardPage() {
         </div>
 
         {/* Cards */}
-        <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch auto-rows-[minmax(0,1fr)]">
-          <Card title="Iniciar reunión" description="Crea una sala e invita a otros." buttonText="Crear reunión" />
+        <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
+        <Card title="Iniciar reunión" description="Crea una sala e invita a otros." buttonText="Crear reunión" />
           
           {/* Notificaciones */}
           <Card
@@ -812,7 +813,6 @@ export default function DashboardPage() {
           />
 
         </section>
-      </main>
     </div>
   );
 }

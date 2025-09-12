@@ -42,7 +42,7 @@ app.use('/api/mensajes', mensajeRoutes);
 app.use('/api/llamadas', llamadaRoutes);
 app.use('/api/calendar', calendarRoutes);
 
-const PORT = 3003;
+const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`Servidor backend corriendo en http://localhost:${PORT}`);
   console.log(`Swagger en http://localhost:${PORT}/api-docs`);

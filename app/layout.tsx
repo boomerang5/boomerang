@@ -28,7 +28,7 @@ const geistSans = Geist({
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={geistSans.className} suppressHydrationWarning>
-      <body className="bg-background text-foreground overflow-x-hidden overflow-y-auto">
+      <body className="bg-orange-50 dark:bg-gray-700 text-foreground overflow-x-hidden">
         <ClientProviders>
           <ThemeProvider
             attribute="class"
@@ -37,8 +37,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             disableTransitionOnChange
           >
             <main className="min-h-screen flex flex-col">
-              <nav className="w-full flex justify-center border-b border-b-orange-200 dark:border-b-orange-800 
-                h-13 md:h-16 px-5 bg-orange-50 dark:bg-gray-600">
+              {/* Header */}
+              <nav className="w-full flex justify-center border-b border-b-orange-200 dark:border-b-orange-800
+                              h-13 md:h-16 px-5 bg-orange-50 dark:bg-gray-600">
                 <div className="w-full max-w-7xl flex justify-between items-center text-sm">
                   <Link href="/" className="flex items-center gap-2 shrink-0">
                     <Image
@@ -54,11 +55,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </div>
               </nav>
 
+              {/* Contenido */}
+              <div className="flex-1 w-full pb-24 overflow-visible">
+                {children}
+              </div>
 
-              <div className="flex-1 w-full">{children}</div>
-
-              <footer className="w-full flex items-center justify-center border-t border-t-orange-200 dark:border-t-orange-800 text-center text-xs gap-4 py-6 bg-orange-50 dark:bg-gray-600">
-                <p className="text-orange-600 dark:text-orange-400">2025 Boomerang.</p>
+              {/* Footer (sticky, finito) */}
+              <footer className="w-full h-13 md:h-16 
+             border-t border-t-orange-200 dark:border-t-orange-800 
+             bg-orange-50 dark:bg-gray-600
+             flex items-center justify-center gap-4 px-5">
+                <p className="text-orange-600 dark:text-orange-400 text-sm">2025 Boomerang.</p>
                 <ThemeSwitcher />
               </footer>
             </main>
