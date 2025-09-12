@@ -117,8 +117,7 @@ export default function CallHistoryPage() {
     setLoading(true)
     setError(null)
 
-    // IMPORTANTE: el endpoint de backend puede llamarse /api/calls/history (ver propuesta abajo).
-    // Por ahora llamamos a nuestro route Next.js que va a proxeear cuando ese endpoint exista.
+    
     const params = new URLSearchParams()
     params.set('id_usuario', String(myUserId))
     if (filters.search) params.set('q', filters.search)

@@ -15,6 +15,7 @@ export default function ProtectedSidebar() {
     `w-5 h-5 ${isActive(p) ? 'text-orange-500' : 'text-black dark:text-white'} hover:text-orange-500 transition`
 
   return (
+    //SIDEBAR
     <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
       <div className="flex flex-col items-center gap-6 mt-4">
         {/* Inicio */}

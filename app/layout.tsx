@@ -8,6 +8,7 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { hasEnvVars } from "@/utils/supabase/check-env-vars";
 import { ThemeProvider } from "next-themes";
 import ClientProviders from "@/app/ClientProviders";
+import Image from "next/image";
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -36,14 +37,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             disableTransitionOnChange
           >
             <main className="min-h-screen flex flex-col">
-              <nav className="w-full flex justify-center border-b border-b-orange-200 dark:border-b-orange-800 h-16 px-6 bg-orange-50 dark:bg-gray-600">
+              <nav className="w-full flex justify-center border-b border-b-orange-200 dark:border-b-orange-800 
+                h-13 md:h-16 px-5 bg-orange-50 dark:bg-gray-600">
                 <div className="w-full max-w-7xl flex justify-between items-center text-sm">
-                  <div className="flex gap-5 items-center font-semibold text-orange-600 dark:text-orange-400">
-                    <Link href="/">B O O M E R A N G</Link>
-                  </div>
+                  <Link href="/" className="flex items-center gap-2 shrink-0">
+                    <Image
+                      src="/boomerang.png"
+                      alt="Boomerang logo"
+                      width={450}
+                      height={300}
+                      priority
+                      className="h-8 md:h-12 w-auto object-contain"
+                    />
+                  </Link>
                   {!hasEnvVars ? <EnvVarWarning /> : <HeaderAuth />}
                 </div>
               </nav>
+
 
               <div className="flex-1 w-full">{children}</div>
 

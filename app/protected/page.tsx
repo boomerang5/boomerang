@@ -80,6 +80,31 @@ export default function DashboardPage() {
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [cargando, setCargando] = useState(true);
 
+  // ---- Hydration guard + formatters con zona horaria fija ----
+  const [isHydrated, setIsHydrated] = useState(false);
+  useEffect(() => { setIsHydrated(true); }, []);
+  const timeFmt = useMemo(
+    () =>
+      new Intl.DateTimeFormat('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'America/Argentina/Cordoba',
+      }),
+    []
+  );
+  const dateFmt = useMemo(
+    () =>
+      new Intl.DateTimeFormat('es-AR', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone: 'America/Argentina/Cordoba',
+      }),
+    []
+  );
+
   // ---- ID de usuario ----
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
 
@@ -95,7 +120,7 @@ export default function DashboardPage() {
   const [notifsLoading, setNotifsLoading] = useState(true);
   const [notifsError, setNotifsError] = useState<string | null>(null);
 
-  //Notificaciones de solicitudes de amistad (para acciones rápidas)
+  //Notificaciones de solicitudes de amistad (para acciones rápidas) //MOCKEADO
   const [requests, setRequests] = useState<FriendRequest[]>([
     {
       id: 1,
@@ -116,7 +141,7 @@ export default function DashboardPage() {
   ]);
   const [reqLoading, setReqLoading] = useState(false);
 
-  // Reuniones de hoy
+  // Reuniones de hoy //MOCKEADO
   const [reuniones, setReuniones] = useState<Reunion[]>([
     {
       id: 1,
@@ -184,7 +209,7 @@ export default function DashboardPage() {
       const dateB = new Date(b.when || 0).getTime();
       return dateB - dateA;
     });
-  }, [requests, reuniones]);
+  }, [requests, reuniones, timeFmt]);
 
 
   //Helpers
@@ -230,7 +255,7 @@ export default function DashboardPage() {
       const { data: sess } = await supabase.auth.getSession();
       const accessToken = sess.session?.access_token ?? '';
       
-      if (n.type === 'friend_request') {
+      if (n.type === 'friend_request' && n.meta) {
         const req = n.meta as FriendRequest;
         await handleReject(req);
       } else {
@@ -242,7 +267,8 @@ export default function DashboardPage() {
       if (n.type === 'friend_request') {
         fetchRequests();
       }
-    } catch {
+    } catch (e) {
+      console.error(e);
       setNotifsError('No se pudo procesar la acción.');
     }
   }
@@ -253,7 +279,7 @@ export default function DashboardPage() {
   }
     
   // Render de íconos
-  useEffect(() => { feather.replace(); });
+  useEffect(() => { feather.replace();});
 
   // Actualizar hora cada minuto
   useEffect(() => {
@@ -454,7 +480,7 @@ export default function DashboardPage() {
       .channel('solicitudes')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'SolicitudContacto' },
-        payload => {
+        payload => { //que onda esto no lo lee
           fetchRequests();
         }
       )
@@ -518,40 +544,10 @@ export default function DashboardPage() {
   function handleVideo(c: Contact) { console.log('Videollamar a', c); }
   function handleChat(c: Contact)  { console.log('Chat con', c); }
 
+
   return (
     <div className="flex min-h-screen bg-orange-50 dark:bg-gray-600">
-      {/* Sidebar */}
-      <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
-        <div className="flex flex-col items-center gap-6 mt-4">
-          <Link href="/protected">
-            <i data-feather="home" className="text-orange-500 hover:text-orange-400 w-5 h-5" />
-          </Link>
-
-          <Link href="/protected/perfil">
-            <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
-
-          <Link href="/protected/historial-llamada">
-            <i data-feather="clock" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          <Link href="/protected/contactos">
-            <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          <Link href="/protected/chats" aria-label="Ir a chats">
-            <i data-feather="message-circle" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
-        </div>
-        <div className="flex flex-col items-center gap-5 mb-4">
-          <i data-feather="help-circle" className="text-black dark:text-white w-5 h-5" />
-          <i data-feather="settings" className="text-black dark:text-white w-5 h-5" />
-        </div>
-      </aside>
+      {/* aca antes estaba el Sidebar */}
 
       {/* Main content */}
       <main className="flex-1 px-6 py-8 flex flex-col gap-8">
@@ -817,6 +813,7 @@ export default function DashboardPage() {
 
         </section>
       </main>
+    </div>
   );
 }
 
