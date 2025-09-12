@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 // @ts-ignore
-import feather from 'feather-icons'
-import Link from 'next/link'
+import { Search, Phone, X, CheckCircle2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 // === Backend base (llamamos directo, no al proxy de Next) ===
 const API_BASE =
@@ -77,8 +77,8 @@ export default function ContactosPage() {
   const [selectedUser, setSelectedUser] = useState<UsuarioBusqueda | null>(null)
 
   // ====== Feather
-  useEffect(() => { feather.replace() }, [])
-  useEffect(() => { feather.replace() }, [contactos.length, results.length, q, isModalOpen, modalResults.length, selectedUser])
+  //useEffect(() => { feather.replace() }, [])
+  //useEffect(() => { feather.replace() }, [contactos.length, results.length, q, isModalOpen, modalResults.length, selectedUser])
 
   // ====== Obtener idUsuario interno (SIN RPC, consultando la tabla Usuario)
   useEffect(() => {
@@ -125,10 +125,15 @@ const fetchAgenda = useCallback(
     setAgendaError(null)
     try {
       const token = await getJwt(supabase)
-      const url =
-      `${API_BASE}/api/contacts/misContactos` +
-      `?id_usuario=${encodeURIComponent(idUsuario)}` +
-      (busqueda.trim() ? `&busqueda=${encodeURIComponent(busqueda.trim())}` : '');
+      //const url =
+      //`${API_BASE}/api/contacts/misContactos` +
+      //`?id_usuario=${encodeURIComponent(idUsuario)}` +
+      //(busqueda.trim() ? `&busqueda=${encodeURIComponent(busqueda.trim())}` : '');
+      const params = new URLSearchParams({
+        id_usuario: String(idUsuario),
+        ...(busqueda.trim() ? { busqueda: busqueda.trim() } : {}),
+      });
+      const url = `/api/contacts/misContactos?${params.toString()}`;
 
 
       const r = await fetch(url, {
@@ -156,12 +161,14 @@ const fetchAgenda = useCallback(
 )
 
   useEffect(() => {
-    if (idUsuario) void fetchAgenda('')
-  }, [idUsuario, fetchAgenda])
+    if (idUsuario && q.trim() === '') {
+      void fetchAgenda('')
+    }
+  }, [q, idUsuario, fetchAgenda])
 
   // refrescar agenda cuando volvés
   useEffect(() => {
-    const reload = () => { if (idUsuario) void fetchAgenda(q) }
+    const reload = () => { if (idUsuario) void fetchAgenda('') }
     const onVisibility = () => { if (document.visibilityState === 'visible') reload() }
     window.addEventListener('focus', reload)
     document.addEventListener('visibilitychange', onVisibility)
@@ -169,7 +176,7 @@ const fetchAgenda = useCallback(
       window.removeEventListener('focus', reload)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [idUsuario, q, fetchAgenda])
+  }, [idUsuario, fetchAgenda])
 
   // ====== Búsqueda de la página (debounce) — vía API /api/users/contacts
   useEffect(() => {
@@ -181,10 +188,15 @@ const fetchAgenda = useCallback(
       try {
         setLoadingSearch(true)
         const token = await getJwt(supabase)
-        const url =
-        `${API_BASE}/api/users/contacts` +
-        `?id_usuario=${encodeURIComponent(idUsuario)}` +
-        `&busqueda=${encodeURIComponent(term)}`;
+        //const url =
+        //`${API_BASE}/api/users/contacts` +
+        //`?id_usuario=${encodeURIComponent(idUsuario)}` +
+        //`&busqueda=${encodeURIComponent(term)}`;
+        const params = new URLSearchParams({
+          id_usuario: String(idUsuario),
+          busqueda: term,
+        });
+        const url = `/api/users/contacts?${params.toString()}`;
         const r = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
           cache: 'no-store',
@@ -218,7 +230,7 @@ const fetchAgenda = useCallback(
       if (!idUsuario) return
       try {
         const token = await getJwt(supabase)
-        const res = await fetch(`${API_BASE}/api/contacts/add`, {
+        const res = await fetch(`/api/contacts/add`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -231,19 +243,45 @@ const fetchAgenda = useCallback(
       })
         if (res.ok) {
           setResults(prev => prev.map(r => r.id === idUsuarioContacto ? { ...r, en_agenda: true } : r))
-          await fetchAgenda(q)
-          alert('Contacto agregado ✅')
+          await fetchAgenda('')
+          toast.custom(() => (
+            <div className="flex items-center gap-3 rounded-xl border border-green-300/60 bg-white/90 px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.12)] backdrop-blur">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-green-100">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              </span>
+              <div>
+                <p className="font-semibold text-green-700">Contacto agregado</p>
+                <p className="text-sm text-black/60">Se añadió a tu agenda</p>
+              </div>
+            </div>
+          ), { duration: 2200 })
           if (isModalOpen) handleCloseModal()
         } else if (res.status === 409) {
-          alert('Ese contacto ya está en tu lista.')
+          toast.custom(() => (
+              <div className="flex items-center gap-3 rounded-xl border border-amber-300/60 bg-white/90 px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.12)] backdrop-blur">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-amber-100">
+                  <CheckCircle2 className="h-5 w-5 text-amber-700" />
+                </span>
+                <p className="text-amber-800 font-medium">Ese contacto ya está en tu lista</p>
+              </div>
+            ), { duration: 2200 })
+
         } else {
           const payload = await res.json().catch(() => ({}))
           console.error('Add contact error:', res.status, payload)
-          alert(payload?.message || 'No se pudo agregar el contacto.')
+          toast.custom(() => (  
+            <div className="flex items-center gap-3 rounded-xl border border-red-300/60 bg-white/90 px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.12)] backdrop-blur">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-100">
+                <X className="h-5 w-5 text-red-600" />
+              </span>
+              <p className="text-red-700 font-medium">No se pudo agregar el contacto</p>
+            </div>
+          ), { duration: 2400 })
+
         }
       } catch (e) {
         console.error(e)
-        alert('Error de red al agregar el contacto.')
+        toast.error('Error de red al agregar el contacto')
       }
     },
     [idUsuario, supabase, fetchAgenda, q, isModalOpen]
@@ -281,10 +319,15 @@ const fetchAgenda = useCallback(
       try {
         setModalLoading(true)
         const token = await getJwt(supabase)
-        const url =
-        `${API_BASE}/api/users/contacts` +
-        `?id_usuario=${encodeURIComponent(idUsuario)}` +
-        `&busqueda=${encodeURIComponent(term)}`;
+        //const url =
+        //`${API_BASE}/api/users/contacts` +
+        //`?id_usuario=${encodeURIComponent(idUsuario)}` +
+        //`&busqueda=${encodeURIComponent(term)}`;
+        const params = new URLSearchParams({
+          id_usuario: String(idUsuario),
+          busqueda: term,
+        });
+        const url = `/api/users/contacts?${params.toString()}`;
 
         const r = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
@@ -350,10 +393,7 @@ const fetchAgenda = useCallback(
                 placeholder="Buscar por nombre, apellido o apodo…"
                 className="w-full px-4 py-2 pr-10 rounded-md bg-white/40 dark:bg-white/10 border border-orange-300 text-foreground focus:ring-2 focus:ring-orange-400 backdrop-blur-md"
               />
-              <i
-                data-feather="search"
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-orange-500"
-              />
+              <Search className="w-4 h-4 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-orange-500" />
             </div>
           </div>
         </header>
@@ -422,23 +462,20 @@ const fetchAgenda = useCallback(
               <div>
                 <p className="font-semibold text-lg">{fullName(c.nombre, c.apellido)}</p>
                 <p className="text-sm text-muted-foreground">
-                  Estado: {c.nombreEstado ?? '—'} · Alta: {formatARDate(c.fh_alta)}
+                  Estado: {c.nombreEstado ?? '—'}
                 </p>
               </div>
-              <div className="flex space-x-3">
+              <div className="flex">
                 <button
                   onClick={() => handleLlamada(c)}
-                  className="bg-green-500 p-2 rounded-full hover:bg-green-600"
-                  title="Llamada"
+                  title="Llamar"
+                  aria-label={`Llamar a ${fullName(c.nombre, c.apellido)}`}
+                  className="group inline-flex items-center justify-center rounded-full p-0 bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/60"
                 >
-                  <i data-feather="phone" />
-                </button>
-                <button
-                  onClick={() => handleVideollamada(c)}
-                  className="bg-blue-500 p-2 rounded-full hover:bg-blue-600"
-                  title="Videollamada"
-                >
-                  <i data-feather="video" />
+                  
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow-[0_6px_14px_rgba(241,111,36,0.35)] transition-transform group-active:scale-95">
+                    <Phone className="h-4 w-4" />
+                  </span>
                 </button>
               </div>
             </div>
@@ -457,7 +494,7 @@ const fetchAgenda = useCallback(
             <div className="flex items-start justify-between mb-4">
               <h3 className="text-lg font-semibold text-foreground">Añadir contacto</h3>
               <button className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10" onClick={handleCloseModal} aria-label="Cerrar" title="Cerrar">
-                <i data-feather="x" className="w-5 h-5" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -471,7 +508,7 @@ const fetchAgenda = useCallback(
                 placeholder="Nombre, apellido o apodo…"
                 className="w-full px-4 py-2 pr-10 rounded-md bg-white/60 dark:bg-white/10 border border-orange-300 text-foreground focus:ring-2 focus:ring-orange-400 backdrop-blur"
               />
-              <i data-feather="search" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-orange-500" />
+              <Search className="w-4 h-4 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-orange-500" />
             </div>
 
             {/* Resultados */}

@@ -67,3 +67,9 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Centrado perfecto del contenedor de Sonner */
+[data-sonner-toaster][data-position="top-center"]{
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+}

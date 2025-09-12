@@ -961,13 +961,16 @@ export default function ChatsPage() {
   };
 
   return (
-    <main className="flex-1 px-4 py-6">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 md:grid-cols-[320px_1fr]">
-          {/* Columna izquierda: lista de chats */}
-          <aside className="rounded-2xl bg-white/70 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
-            {/* Encabezado + buscador */}
+    <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d]">
+      
+      {/* ===== Main ===== */}
+      <main className="flex-1 px-4 py-6">
+        
+        <div className="mx-auto grid max-w-[1260px] grid-cols-1 gap-6 md:grid-cols-[360px_1fr]">
+          {/* ===== Lista de chats ===== */}
+          <aside className="flex h-[72vh] min-h-[72vh] flex-col overflow-hidden rounded-2xl bg-white/70 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#f16f24]">Mis chats</h2>
+              <h2 className="text-lg font-semibold text-[#181412]">Mis chats</h2>
               <Link href="/protected" className="text-sm text-[#de4435] hover:underline">
                 Volver
               </Link>
@@ -1299,6 +1302,220 @@ export default function ChatsPage() {
             </section>
           )}
         </div>
-    </main>
+      </main>
+
+      {/* ===== MODALES ===== */}
+      {/* PRIVADO */}
+      {pickerMode === "private" && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
+              <h3 className="text-base font-semibold text-[#2b2b2b]">Nuevo chat privado</h3>
+              <button
+                onClick={closeAllPickers}
+                className="h-8 w-8 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24">
+                  <path
+                    fill="currentColor"
+                    d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59L7.11 5.7a1 1 0 1 0-1.41 1.42L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.42L12 13.41l4.89 4.9a1 1 0 0 0 1.42-1.42L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-4 pt-3">
+              <div className="flex items-center rounded-xl border border-black/10 bg-white px-3">
+                <svg width="18" height="18" viewBox="0 0 24 24" className="opacity-60">
+                  <path
+                    fill="currentColor"
+                    d="M15.5 14h-.79l-.28-.27a6.471 6.471 0 0 0 1.57-4.23C15.99 6.01 13.98 4 11.49 4S7 6.01 7 9s2.01 5 4.49 5c1.61 0 3.06-.66 4.1-1.73l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0c.41-.41.41-1.08 0-1.49L15.5 14Zm-4.01 0C9.01 14 7 11.99 7 9s2.01-5 4.49-5S16 6.01 16 9s-2.01 5-4.51 5Z"
+                  />
+                </svg>
+                <input
+                  autoFocus
+                  placeholder="Buscar contacto…"
+                  className="w-full bg-transparent px-2 py-2 text-sm outline-none placeholder:text-black/40"
+                  value={contactQuery}
+                  onChange={(e) => setContactQuery(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="px-2">
+              {contactsLoading && <p className="px-2 py-2 text-sm text-black/60">Cargando contactos…</p>}
+              {contactsError && !contactsLoading && <p className="px-2 py-2 text-sm text-red-600">{contactsError}</p>}
+            </div>
+
+            <ul className="max-h-[50vh] overflow-y-auto px-2 py-3">
+              {filteredContacts.map((ct) => {
+                const initials = ct.initials ?? initialsFromName(ct.name);
+                return (
+                  <li key={ct.id}>
+                    <button
+                      onClick={() => createOrOpenPrivateChat(ct)}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-black/5"
+                    >
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
+                        {initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-[#2b2b2b]">{ct.name}</p>
+                        <p className="text-xs text-black/50">Crear / abrir chat</p>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+              {!contactsLoading && !contactsError && filteredContacts.length === 0 && (
+                <li className="px-3 py-2 text-sm text-black/60">Sin resultados</li>
+              )}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* GRUPO: paso 1 */}
+      {pickerMode === "groupName" && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
+              <h3 className="text-base font-semibold text-[#2b2b2b]">Nuevo chat grupal</h3>
+              <button
+                onClick={closeAllPickers}
+                className="h-8 w-8 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24">
+                  <path
+                    fill="currentColor"
+                    d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59L7.11 5.7a1 1 0 1 0-1.41 1.42L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.42L12 13.41l4.89 4.9a1 1 0 0 0 1.42-1.42L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-4 py-4">
+              <label className="text-sm text-black/70">Nombre del grupo</label>
+              <input
+                autoFocus
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                placeholder="Ej: Proyecto Boomerang"
+                className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2 outline-none focus:ring-2 focus:ring-[#f16f24]/30"
+              />
+              <div className="mt-4 flex justify-end gap-2">
+                <button onClick={closeAllPickers} className="rounded-lg border border-black/10 px-3 py-2 text-sm hover:bg-black/5">
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => setPickerMode("groupMembers")}
+                  disabled={!groupName.trim()}
+                  className="rounded-lg bg-[#f16f24] px-3 py-2 text-sm text-white disabled:opacity-60"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GRUPO: paso 2 */}
+      {pickerMode === "groupMembers" && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
+              <h3 className="text-base font-semibold text-[#2b2b2b]">
+                Agregar miembros • <span className="text-black/60">{groupName}</span>
+              </h3>
+              <button
+                onClick={closeAllPickers}
+                className="h-8 w-8 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24">
+                  <path
+                    fill="currentColor"
+                    d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59L7.11 5.7a1 1 0 1 0-1.41 1.42L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.42L12 13.41l4.89 4.9a1 1 0 0 0 1.42-1.42L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-4 pt-3">
+              <div className="flex items-center rounded-xl border border-black/10 bg-white px-3">
+                <svg width="18" height="18" viewBox="0 0 24 24" className="opacity-60">
+                  <path
+                    fill="currentColor"
+                    d="M15.5 14h-.79l-.28-.27a6.471 6.471 0 0 0 1.57-4.23C15.99 6.01 13.98 4 11.49 4S7 6.01 7 9s2.01 5 4.49 5c1.61 0 3.06-.66 4.1-1.73l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0c.41-.41.41-1.08 0-1.49L15.5 14Zm-4.01 0C9.01 14 7 11.99 7 9s2.01-5 4.49-5S16 6.01 16 9s-2.01 5-4.51 5Z"
+                  />
+                </svg>
+                <input
+                  placeholder="Buscar contacto…"
+                  className="w-full bg-transparent px-2 py-2 text-sm outline-none placeholder:text-black/40"
+                  value={contactQuery}
+                  onChange={(e) => setContactQuery(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <ul className="max-h-[45vh] overflow-y-auto px-2 py-3">
+              {filteredContacts.map((ct) => {
+                const initials = ct.initials ?? initialsFromName(ct.name);
+                const checked = groupMembers.has(ct.id);
+                return (
+                  <li key={ct.id}>
+                    <label className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-black/5">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={checked}
+                        onChange={() => {
+                          setGroupMembers((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(ct.id)) next.delete(ct.id);
+                            else next.add(ct.id);
+                            return next;
+                          });
+                        }}
+                      />
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
+                        {initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-[#2b2b2b]">{ct.name}</p>
+                      </div>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="flex items-center justify-between border-t border-black/10 px-4 py-3">
+              <span className="text-sm text-black/60">
+                {groupMembers.size} seleccionado{groupMembers.size === 1 ? "" : "s"}
+              </span>
+              <div className="flex gap-2">
+                <button onClick={() => setPickerMode("groupName")} className="rounded-lg border border-black/10 px-3 py-2 text-sm hover:bg-black/5">
+                  Atrás
+                </button>
+                <button
+                  onClick={createGroupChat}
+                  disabled={!groupName.trim() || groupMembers.size === 0}
+                  className="rounded-lg bg-[#f16f24] px-3 py-2 text-sm text-white disabled:opacity-60"
+                >
+                  Crear grupo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
