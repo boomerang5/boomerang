@@ -34,8 +34,10 @@ export default function ClientProviders({
           <Toaster
             // Lo ubicamos al centro vertical aprox.
             position="top-center"
+            richColors
+            closeButton={false}
             offset="50vh" 
-            toastOptions={{duration: 3200}}         
+            toastOptions={{duration: 3500}}         
 
           />
       </ThemeProvider>

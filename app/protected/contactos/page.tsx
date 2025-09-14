@@ -6,12 +6,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // @ts-ignore
 import { Search, Phone, X, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { isPrerenderInterruptedError } from 'next/dist/server/app-render/dynamic-rendering'
 
-// === Backend base (llamamos directo, no al proxy de Next) ===
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  process.env.API_BASE ||
-  'http://localhost:3001'; // ajustá si tu backend corre en otro host/puerto
 
 
 /* =============== Tipos =============== */
@@ -25,6 +21,7 @@ type ContactoAgenda = {
   fh_alta?: string | null
   id_estado?: number | null
   nombreEstado?: string | null 
+  pendiente?: boolean
 }
 
 type UsuarioBusqueda = {
@@ -34,9 +31,45 @@ type UsuarioBusqueda = {
   apodo: string | null
   mail: string
   en_agenda: boolean
+  pendiente?: boolean
 }
 
 /* =============== Helpers =============== */
+
+async function fetchPendientesSalientes(
+  supabase: any,
+  idUsuario: number
+): Promise<ContactoAgenda[]> {
+  // 1) Pendientes salientes
+  const { data: outs, error } = await supabase
+    .from('SolicitudContacto')
+    .select('id,id_receptor,fecha_solicitud,estado')
+    .eq('id_solicitante', idUsuario)
+    .eq('estado', 'pendiente')
+
+  if (error || !outs?.length) return []
+
+  const ids = Array.from(new Set(outs.map((o: any) => o.id_receptor)))
+  const { data: usuarios } = await supabase
+    .from('Usuario')
+    .select('id,nombre,apellido,apodo')
+    .in('id', ids)
+
+  const byId: Record<number, any> = {}
+  for (const u of usuarios ?? []) byId[u.id] = u
+
+  return outs.map((o: any) => ({
+    id: `pending-${o.id}`,
+    id_usuario_contacto: o.id_receptor,
+    nombre: byId[o.id_receptor]?.nombre ?? '',
+    apellido: byId[o.id_receptor]?.apellido ?? '',
+    fh_alta: null,
+    nombreEstado: '(pendiente)',
+    pendiente: true,
+  }))
+}
+
+
 async function getJwt(supabaseClient: SupabaseClient | any) {
   const { data } = await supabaseClient.auth.getSession()
   return data.session?.access_token ?? ''
@@ -74,7 +107,11 @@ export default function ContactosPage() {
   const [modalQ, setModalQ] = useState('')
   const [modalResults, setModalResults] = useState<UsuarioBusqueda[]>([])
   const [modalLoading, setModalLoading] = useState(false)
+  
   const [selectedUser, setSelectedUser] = useState<UsuarioBusqueda | null>(null)
+
+  // Estado de solicitud
+  const [pendingOut, setPendingOut] = useState<Set<number>>(new Set()) // ids de receptores con solicitud pendiente
 
   // ====== Feather
   //useEffect(() => { feather.replace() }, [])
@@ -117,48 +154,97 @@ export default function ContactosPage() {
     return ids
   }, [contactos])
 
-// ====== Traer agenda (directo al BACKEND /api/contacts/misContactos)
-const fetchAgenda = useCallback(
-  async (busqueda: string = '') => {
+  // ====== Cargar solicitudes PENDIENTES que YO envié (para marcar "Pendiente" en UI)
+  async function loadMyOutgoingPendings(uid: number) {
+    const { data, error } = await supabase
+      .from('SolicitudContacto')
+      .select('id_receptor, estado')
+      .eq('id_solicitante', uid)
+      .eq('estado', 'pendiente')
+    if (!error) {
+      setPendingOut(new Set((data ?? []).map(r => Number(r.id_receptor))))
+    }
+  }
+
+  useEffect(() => {
     if (!idUsuario) return
-    setLoadingAgenda(true)
-    setAgendaError(null)
-    try {
-      const token = await getJwt(supabase)
-      //const url =
-      //`${API_BASE}/api/contacts/misContactos` +
-      //`?id_usuario=${encodeURIComponent(idUsuario)}` +
-      //(busqueda.trim() ? `&busqueda=${encodeURIComponent(busqueda.trim())}` : '');
-      const params = new URLSearchParams({
-        id_usuario: String(idUsuario),
-        ...(busqueda.trim() ? { busqueda: busqueda.trim() } : {}),
-      });
-      const url = `/api/contacts/misContactos?${params.toString()}`;
+    void loadMyOutgoingPendings(idUsuario)
+  }, [idUsuario])
 
+  // ====== Traer agenda (Supabase + merge con pendientes OUT)
+  const fetchAgenda = useCallback(
+    async (busqueda: string = '') => {
+      if (!idUsuario) return
+      setLoadingAgenda(true)
+      setAgendaError(null)
+      try {
+        // 1) Confirmados (ContactoUsuario -> ids)
+        let q = supabase
+          .from('ContactoUsuario')
+          .select('id,id_usuario_contacto,fh_alta,favorito')
+          .eq('id_usuario', idUsuario)
 
-      const r = await fetch(url, {
-        headers: {
-          'content-type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        cache: 'no-store',
-      })
+        const { data: base, error: e1 } = await q
+        if (e1) throw e1
 
-      if (!r.ok) {
-        const t = await r.text().catch(() => '')
-        console.error('misContactos error', r.status, t)
+        // 2) Resolver datos del Usuario
+        const ids = Array.from(new Set((base ?? []).map((c: any) => c.id_usuario_contacto)))
+        const { data: usuarios } = await supabase
+          .from('Usuario')
+          .select('id,nombre,apellido,apodo')
+          .in('id', ids)
+
+        const byId: Record<number, any> = {}
+        for (const u of usuarios ?? []) byId[u.id] = u
+
+        // 3) Filtrar por búsqueda (en cliente, para simplificar)
+        const confirmados: ContactoAgenda[] = (base ?? [])
+          .map((c: any) => ({
+            id: c.id,
+            id_usuario_contacto: c.id_usuario_contacto,
+            nombre: byId[c.id_usuario_contacto]?.nombre ?? '',
+            apellido: byId[c.id_usuario_contacto]?.apellido ?? '',
+            apodo: byId[c.id_usuario_contacto]?.apodo ?? null,
+            favorito: !!c.favorito,
+            fh_alta: c.fh_alta,
+            id_estado: null,
+            nombreEstado: '—',
+            pendiente: false,
+          }))
+          .filter(c => {
+            const t = busqueda.trim().toLowerCase()
+            if (!t) return true
+            return (
+              c.nombre?.toLowerCase().includes(t) ||
+              c.apellido?.toLowerCase().includes(t) ||
+              (c.apodo ?? '').toLowerCase().includes(t)
+            )
+          })
+
+        // 4) Pendientes salientes
+        const outs = await fetchPendientesSalientes(supabase, idUsuario)
+
+        // 5) Merge sin duplicar
+        const map = new Map<string, ContactoAgenda>()
+        for (const c of confirmados) {
+          map.set(String(c.id_usuario_contacto ?? c.id), c)
+        }
+        for (const p of outs) {
+          const key = String(p.id_usuario_contacto ?? p.id)
+          if (!map.has(key)) map.set(key, p)
+        }
+        setContactos(Array.from(map.values()))
+      } catch (e: any) {
+        console.error(e)
         setAgendaError('No se pudieron cargar los contactos.')
         setContactos([])
-      } else {
-        const data = await r.json().catch(() => [])
-        setContactos(Array.isArray(data) ? (data as ContactoAgenda[]) : [])
+      } finally {
+        setLoadingAgenda(false)
       }
-    } finally {
-      setLoadingAgenda(false)
-    }
-  },
-  [idUsuario, supabase]
-)
+    },
+    [idUsuario, supabase]
+  )
+
 
   useEffect(() => {
     if (idUsuario && q.trim() === '') {
@@ -188,10 +274,6 @@ const fetchAgenda = useCallback(
       try {
         setLoadingSearch(true)
         const token = await getJwt(supabase)
-        //const url =
-        //`${API_BASE}/api/users/contacts` +
-        //`?id_usuario=${encodeURIComponent(idUsuario)}` +
-        //`&busqueda=${encodeURIComponent(term)}`;
         const params = new URLSearchParams({
           id_usuario: String(idUsuario),
           busqueda: term,
@@ -214,6 +296,7 @@ const fetchAgenda = useCallback(
             apodo: u.apodo ?? null,
             mail: u.mail,
             en_agenda: agendaIds.has(Number(u.id)),
+            pendiente: pendingOut.has(Number(u.id)),
           }))
           setResults(mapped)
         }
@@ -222,70 +305,65 @@ const fetchAgenda = useCallback(
       }
     }, 350)
     return () => clearTimeout(t)
-  }, [q, idUsuario, supabase, agendaIds])
+  }, [q, idUsuario, supabase, agendaIds, pendingOut])
 
-  // ====== Agregar contacto — vía API /api/contacts/add
-  const addContacto = useCallback(
-    async (idUsuarioContacto: number) => {
-      if (!idUsuario) return
-      try {
-        const token = await getJwt(supabase)
-        const res = await fetch(`/api/contacts/add`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          id_usuario: idUsuario,                 
-          id_usuario_contacto: idUsuarioContacto
-        }),
-      })
-        if (res.ok) {
-          setResults(prev => prev.map(r => r.id === idUsuarioContacto ? { ...r, en_agenda: true } : r))
-          await fetchAgenda('')
-          toast.custom(() => (
-            <div className="flex items-center gap-3 rounded-xl border border-green-300/60 bg-white/90 px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.12)] backdrop-blur">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-green-100">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-              </span>
-              <div>
-                <p className="font-semibold text-green-700">Contacto agregado</p>
-                <p className="text-sm text-black/60">Se añadió a tu agenda</p>
-              </div>
-            </div>
-          ), { duration: 2200 })
+    // ====== Agregar contacto — vía Supabase (realtime)
+    const addContacto = useCallback(
+      async (idUsuarioContacto: number) => {
+        if (!idUsuario) return
+        try {
+          // Insertamos la solicitud como 'pendiente'
+          const { data, error, status } = await supabase
+            .from('SolicitudContacto')
+            .insert([
+              {
+                id_solicitante: idUsuario,
+                id_receptor: idUsuarioContacto,
+                estado: 'pendiente',
+                fecha_solicitud: new Date().toISOString(),
+              },
+            ])
+            .select('id')
+            .single()
+
+          if (error) throw error
+
+          // 1) Marcá el usuario de resultados como pendiente
+          setResults(prev =>
+            prev.map(r => (r.id === idUsuarioContacto ? { ...r, pendiente: true } : r))
+          )
+
+          // 2) Mostralo en tu agenda como "(pendiente)" si todavía no estaba
+          setContactos(prev => {
+            const exists = prev.some(
+              c => Number(c.id_usuario_contacto ?? c.id) === idUsuarioContacto
+            )
+            if (exists) return prev
+            return [
+              ...prev,
+              {
+                id: `pending-${data?.id ?? crypto.randomUUID()}`,
+                id_usuario_contacto: idUsuarioContacto,
+                nombre: '', // si querés, los resolvemos abajo con un fetch al Usuario
+                apellido: '',
+                fh_alta: null,
+                nombreEstado: '(pendiente)',
+                pendiente: true,
+              } as any,
+            ]
+          })
+
+          toast.success('Solicitud enviada ✅')
           if (isModalOpen) handleCloseModal()
-        } else if (res.status === 409) {
-          toast.custom(() => (
-              <div className="flex items-center gap-3 rounded-xl border border-amber-300/60 bg-white/90 px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.12)] backdrop-blur">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-amber-100">
-                  <CheckCircle2 className="h-5 w-5 text-amber-700" />
-                </span>
-                <p className="text-amber-800 font-medium">Ese contacto ya está en tu lista</p>
-              </div>
-            ), { duration: 2200 })
-
-        } else {
-          const payload = await res.json().catch(() => ({}))
-          console.error('Add contact error:', res.status, payload)
-          toast.custom(() => (  
-            <div className="flex items-center gap-3 rounded-xl border border-red-300/60 bg-white/90 px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.12)] backdrop-blur">
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-100">
-                <X className="h-5 w-5 text-red-600" />
-              </span>
-              <p className="text-red-700 font-medium">No se pudo agregar el contacto</p>
-            </div>
-          ), { duration: 2400 })
-
+        } catch (e: any) {
+          console.error(e)
+          toast.error(e?.message || 'No se pudo enviar la solicitud.')
         }
-      } catch (e) {
-        console.error(e)
-        toast.error('Error de red al agregar el contacto')
-      }
-    },
-    [idUsuario, supabase, fetchAgenda, q, isModalOpen]
-  )
+      },
+      [idUsuario, supabase, isModalOpen]
+    )
+
+
 
   // ====== Acciones fake
   const handleLlamada = (c: ContactoAgenda) =>
@@ -319,10 +397,6 @@ const fetchAgenda = useCallback(
       try {
         setModalLoading(true)
         const token = await getJwt(supabase)
-        //const url =
-        //`${API_BASE}/api/users/contacts` +
-        //`?id_usuario=${encodeURIComponent(idUsuario)}` +
-        //`&busqueda=${encodeURIComponent(term)}`;
         const params = new URLSearchParams({
           id_usuario: String(idUsuario),
           busqueda: term,
@@ -347,6 +421,7 @@ const fetchAgenda = useCallback(
             apodo: u.apodo ?? null,
             mail: u.mail,
             en_agenda: agendaIds.has(Number(u.id)),
+            pendiente: pendingOut.has(Number(u.id)),
           }))
           setModalResults(mapped)
         }
@@ -355,7 +430,7 @@ const fetchAgenda = useCallback(
       }
     }, 350)
     return () => clearTimeout(t)
-  }, [modalQ, idUsuario, supabase, isModalOpen, agendaIds])
+  }, [modalQ, idUsuario, supabase, isModalOpen, agendaIds, pendingOut])
 
   // Cerrar con ESC / confirmar con Enter
   useEffect(() => {
@@ -369,6 +444,140 @@ const fetchAgenda = useCallback(
   }, [isModalOpen, selectedUser, addContacto])
 
   const hayBusqueda = useMemo(() => q.trim().length > 0, [q])
+
+   // ====== Realtime: mis solicitudes enviadas + contactos aceptados
+  useEffect(() => {
+    if (!idUsuario) return
+    const ch = supabase
+      .channel(`contactos-${idUsuario}`)
+      // Cualquier cambio en solicitudes que YO envié
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'SolicitudContacto',
+        filter: `id_solicitante=eq.${idUsuario}`,
+      }, (payload) => {
+        const row: any = payload.new ?? payload.old
+        if (!row) return
+        const receptor = Number(row.id_receptor)
+        setPendingOut(prev => {
+          const next = new Set(prev)
+          if (row.estado === 'pendiente') next.add(receptor)
+          else next.delete(receptor) // aceptada / rechazada / cancelada
+          return next
+        })
+      })
+      // Cuando me aceptan (se crea ContactoUsuario para mí), refresco agenda
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'ContactoUsuario',
+        filter: `id_usuario=eq.${idUsuario}`,
+      }, () => { void fetchAgenda('') })
+      .subscribe()
+
+    return () => { supabase.removeChannel(ch) }
+  }, [idUsuario, supabase, fetchAgenda])
+  
+
+  useEffect(() => {
+    if (!idUsuario) return;
+    const ch = supabase
+      .channel(`agenda-${idUsuario}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'Usuario_Contacto', filter: `id_usuario=eq.${idUsuario}` },
+        () => { void fetchAgenda(''); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [idUsuario, supabase, fetchAgenda]);
+
+  // Realtime: Solicitudes (OUT) y Contactos (mis filas)
+  useEffect(() => {
+    if (!idUsuario) return
+
+    // 1) INSERT de mis pendientes salientes (refrescar/inyectar)
+    const chOut = supabase
+      .channel(`sc-out:${idUsuario}`)
+      .on(
+        'postgres_changes',
+        {
+          schema: 'public',
+          table: 'SolicitudContacto',
+          event: 'INSERT',
+          filter: `id_solicitante=eq.${idUsuario}`,
+        },
+        async (payload) => {
+          const r = payload.new as any
+          // Traer los datos del receptor para mostrar lindo
+          const { data: u } = await supabase
+            .from('Usuario')
+            .select('id,nombre,apellido,apodo')
+            .eq('id', r.id_receptor)
+            .single()
+
+          setContactos(prev => {
+            const key = String(r.id_receptor)
+            const exists = prev.some(c => String(c.id_usuario_contacto ?? c.id) === key)
+            if (exists) return prev
+            return [
+              ...prev,
+              {
+                id: `pending-${r.id}`,
+                id_usuario_contacto: r.id_receptor,
+                nombre: u?.nombre ?? '',
+                apellido: u?.apellido ?? '',
+                fh_alta: null,
+                nombreEstado: '(pendiente)',
+                pendiente: true,
+              } as any,
+            ]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          schema: 'public',
+          table: 'SolicitudContacto',
+          event: 'UPDATE',
+          filter: `id_solicitante=eq.${idUsuario}`,
+        },
+        (payload) => {
+          const r = payload.new as any
+          // Si aceptaron/rechazaron -> recargar agenda (ahora aparecerá como confirmado)
+          if (r.estado !== 'pendiente') {
+            void fetchAgenda('')
+          }
+        }
+      )
+      .subscribe()
+
+    // 2) INSERT en ContactoUsuario para mi usuario (me agregaron/aceptaron)
+    const chMyContacts = supabase
+      .channel(`contactos:${idUsuario}`)
+      .on(
+        'postgres_changes',
+        {
+          schema: 'public',
+          table: 'ContactoUsuario',
+          event: 'INSERT',
+          filter: `id_usuario=eq.${idUsuario}`,
+        },
+        () => {
+          // Apareció un contacto nuevo confirmado
+          void fetchAgenda('')
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(chOut)
+      supabase.removeChannel(chMyContacts)
+    }
+  }, [idUsuario, supabase, fetchAgenda])
+
 
   return (
     <>
@@ -421,8 +630,12 @@ const fetchAgenda = useCallback(
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {u.en_agenda ? (
-                    <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-700 dark:text-green-400 border border-green-500/30">
+                  {u.pendiente ? (
+                    <span className="text-xs px-2 py-1 rounded-full border border-orange-300 bg-orange-50 text-orange-700">
+                      Pendiente
+                    </span>
+                  ) : u.en_agenda ? (
+                    <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-700 border border-green-500/30">
                       Ya en tu lista
                     </span>
                   ) : (
@@ -434,6 +647,7 @@ const fetchAgenda = useCallback(
                     </button>
                   )}
                 </div>
+
               </div>
             ))}
           </section>
@@ -460,22 +674,28 @@ const fetchAgenda = useCallback(
               className="flex justify-between items-center bg-white/20 dark:bg-white/5 p-4 rounded-lg hover:bg-white/30 transition"
             >
               <div>
-                <p className="font-semibold text-lg">{fullName(c.nombre, c.apellido)}</p>
+               <p className="font-semibold text-lg">
+                {fullName(c.nombre, c.apellido)}
+                { (c as any).pendiente && <span className="ml-2 text-xs text-orange-600">(pendiente)</span> }
+              </p>
+
                 <p className="text-sm text-muted-foreground">
                   Estado: {c.nombreEstado ?? '—'}
                 </p>
               </div>
               <div className="flex">
                 <button
-                  onClick={() => handleLlamada(c)}
-                  title="Llamar"
-                  aria-label={`Llamar a ${fullName(c.nombre, c.apellido)}`}
-                  className="group inline-flex items-center justify-center rounded-full p-0 bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/60"
+                  onClick={() => !c.pendiente && handleLlamada(c)}
+                  disabled={!!c.pendiente}
+                  title={c.pendiente ? 'Solicitud pendiente' : 'Llamada'}
+                  className={[
+                    'phone-chip inline-flex h-8 w-8 items-center justify-center rounded-full',
+                    c.pendiente
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow'
+                  ].join(' ')}
                 >
-                  
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow-[0_6px_14px_rgba(241,111,36,0.35)] transition-transform group-active:scale-95">
-                    <Phone className="h-4 w-4" />
-                  </span>
+                  <i data-feather="phone" className="h-4 w-4" />
                 </button>
               </div>
             </div>

@@ -71,5 +71,6 @@
 /* Centrado perfecto del contenedor de Sonner */
 [data-sonner-toaster][data-position="top-center"]{
   left: 50% !important;
-  transform: translateX(-50%) !important;
+  top: 50% !important;
+  transform: translateX(-50%, -50%) !important;
 }

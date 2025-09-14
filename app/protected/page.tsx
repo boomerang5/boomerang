@@ -10,6 +10,13 @@ import { useRouter } from 'next/navigation';
 type Perfil = { nombre: string | null; apellido: string | null; mail: string | null };
 
 // ----- Tipos y helpers para Contactos (REST) -----
+type PendingReq = {
+  id: number
+  id_solicitante: number
+  fecha_solicitud: string | null
+  solicitante?: { id:number; nombre:string; apellido:string; apodo:string|null; mail:string }
+}
+
 type RawContact = Record<string, any>;
 type Contact = {
   id: number | string;
