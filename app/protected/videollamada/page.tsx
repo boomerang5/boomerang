@@ -308,7 +308,17 @@ export default function VideoCallPage() {
 
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
   const [incoming, setIncoming] = useState<IncomingCall | null>(null)
-  const [showNotification, setShowNotification] = useState(false)
+
+  // Llamadas manejadas y "rings" ya vistos (para evitar dups entre uuid/id)
+  const handledCallsRef = useRef<Set<string>>(new Set())
+  const seenRingsRef = useRef<Set<string>>(new Set())
+  const [handledBump, setHandledBump] = useState(0) // fuerza re-render al marcar
+  const markHandled = (id: string | null | undefined) => {
+    if (id) {
+      handledCallsRef.current.add(id)
+      setHandledBump((x) => x + 1)
+    }
+  }
 
   useEffect(() => {
     if (!sb) return
@@ -327,16 +337,46 @@ export default function VideoCallPage() {
       const ch = sb.channel(`user:${key}`, { config: { broadcast: { self: false } } })
 
       ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
+        const cid = String(payload.callId || '')
+        if (!cid) return
+
+        // 🚫 si el ring viene de mí misma, ignorar (uuid o id numérico)
         const fromId = String(payload.from?.id ?? '')
+        if (fromId && (fromId === meId || (meNumericId != null && fromId === String(meNumericId)))) {
+          log('~ ring ignorado (from=me)')
+          return
+        }
+
+        // ❌ si ya vimos un ring con este callId (por el otro inbox), ignorar
+        if (seenRingsRef.current.has(cid)) {
+          if (incoming?.callId === cid) setIncoming(null)
+          log(`~ ring ignorado (duplicado) cid=${cid}`)
+          return
+        }
+        // marcar este ring como visto para bloquear el duplicado del otro canal
+        seenRingsRef.current.add(cid)
+
+        // si la llamada ya fue manejada (aceptada/rechazada/cancelada), ignorar
+        if (handledCallsRef.current.has(cid)) {
+          if (incoming?.callId === cid) setIncoming(null)
+          log(`~ ring ignorado (handled) cid=${cid}`)
+          return
+        }
+
+        // ignorar si no estamos idle
+        if (roleRef.current !== 'idle') {
+          log(`~ ring ignorado (no idle) cid=${cid}`)
+          return
+        }
+
         const fromName = String(payload.from?.name ?? 'Invitado')
-        log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${payload.callId}`)
-        setCallId(payload.callId); callIdRef.current = payload.callId
+        log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
+        setCallId(cid); callIdRef.current = cid
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
         calleeUserIdRef.current = String(meId || key)
         setPeerId(fromId)
-        setIncoming({ callId: payload.callId, fromId, fromName }) // mostrar notificación
-        setShowNotification(true) // mostrar notificación
+        setIncoming({ callId: cid, fromId, fromName }) // mostrar notificación
         try { navigator.vibrate?.(200) } catch {}
       })
 
@@ -355,17 +395,17 @@ export default function VideoCallPage() {
 
       ch.on('broadcast', { event: 'reject' }, ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
+        markHandled(payload.callId)
         log(`← reject (via user:${key})`)
         setIncoming(null) // cerrar banner
-        setShowNotification(false) // ocultar notificación
         resetCall()
       })
 
       ch.on('broadcast', { event: 'cancel' }, ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
+        markHandled(payload.callId)
         log(`← cancel (via user:${key})`)
         setIncoming(null) // cerrar banner
-        setShowNotification(false) // ocultar notificación
         resetCall()
       })
 
@@ -426,9 +466,9 @@ export default function VideoCallPage() {
     if (!ok || token !== incoming) {
       // ⛑️ Fallback: mostrar toast local para aceptar manualmente
       log('~ auto-accept bloqueado (sin gate o token inválido) → muestro toast local')
-      setRole('callee');        // me preparo como callee
+      setRole('callee')        // me preparo como callee
       roleRef.current = 'callee'
-      setPeerId(from)           // guardo quién llama
+      setPeerId(from)          // guardo quién llama
       setIncoming({ callId: incoming, fromId: from, fromName: 'Invitado' })
       return
     }
@@ -481,14 +521,18 @@ export default function VideoCallPage() {
     const keys = await resolvePeerKeys(sb, String(targetPeer), log)
     const targets = pickTargets(keys)
 
-    log(`→ ring targets: ${targets.map(t => `user:${t}`).join(', ')}`)
-    if (!targets.length) {
-      log('! No se resolvió ningún destino. Probá con el UUID.')
+    // 🚫 filtrar mis propios ids/uuids
+    const selfKeys = new Set([meId, meNumericId != null ? String(meNumericId) : ''].filter(Boolean))
+    const finalTargets = targets.filter(t => !selfKeys.has(t))
+
+    log(`→ ring targets: ${finalTargets.map(t => `user:${t}`).join(', ')}`)
+    if (!finalTargets.length) {
+      log('! No se resolvió ningún destino válido (tras filtrar self).')
       alert('No se resolvió ningún destino válido.')
       return
     }
 
-    for (const key of targets) {
+    for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)
       await ensureSubscribed(ch)
       await ch.send({
@@ -506,15 +550,14 @@ export default function VideoCallPage() {
     if (!incoming) return alert('No hay llamada entrante')
     if (roleRef.current !== 'callee') { log('! Accept: solo callee'); return }
 
-    // Ocultar notificación INMEDIATAMENTE
-    console.log('Ocultando notificación...', { incoming, role })
-    setIncoming(null)
-    
     // Usar los valores antes de que se pierdan
     const currentCallId = incoming.callId
     const toId = incoming.fromId
 
-    // Procesar aceptación directamente
+    // Ocultar y marcar como manejada YA
+    setIncoming(null)
+    markHandled(currentCallId)
+
     try {
       if (!localStreamRef.current) await enableCam()
       const idRow = await dbStartCall()
@@ -523,7 +566,7 @@ export default function VideoCallPage() {
       await joinCallChannel(currentCallId)
       setInCall(true)
 
-      // Avisar al caller que aceptamos
+      // Avisar al caller
       const keys = await resolvePeerKeys(sb, String(toId), log)
       const targets = pickTargets(keys)
       for (const key of targets) {
@@ -540,19 +583,20 @@ export default function VideoCallPage() {
 
   const reject = async () => {
     if (!sb) return
-    if (!callIdRef.current) return
+    const cid = callIdRef.current
     const toId = roleRef.current === 'callee' ? peerId.trim() : null
-    if (!toId) { log('! Seteá Peer Usuario ID con el caller'); return }
-    
-    console.log('Rechazando llamada...', { incoming, role })
-    setIncoming(null) // Ocultar notificación inmediatamente
-    
+    if (!cid || !toId) { log('! Reject: faltan datos'); return }
+
+    // Ocultar y marcar como manejada YA
+    setIncoming(null)
+    markHandled(cid)
+
     const keys = await resolvePeerKeys(sb, String(toId), log)
     const targets = pickTargets(keys)
     for (const key of targets) {
       const ch = sb.channel(`user:${key}`)
       await ensureSubscribed(ch)
-      await ch.send({ type: 'broadcast', event: 'reject', payload: { callId: callIdRef.current, from: meId } })
+      await ch.send({ type: 'broadcast', event: 'reject', payload: { callId: cid, from: meId } })
       await ch.unsubscribe()
     }
     log(`→ reject enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
@@ -571,6 +615,7 @@ export default function VideoCallPage() {
       await ch.send({ type: 'broadcast', event: 'cancel', payload: { callId: callIdRef.current, from: meId } })
       await ch.unsubscribe()
     }
+    markHandled(callIdRef.current)
     log(`→ cancel enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
     resetCall()
   }
@@ -805,6 +850,10 @@ export default function VideoCallPage() {
 
     try { await dbEndCall() } catch {}
 
+    // Marcar llamada como manejada y cerrar toast
+    markHandled(callIdRef.current)
+    setIncoming(null)
+
     cleanupPC()
 
     // ⚠️ IMPORTANTE: NO cerramos los inbox; así pueden volver a llamarte.
@@ -832,6 +881,10 @@ export default function VideoCallPage() {
   }
 
   const resetCall = () => {
+    // No marcamos acá porque reject/cancel ya marcaron; si cae por otro camino:
+    markHandled(callIdRef.current)
+    setIncoming(null)
+
     setCallId(null); callIdRef.current = null
     setRole('idle'); roleRef.current = 'idle'
     setCallPeers(0)
@@ -842,7 +895,20 @@ export default function VideoCallPage() {
     setInCall(false)
   }
 
+  // Ocultar toast si volvemos a idle o perdemos callId
+  useEffect(() => {
+    if (!callId || role === 'idle') {
+      if (incoming) setIncoming(null)
+    }
+  }, [callId, role]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ========= Render
+  const showIncomingToast =
+    !!incoming &&
+    role === 'callee' &&
+    !handledCallsRef.current.has(incoming.callId) &&
+    handledBump >= 0 // fuerza recomputar cuando cambia handledBump
+
   return (
     <div className="min-h-screen w-full bg-orange-50 dark:bg-[#0d0d0d] text-foreground flex flex-col">
       <header className="sticky top-0 z-40 w-full">
@@ -943,9 +1009,9 @@ export default function VideoCallPage() {
         />
 
         {/* === Notificación de llamada entrante (local) === */}
-        {incoming && role === 'callee' && (
+        {showIncomingToast && (
           <IncomingCallToast
-            fromName={incoming.fromName || 'Invitado'}
+            fromName={incoming!.fromName || 'Invitado'}
             onAccept={accept}
             onReject={reject}
           />
