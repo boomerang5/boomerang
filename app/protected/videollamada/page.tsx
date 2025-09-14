@@ -308,6 +308,7 @@ export default function VideoCallPage() {
 
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
   const [incoming, setIncoming] = useState<IncomingCall | null>(null)
+  const [showNotification, setShowNotification] = useState(false)
 
   useEffect(() => {
     if (!sb) return
@@ -335,6 +336,7 @@ export default function VideoCallPage() {
         calleeUserIdRef.current = String(meId || key)
         setPeerId(fromId)
         setIncoming({ callId: payload.callId, fromId, fromName }) // mostrar notificación
+        setShowNotification(true) // mostrar notificación
         try { navigator.vibrate?.(200) } catch {}
       })
 
@@ -355,6 +357,7 @@ export default function VideoCallPage() {
         if (payload.callId !== callIdRef.current) return
         log(`← reject (via user:${key})`)
         setIncoming(null) // cerrar banner
+        setShowNotification(false) // ocultar notificación
         resetCall()
       })
 
@@ -362,6 +365,7 @@ export default function VideoCallPage() {
         if (payload.callId !== callIdRef.current) return
         log(`← cancel (via user:${key})`)
         setIncoming(null) // cerrar banner
+        setShowNotification(false) // ocultar notificación
         resetCall()
       })
 
@@ -499,38 +503,39 @@ export default function VideoCallPage() {
 
   const accept = async () => {
     if (!sb) return
-    // Fallbacks: si aún no se seteó callIdRef, intento con estado local o query
-    let currentCallId = callIdRef.current
-    if (!currentCallId && incoming) currentCallId = incoming.callId
-    if (!currentCallId) {
-      const incQ = qp('incoming')
-      if (incQ) currentCallId = incQ
-    }
-    if (!currentCallId) return alert('No hay llamada entrante')
-
+    if (!incoming) return alert('No hay llamada entrante')
     if (roleRef.current !== 'callee') { log('! Accept: solo callee'); return }
 
-    // Determinar a quién responder: priorizar peerId, luego incoming.fromId, luego query
-    let toId = (peerId || '').trim()
-    if (!toId && incoming?.fromId) toId = incoming.fromId
-    if (!toId) {
-      const fromQ = qp('from')
-      if (fromQ) toId = fromQ
-    }
-    if (!toId) { log('! Seteá Peer Usuario ID con el caller'); return }
-
-    // Gate para que el auto-accept de esta misma página avance
-    sessionStorage.setItem(`aa:${currentCallId}`, '1')
-
-    // Redirijo a ESTA página con los parámetros (idempotente)
-    const url = new URL(window.location.href)
-    url.searchParams.set('incoming', currentCallId)
-    url.searchParams.set('from', toId)
-    url.searchParams.set('autoaccept', '1')
-    url.searchParams.set('aa', currentCallId)
-
+    // Ocultar notificación INMEDIATAMENTE
+    console.log('Ocultando notificación...', { incoming, role })
     setIncoming(null)
-    router.push(url.toString())
+    
+    // Usar los valores antes de que se pierdan
+    const currentCallId = incoming.callId
+    const toId = incoming.fromId
+
+    // Procesar aceptación directamente
+    try {
+      if (!localStreamRef.current) await enableCam()
+      const idRow = await dbStartCall()
+      if (idRow) setCallRowId(idRow)
+      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false })
+      await joinCallChannel(currentCallId)
+      setInCall(true)
+
+      // Avisar al caller que aceptamos
+      const keys = await resolvePeerKeys(sb, String(toId), log)
+      const targets = pickTargets(keys)
+      for (const key of targets) {
+        const ch = sb.channel(`user:${key}`)
+        await ensureSubscribed(ch)
+        await ch.send({ type: 'broadcast', event: 'accept', payload: { callId: currentCallId, from: meId, id_llamada: idRow ?? undefined } })
+        await ch.unsubscribe()
+      }
+    } catch (error) {
+      log('! Error al aceptar llamada: ' + (error as Error).message)
+      alert('Error al aceptar la llamada')
+    }
   }
 
   const reject = async () => {
@@ -538,6 +543,10 @@ export default function VideoCallPage() {
     if (!callIdRef.current) return
     const toId = roleRef.current === 'callee' ? peerId.trim() : null
     if (!toId) { log('! Seteá Peer Usuario ID con el caller'); return }
+    
+    console.log('Rechazando llamada...', { incoming, role })
+    setIncoming(null) // Ocultar notificación inmediatamente
+    
     const keys = await resolvePeerKeys(sb, String(toId), log)
     const targets = pickTargets(keys)
     for (const key of targets) {
@@ -547,7 +556,6 @@ export default function VideoCallPage() {
       await ch.unsubscribe()
     }
     log(`→ reject enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
-    setIncoming(null)
     resetCall()
   }
 
@@ -862,12 +870,6 @@ export default function VideoCallPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="hidden md:flex items-center gap-2 text-xs opacity-80">
-                <span className="px-2 py-1 rounded-full border border-white/30 bg-white/20">role: {role}</span>
-                <span className="px-2 py-1 rounded-full border border-white/30 bg-white/20">peers: {callPeers}</span>
-                <span className="px-2 py-1 rounded-full border border-white/30 bg-white/20">uid: {meId ? meId.slice(0,8) : '-'}</span>
-                <span className="px-2 py-1 rounded-full border border-white/30 bg-white/20">id: {meNumericId ?? '-'}</span>
-              </div>
               <TimeBadge />
               <button
                 className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/20 px-3 py-1.5 text-sm backdrop-blur-md hover:brightness-105"
@@ -885,35 +887,6 @@ export default function VideoCallPage() {
             </div>
           </div>
 
-          {/* Panel de control superior (IDs de prueba) */}
-          <div className="px-4 sm:px-6 pb-4 grid gap-2 md:grid-cols-3">
-            <div className="flex items-center gap-2">
-              <input
-                className="flex-1 rounded-md border border-white/20 bg-white/20 px-3 py-2"
-                value={meId}
-                readOnly
-                placeholder="Mi UUID (auto)"
-              />
-              <span className={clsx("rounded-md px-3 py-2", inboxReady ? "bg-white/20" : "bg-white/10")}>Inbox {inboxReady ? '✓' : '…'}</span>
-            </div>
-            <input
-              className="rounded-md border border-white/20 bg-white/20 px-3 py-2"
-              value={meName} onChange={e => setMeName(e.target.value)} placeholder="Mi nombre"
-            />
-            <div className="flex items-center gap-2">
-              <input
-                className="flex-1 rounded-md border border-white/20 bg-white/20 px-3 py-2"
-                value={peerId} onChange={e => setPeerId(e.target.value)} placeholder="Peer Usuario (UUID o ID numérico)"
-              />
-              <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30" onClick={() => makeCall()}>Call</button>
-              <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30" onClick={cancel}>Cancel</button>
-            </div>
-            <div className="md:col-span-3 flex items-center gap-2">
-              <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30" onClick={accept}>Accept</button>
-              <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30" onClick={reject}>Reject</button>
-              <button className="rounded-md px-3 py-2 bg-white/20 hover:bg-white/30" onClick={enableCam}>Enable Cam/Mic</button>
-            </div>
-          </div>
         </div>
       </header>
 
@@ -940,13 +913,11 @@ export default function VideoCallPage() {
               />
             </div>
 
-            {/* LOG */}
-            <pre ref={logRef} className="mt-6 rounded-xl bg-black/80 text-green-300 p-3 text-xs max-h-60 overflow-auto"></pre>
           </section>
 
           {panel !== 'none' && (
             <aside className="relative z-40 border-l border-white/20 bg-white/30 dark:bg-white/10 backdrop-blur-xl p-4 overflow-y-auto">
-              {panel === 'chat' && <div className="text-sm opacity-80">Chat (placeholder)</div>}
+              {panel === 'chat' && <ChatPanel />}
               {panel === 'people' && <div className="text-sm opacity-80">Personas (placeholder)</div>}
               {panel === 'settings' && <div className="text-sm opacity-80">Ajustes (placeholder)</div>}
             </aside>
@@ -1146,6 +1117,121 @@ function RoundBtn({
     >
       <i data-feather={icon} className="w-5 h-5" />
     </button>
+  )
+}
+
+/* ============== Panel de Chat ============== */
+function ChatPanel() {
+  const [newMessage, setNewMessage] = useState('')
+  
+  // Datos hardcodeados del chat
+  const chatMessages = [
+    {
+      id: 1,
+      sender: 'María García',
+      message: '¡Hola! ¿Cómo están todos?',
+      timestamp: '10:30',
+      isMe: false
+    },
+    {
+      id: 2,
+      sender: 'Carlos López',
+      message: 'Todo bien, gracias. ¿Y tú?',
+      timestamp: '10:32',
+      isMe: false
+    },
+    {
+      id: 3,
+      sender: 'Yo',
+      message: 'Perfecto, gracias por preguntar',
+      timestamp: '10:35',
+      isMe: true
+    },
+    {
+      id: 4,
+      sender: 'Ana Rodríguez',
+      message: '¿Alguien puede compartir la pantalla para mostrar el proyecto?',
+      timestamp: '10:37',
+      isMe: false
+    },
+    {
+      id: 5,
+      sender: 'Yo',
+      message: 'Claro, en un momento lo comparto',
+      timestamp: '10:38',
+      isMe: true
+    },
+    {
+      id: 6,
+      sender: 'María García',
+      message: 'Excelente, gracias',
+      timestamp: '10:39',
+      isMe: false
+    }
+  ]
+
+  const handleSendMessage = () => {
+    if (newMessage.trim()) {
+      // Aquí se podría agregar lógica para enviar el mensaje
+      setNewMessage('')
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/20">
+        <i data-feather="message-square" className="w-5 h-5" />
+        <h3 className="font-semibold">Chat de la reunión</h3>
+      </div>
+      
+      <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+        {chatMessages.map((msg) => (
+          <div
+            key={msg.id}
+            className={clsx(
+              'flex flex-col max-w-[85%]',
+              msg.isMe ? 'ml-auto items-end' : 'mr-auto items-start'
+            )}
+          >
+            {!msg.isMe && (
+              <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                {msg.sender}
+              </span>
+            )}
+            <div
+              className={clsx(
+                'rounded-2xl px-3 py-2 text-sm',
+                msg.isMe
+                  ? 'bg-gradient-to-r from-orange-400 to-orange-600 text-white'
+                  : 'bg-white/20 dark:bg-white/10 text-gray-800 dark:text-gray-200'
+              )}
+            >
+              {msg.message}
+            </div>
+            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {msg.timestamp}
+            </span>
+          </div>
+        ))}
+      </div>
+      
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+          placeholder="Escribe un mensaje..."
+          className="flex-1 rounded-full border border-white/20 bg-white/20 dark:bg-white/10 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/50"
+        />
+        <button
+          onClick={handleSendMessage}
+          className="rounded-full bg-gradient-to-r from-orange-400 to-orange-600 text-white p-2 hover:from-orange-500 hover:to-orange-700 transition-colors"
+        >
+          <i data-feather="send" className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
   )
 }
 
