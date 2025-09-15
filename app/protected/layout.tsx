@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { useUser } from '@supabase/auth-helpers-react'
 
@@ -32,6 +32,7 @@ export default function CallNotificationsProvider({
   callRoute = '/protected/videollamada',
 }: { children: React.ReactNode; callRoute?: string }) {
   const router = useRouter()
+  const pathname = usePathname()
   const user = useUser()
   const [sb, setSb] = useState<SupabaseClient | null>(null)
   const [meUuid, setMeUuid] = useState('')
@@ -42,8 +43,11 @@ export default function CallNotificationsProvider({
   const [incoming, setIncoming] = useState<IncomingCall | null>(null)
   const currentCallIdRef = useRef<string | null>(null)
   const peerIdRef = useRef<string | null>(null)
-  const seenRingsRef = useRef<Set<string>>(new Set()) // 👈 evita dups y “parpadeos”
+  const seenRingsRef = useRef<Set<string>>(new Set()) // 👈 evita dups y "parpadeos"
   const navigatingRef = useRef(false) // 👈 evita push doble por clicks rápidos
+
+  // Detectar si estamos en la página de videollamada para evitar duplicar toasts
+  const isOnVideoCallPage = pathname === callRoute
 
   // 1) Supabase client
   useEffect(() => {
@@ -176,7 +180,7 @@ export default function CallNotificationsProvider({
   return (
     <>
       {children}
-      {incoming && inboxReady && (
+      {incoming && inboxReady && !isOnVideoCallPage && (
         <Toast fromName={incoming.fromName || 'Invitado'} onAccept={onAccept} onReject={onReject} />
       )}
     </>

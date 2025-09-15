@@ -233,61 +233,8 @@ export default function DashboardPage() {
   };
 
   /* ======================= Listener de llamadas entrantes ======================= */
-
-  function ensureSubscribed(ch: any) {
-    return new Promise<void>((resolve) => {
-      let ok = false;
-      ch.subscribe((status: any) => {
-        if (!ok && status === 'SUBSCRIBED') { ok = true; resolve(); }
-      });
-    });
-  }
-
-  useEffect(() => {
-    let mounted = true;
-    const chans: any[] = [];
-
-    (async () => {
-      try {
-        const { data: sess } = await supabase.auth.getSession();
-        const myUuid: string | null = sess?.session?.user?.id || null;
-
-        if (!myUuid && !idUsuario) return;
-
-        const keys: string[] = [];
-        if (myUuid) keys.push(String(myUuid));
-        if (idUsuario) keys.push(String(idUsuario));
-
-        for (const key of keys) {
-          const ch = supabase.channel(`user:${key}`, { config: { broadcast: { self: false } } });
-
-          ch.on('broadcast', { event: 'ring' }, ({ payload }: any) => {
-            const caller = payload?.from?.id || payload?.from || '';
-            const callId = payload?.callId || '';
-            if (caller && callId) {
-              router.push(
-                `/protected/videollamada?incoming=${encodeURIComponent(callId)}&from=${encodeURIComponent(caller)}&autoaccept=1`
-              );
-            }
-          });
-
-          await ensureSubscribed(ch);
-          if (!mounted) { try { await ch.unsubscribe(); } catch {} return; }
-          chans.push(ch);
-        }
-      } catch {
-        // opcional: log
-      }
-    })();
-
-    return () => {
-      mounted = false;
-      (async () => {
-        for (const ch of chans) { try { await ch.unsubscribe(); } catch {} }
-      })();
-    };
-  }, [supabase, idUsuario, router]);
-
+  // NOTA: El manejo de llamadas entrantes se hace en el layout protegido (CallNotificationsProvider)
+  // para evitar navegación automática y permitir que el usuario decida si aceptar o rechazar
   /* ======================= FIN listener ======================= */
 
   return (
