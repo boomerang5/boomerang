@@ -24,10 +24,13 @@ type Chat = {
   online?: boolean;
   messages: Msg[];
   isGroup?: boolean;
+  /** 1 = privado, 2 = grupal (preferido) */
+  idTipoChat?: number;
   members?: string[];
 };
 type RawContact = Record<string, any>;
 type Contact = { id: string; name: string; initials?: string };
+type Participant = { id: string; name: string; initials?: string };
 
 // Fila cruda de DB (Mensaje)
 type DBMessage = {
@@ -59,10 +62,16 @@ function toMillis(s: string | number | Date | undefined) {
   return Number.isFinite(t) ? t : Date.now();
 }
 
-/** ====== Mapeo robusto del listado de chats ====== */
+/** ====== Mapeo robusto del listado de chats (usa id_tipo_chat si viene) ====== */
 function mapRawChatToUI(r: any): Chat {
   const id = String(r?.id_chat ?? r?.chat_id ?? r?.id ?? crypto.randomUUID());
+
+  // Normalizamos id_tipo_chat desde distintas claves
+  const idTipoChatRaw = r?.id_tipo_chat ?? r?.tipo_chat_id ?? r?.tipo_chat ?? r?.idTipoChat;
+  const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : undefined;
+
   const isGroup =
+    (idTipoChat === 2) ||
     Boolean(r?.is_group ?? r?.grupo ?? r?.es_grupo) ||
     (r?.tipo && String(r.tipo).toLowerCase() === "grupo");
 
@@ -108,8 +117,34 @@ function mapRawChatToUI(r: any): Chat {
     online: false,
     messages: [],
     isGroup,
+    idTipoChat,
     members,
   };
+}
+
+/* ===== Heurística para detectar/grabar "grupal" incluso en chats viejos ===== */
+function groupFlagFromInfoLike(obj: any): boolean {
+  // Si viene id_tipo_chat del /info, es la fuente de verdad
+  const idTipoChatRaw = obj?.id_tipo_chat ?? obj?.tipo_chat_id ?? obj?.tipo_chat ?? obj?.idTipoChat;
+  const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : undefined;
+
+  return Boolean(
+    (idTipoChat === 2) ||
+      obj?.is_group ||
+      obj?.grupo ||
+      obj?.es_grupo ||
+      (obj?.tipo && String(obj.tipo).toLowerCase() === "grupo") ||
+      obj?.id_grupo ||
+      obj?.group_id
+  );
+}
+function isGroupLike(c?: Chat | null): boolean {
+  if (!c) return false;
+  if (c.idTipoChat === 2) return true;           // preferimos dato oficial
+  if (c.idTipoChat === 1) return false;
+  if (c.isGroup) return true;
+  if (Array.isArray(c.members) && c.members.length >= 3) return true;
+  return false;
 }
 
 export default function ChatsPage() {
@@ -168,6 +203,11 @@ export default function ChatsPage() {
   const groupNameBtnRef = useRef<HTMLButtonElement>(null);
   const membersPopupRef = useRef<HTMLDivElement>(null);
 
+  // Estado de participantes (cargados desde /api/chats/info)
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [participantsLoading, setParticipantsLoading] = useState(false);
+  const [participantsError, setParticipantsError] = useState<string | null>(null);
+
   /* ===== Contactos (backend) ===== */
   const [remoteContacts, setRemoteContacts] = useState<Contact[] | null>(null);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -175,18 +215,28 @@ export default function ChatsPage() {
 
   /* ===== Derivados ===== */
   const [search, setSearch] = useState("");
+  const [chatFilter, setChatFilter] = useState<"all" | "private" | "group">("all");
   const selectedChat = useMemo(() => chats.find((c) => c.id === selectedId), [chats, selectedId]);
 
   // Orden visible de chats + filtro por búsqueda
   const visibleChats = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const list = query
+    let list = query
       ? chats.filter(
           (c) =>
             c.name.toLowerCase().includes(query) ||
             (c.preview || "").toLowerCase().includes(query)
         )
       : [...chats];
+
+    if (chatFilter !== "all") {
+      const wantGroup = chatFilter === "group";
+      list = list.filter((c) =>
+        wantGroup
+          ? (c.idTipoChat === 2 || isGroupLike(c))
+          : (c.idTipoChat === 1 || (!c.idTipoChat && !isGroupLike(c)))
+      );
+    }
 
     list.sort((a, b) => {
       const archCmp = Number(!!archived[a.id]) - Number(!!archived[b.id]);
@@ -196,7 +246,7 @@ export default function ChatsPage() {
       return lb - la;
     });
     return list;
-  }, [search, chats, archived, lastActivityById]);
+  }, [search, chats, archived, lastActivityById, chatFilter]);
 
   const contactsForSearch = remoteContacts ?? [];
   const filteredContacts = useMemo(() => {
@@ -251,6 +301,10 @@ export default function ChatsPage() {
     setSelectedId(id);
     setUnreadById((p) => ({ ...p, [id]: 0 }));
     setShowMembers(false);
+    // limpiar estado de participantes al cambiar de chat
+    setParticipants([]);
+    setParticipantsError(null);
+    setParticipantsLoading(false);
   };
 
   /* ===== Acciones header ===== */
@@ -433,7 +487,11 @@ export default function ChatsPage() {
         const current = byId.get(id);
         if (!current) continue;
 
+        const idTipoChatRaw = info?.id_tipo_chat ?? info?.tipo_chat_id ?? info?.tipo_chat ?? info?.idTipoChat;
+        const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : current.idTipoChat;
+
         const isGroup =
+          (idTipoChat === 2) ||
           Boolean(info?.is_group ?? info?.grupo ?? info?.es_grupo) ||
           (info?.tipo && String(info.tipo).toLowerCase() === "grupo") ||
           (Array.isArray(info?.participantes ?? info?.members) &&
@@ -483,6 +541,7 @@ export default function ChatsPage() {
           name: name || current.name,
           initials,
           isGroup,
+          idTipoChat,
           members: members.length ? members : current.members,
           preview: String(preview ?? ""),
           time: String(time ?? current.time),
@@ -511,12 +570,15 @@ export default function ChatsPage() {
         cache: "no-store",
       });
       if (!r.ok) {
-        // Silencioso: no rompemos UI si falla
         return;
       }
       const info = await r.json();
 
+      const idTipoChatRaw = info?.id_tipo_chat ?? info?.tipo_chat_id ?? info?.tipo_chat ?? info?.idTipoChat;
+      const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : undefined;
+
       const isGroup =
+        (idTipoChat === 2) ||
         Boolean(info?.is_group ?? info?.grupo ?? info?.es_grupo) ||
         (info?.tipo && String(info.tipo).toLowerCase() === "grupo") ||
         (Array.isArray(info?.participantes ?? info?.members) &&
@@ -526,7 +588,6 @@ export default function ChatsPage() {
         (info?.miembros ?? info?.members ?? info?.participantes ?? []) as any[]
       ).map((m: any) => String(m?.id ?? m?.id_usuario ?? m));
 
-      // Nombre/initials
       const full = (o: any) => [o?.nombre, o?.apellido].filter(Boolean).join(" ").trim();
       let newName = "";
       if (isGroup) {
@@ -554,6 +615,7 @@ export default function ChatsPage() {
             ? {
                 ...c,
                 isGroup,
+                idTipoChat: idTipoChat ?? c.idTipoChat,
                 members: members.length ? members : c.members,
                 name: newName ? String(newName).trim() : c.name,
                 initials: initialsFromName(newName ? String(newName).trim() : c.name),
@@ -566,6 +628,53 @@ export default function ChatsPage() {
     }
   }
 
+  /* ====== Carga de participantes para el pop-up ====== */
+  async function loadParticipants(chatId: string) {
+    try {
+      setParticipantsLoading(true);
+      setParticipantsError(null);
+
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
+      const url = `/api/chats/info?id_usuario=${encodeURIComponent(
+        String(idUsuario)
+      )}&id_chat=${encodeURIComponent(String(chatId))}`;
+
+      const r = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      });
+
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        console.warn("Error /api/chats/info:", r.status, txt);
+        throw new Error("No se pudieron cargar los participantes.");
+      }
+
+      const info = await r.json();
+      const arr: any[] = Array.isArray(info?.miembros ?? info?.members ?? info?.participantes)
+        ? (info?.miembros ?? info?.members ?? info?.participantes)
+        : [];
+
+      const list: Participant[] = arr.map((m: any) => {
+        const id = String(m?.id_usuario ?? m?.id ?? m?.user_id ?? m);
+        const nameCandidate =
+          m?.nombre_completo ||
+          [m?.nombre, m?.apellido].filter(Boolean).join(" ").trim() ||
+          m?.apodo ||
+          m?.nombre ||
+          `Usuario ${id}`;
+        return { id, name: String(nameCandidate), initials: initialsFromName(String(nameCandidate)) };
+      });
+
+      setParticipants(list);
+    } catch (e: any) {
+      setParticipants([]);
+      setParticipantsError(e?.message || "No se pudieron cargar los participantes.");
+    } finally {
+      setParticipantsLoading(false);
+    }
+  }
+
   /* ===== cargar al entrar ===== */
   useEffect(() => {
     loadUserChatsFromBackend();
@@ -574,12 +683,51 @@ export default function ChatsPage() {
 
   /* ===== Suscripción Realtime por chat seleccionado ===== */
   useEffect(() => {
-    // Cada vez que cambiamos de chat, si ese chat no tiene marcada la info de grupo,
-    // la refrescamos para que aparezca el ícono de "participantes" en grupos antiguos.
+    // Heurística + fetch perezoso: si no detectamos grupo, tratamos de completarlo.
+    // Si ya viene idTipoChat, lo respetamos.
     if (selectedId) {
       const sc = chats.find((c) => c.id === selectedId);
-      if (sc && (!sc.isGroup || !sc.members || sc.members.length === 0)) {
-        void refreshSingleChatInfo(selectedId);
+      if (sc) {
+        if (sc.idTipoChat === 2 && !sc.isGroup) {
+          // Marcar como grupo en base al dato oficial
+          setChats((prev) => prev.map((c) => (c.id === sc.id ? { ...c, isGroup: true } : c)));
+        } else if (sc.idTipoChat !== 1 && !isGroupLike(sc)) {
+          (async () => {
+            try {
+              const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
+              const url = `/api/chats/info?id_usuario=${encodeURIComponent(
+                String(idUsuario)
+              )}&id_chat=${encodeURIComponent(String(sc.id))}`;
+              const r = await fetch(url, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                cache: "no-store",
+              });
+              if (!r.ok) return;
+              const info = await r.json();
+              const members: string[] = Array.from(
+                (info?.miembros ?? info?.members ?? info?.participantes ?? []) as any[]
+              ).map((m: any) => String(m?.id ?? m?.id_usuario ?? m));
+              const idTipoChatRaw = info?.id_tipo_chat ?? info?.tipo_chat_id ?? info?.tipo_chat ?? info?.idTipoChat;
+              const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : sc.idTipoChat;
+              const flag = (idTipoChat === 2) || groupFlagFromInfoLike(info) || members.length >= 3;
+
+              if (flag || members.length || idTipoChat) {
+                setChats((prev) =>
+                  prev.map((c) =>
+                    c.id === sc.id
+                      ? {
+                          ...c,
+                          idTipoChat: idTipoChat ?? c.idTipoChat,
+                          isGroup: flag || c.isGroup,
+                          members: members.length ? members : c.members,
+                        }
+                      : c
+                  )
+                );
+              }
+            } catch {}
+          })();
+        }
       }
     }
 
@@ -653,7 +801,7 @@ export default function ChatsPage() {
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, chats]);
 
   /* ===== Suscripción global a nuevos mensajes ===== */
   useEffect(() => {
@@ -809,7 +957,7 @@ export default function ChatsPage() {
   /* ===== Crear chats ===== */
   const createOrOpenPrivateChat = async (ct: Contact) => {
     try {
-      const exists = chats.find((c) => c.id === ct.id && !c.isGroup);
+      const exists = chats.find((c) => c.id === ct.id && !isGroupLike(c));
       if (exists) {
         handleSelect(exists.id);
         closeAllPickers();
@@ -847,6 +995,7 @@ export default function ChatsPage() {
         online: true,
         messages: [],
         isGroup: false,
+        idTipoChat: 1,
       };
       setChats((prev) => [...prev, newChat]);
       setMessagesById((prev) => ({ ...prev, [newChat.id]: [] }));
@@ -906,6 +1055,7 @@ export default function ChatsPage() {
         online: true,
         messages: [],
         isGroup: true,
+        idTipoChat: 2,
         members: Array.from(groupMembers),
       };
       setChats((prev) => [...prev, newChat]);
@@ -920,6 +1070,169 @@ export default function ChatsPage() {
       setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 50);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  /* ===== SALIR DEL GRUPO ===== */
+  const leaveCurrentGroup = async () => {
+    try {
+      if (!selectedId) return;
+      const sc = chats.find((c) => c.id === selectedId);
+      if (!sc || !isGroupLike(sc)) return;
+
+      const ok = confirm(`¿Seguro que querés salir del grupo "${sc.name}"?`);
+      if (!ok) return;
+
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
+
+      // Intento principal: POST con JSON
+      let r = await fetch("/api/chats/leave", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ id_emisor: idUsuario, id_chat: Number(selectedId) }),
+      });
+
+      // Fallback
+      if (!r.ok && (r.status === 405 || r.status === 404)) {
+        const qs = new URLSearchParams({
+          id_emisor: String(idUsuario),
+          id_chat: String(selectedId),
+        });
+        r = await fetch(`/api/chats/leave?${qs.toString()}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      }
+
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        console.error("Error /api/chats/leave:", r.status, txt);
+        alert("No se pudo salir del grupo. Revisa la consola para más detalle.");
+        return;
+      }
+
+      try {
+        await channelRef.current?.unsubscribe();
+      } catch {}
+      channelRef.current = null;
+
+      setChats((prev) => prev.filter((c) => c.id !== selectedId));
+      setMessagesById((prev) => {
+        const copy = { ...prev };
+        delete copy[selectedId];
+        return copy;
+      });
+      setUnreadById((prev) => {
+        const copy = { ...prev };
+        delete copy[selectedId];
+        return copy;
+      });
+      setMuted((prev) => {
+        const copy = { ...prev };
+        delete copy[selectedId];
+        return copy;
+      });
+      setArchived((prev) => {
+        const copy = { ...prev };
+        delete copy[selectedId];
+        return copy;
+      });
+      setLastActivityById((prev) => {
+        const copy = { ...prev };
+        delete copy[selectedId];
+        return copy;
+      });
+
+      setSelectedId("");
+      setShowMembers(false);
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo salir del grupo.");
+    }
+  };
+
+  /* ===== ELIMINAR CHAT PRIVADO ===== */
+  const deleteCurrentChat = async () => {
+    try {
+      if (!selectedId) return;
+      const sc = chats.find((c) => c.id === selectedId);
+      if (!sc) return;
+
+      if (isGroupLike(sc)) {
+        alert("La eliminación es solo para chats privados. En grupos usá 'Salir'.");
+        return;
+      }
+
+      const ok = confirm(`¿Eliminar el chat con "${sc.name}"? Esta acción no se puede deshacer.`);
+      if (!ok) return;
+
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
+
+      const body = { id_emisor: idUsuario, id_chat: Number(selectedId) };
+      let r = await fetch("/api/chats/delete", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!r.ok && (r.status === 405 || r.status === 404)) {
+        const qs = new URLSearchParams({ id_emisor: String(idUsuario), id_chat: String(selectedId) });
+        r = await fetch(`/api/chats/delete?${qs.toString()}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      }
+
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        console.error("Error /api/chats/delete:", r.status, txt);
+        alert("No se pudo eliminar el chat (sin respuesta OK del backend). Revisa la consola para más detalle.");
+        return;
+      }
+
+      try {
+        await channelRef.current?.unsubscribe();
+      } catch {}
+      channelRef.current = null;
+
+      setChats((prev) => prev.filter((c) => c.id !== selectedId));
+      setMessagesById((prev) => {
+        const clone = { ...prev };
+        delete clone[selectedId];
+        return clone;
+      });
+      setUnreadById((prev) => {
+        const clone = { ...prev };
+        delete clone[selectedId];
+        return clone;
+      });
+      setMuted((prev) => {
+        const clone = { ...prev };
+        delete clone[selectedId];
+        return clone;
+      });
+      setArchived((prev) => {
+        const clone = { ...prev };
+        delete clone[selectedId];
+        return clone;
+      });
+      setLastActivityById((prev) => {
+        const clone: Record<string, number> = { ...prev };
+        delete clone[selectedId];
+        return clone;
+      });
+
+      setSelectedId("");
+      setShowMembers(false);
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo eliminar el chat.");
     }
   };
 
@@ -960,17 +1273,64 @@ export default function ChatsPage() {
     void sendMessageToDB();
   };
 
+  /* ===== Click en el nombre del grupo: abrir popup + cargar en bg ===== */
+  const onGroupNameClick = () => {
+    if (!selectedChat) return;
+
+    if (!showMembers) {
+      setShowMembers(true);
+
+      if (participants.length === 0) {
+        if (!remoteContacts) {
+          loadContactsFromBackend().catch(() => {});
+        }
+        loadParticipants(selectedChat.id).catch(() => {});
+      }
+    } else {
+      setShowMembers(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d]">
-      
+      {/* ===== Sidebar ===== */}
+      <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
+        <div className="flex flex-col items-center gap-6 mt-4">
+          <Link href="/protected">
+            <i data-feather="home" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          <Link href="/protected/perfil">
+            <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
+
+          <Link href="/protected/contactos">
+            <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
+          </Link>
+
+          {/* Chat (activo) */}
+          <Link href="/protected/chats" aria-label="Ir a chats">
+            <i data-feather="message-circle" className="text-orange-500 w-5 h-5" />
+          </Link>
+
+          <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
+        </div>
+        <div className="flex flex-col items-center gap-5 mb-4">
+          <i data-feather="help-circle" className="text-black dark:text-white w-5 h-5" />
+          <i data-feather="settings" className="text-black dark:text-white w-5 h-5" />
+        </div>
+      </aside>
+
       {/* ===== Main ===== */}
       <main className="flex-1 px-4 py-6">
-        
+        {/* AUMENTAMOS EL ANCHO DE LA COLUMNA IZQUIERDA: 360px */}
         <div className="mx-auto grid max-w-[1260px] grid-cols-1 gap-6 md:grid-cols-[360px_1fr]">
           {/* ===== Lista de chats ===== */}
           <aside className="flex h-[72vh] min-h-[72vh] flex-col overflow-hidden rounded-2xl bg-white/70 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#181412]">Mis chats</h2>
+              <h2 className="text-lg font-semibold text-[#f16f24]">Mis chats</h2>
               <Link href="/protected" className="text-sm text-[#de4435] hover:underline">
                 Volver
               </Link>
@@ -1004,7 +1364,39 @@ export default function ChatsPage() {
                 </button>
               </div>
 
-              {plusMenuOpen && (
+              
+              <div className="mt-3 flex justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setChatFilter((f) => (f === "private" ? "all" : "private"))}
+                  className={[
+                    "rounded-lg border px-3 py-1.5 text-sm transition",
+                    chatFilter === "private"
+                      ? "border-[#f16f24] bg-[#f16f24] text-white"
+                      : "border-black/15 bg-white text-black/70 hover:bg-black/5"
+                  ].join(" ")}
+                  aria-pressed={chatFilter === "private"}
+                  title="Mostrar solo chats privados"
+                >
+                  Chats
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatFilter((f) => (f === "group" ? "all" : "group"))}
+                  className={[
+                    "rounded-lg border px-3 py-1.5 text-sm transition",
+                    chatFilter === "group"
+                      ? "border-[#f16f24] bg-[#f16f24] text-white"
+                      : "border-black/15 bg-white text-black/70 hover:bg-black/5"
+                  ].join(" ")}
+                  aria-pressed={chatFilter === "group"}
+                  title="Mostrar solo chats grupales"
+                >
+                  Grupos
+                </button>
+            </div>
+
+{plusMenuOpen && (
                 <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-black/10 bg-white/95 shadow-xl backdrop-blur">
                   <button onClick={startPrivateFlow} className="w-full px-3 py-2 text-sm text-left hover:bg-black/5">
                     Chat privado
@@ -1027,6 +1419,7 @@ export default function ChatsPage() {
                   const isMuted = !!muted[c.id];
                   const isArchived = !!archived[c.id];
                   const unread = unreadById[c.id] ?? 0;
+                  const badgeLabel = c.idTipoChat === 2 ? "Grupo" : (c.idTipoChat === 1 ? "Privado" : (isGroupLike(c) ? "Grupo" : ""));
                   return (
                     <li key={c.id}>
                       <button
@@ -1050,8 +1443,10 @@ export default function ChatsPage() {
                             <div className="flex items-center justify-between">
                               <p className="truncate font-medium text-[#2b2b2b] flex items-center gap-1">
                                 {c.name}
-                                {c.isGroup && (
-                                  <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Grupo</span>
+                                {badgeLabel && (
+                                  <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">
+                                    {badgeLabel}
+                                  </span>
                                 )}
                                 {isArchived && (
                                   <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Archivado</span>
@@ -1099,38 +1494,40 @@ export default function ChatsPage() {
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
                       {selectedChat.initials}
                     </div>
-                    {selectedChat.online && (
-                      <span className="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-400" />
-                    )}
                   </div>
                   <div>
                     <p className="font-medium text-[#2b2b2b] flex items-center gap-2">
-                      {selectedChat.isGroup ? (
+                      {isGroupLike(selectedChat) ? (
                         <button
                           ref={groupNameBtnRef}
-                          onClick={() => setShowMembers((v) => !v)}
+                          onClick={onGroupNameClick}
                           className="underline decoration-transparent hover:decoration-[#f16f24] underline-offset-4 transition text-left"
                           title="Ver participantes"
+                          type="button"
                         >
                           {selectedChat.name}
                         </button>
                       ) : (
                         <span>{selectedChat.name}</span>
                       )}
-                      {selectedChat.isGroup && (
+                      {selectedChat.idTipoChat === 2 && (
                         <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Grupo</span>
                       )}
+                      {selectedChat.idTipoChat === 1 && (
+                        <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Privado</span>
+                      )}
                     </p>
-                    <p className="text-xs text-black/50">{selectedChat.online ? "En línea" : "Desconectado"}</p>
                   </div>
                 </div>
 
-                {/* Acciones: Participantes (solo grupos) + Trash + X */}
+                {/* Acciones: Participantes + Salir/Eliminar + Cerrar */}
                 <div className="flex items-center gap-2" ref={menuRef}>
-                  {selectedChat.isGroup && (
+                  {isGroupLike(selectedChat) && (
                     <button
                       title="Participantes"
                       className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
+                      type="button"
+                      onClick={onGroupNameClick}
                     >
                       {/* Ícono "users" */}
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -1139,14 +1536,32 @@ export default function ChatsPage() {
                     </button>
                   )}
 
-                  <button
-                    title="Eliminar chat"
-                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M9 3h6l1 2h5v2H3V5h5l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Zm-1 12h12a2 2 0 0 0 2-2V9H4v10a2 2 0 0 0 2 2Z" />
-                    </svg>
-                  </button>
+                  {isGroupLike(selectedChat) ? (
+                    <button
+                      onClick={leaveCurrentGroup}
+                      title="Salir del grupo"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
+                      type="button"
+                    >
+                      {/* Ícono "logout / salir" */}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M17 7l-1.41 1.41L17.17 10H8v2h9.17l-1.58 1.59L17 15l4-4-4-4z"></path>
+                        <path d="M3 5h8V3H3a2 2 0 00-2 2v14a2 2 0 002 2h8v-2H3V5z"></path>
+                      </svg>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={deleteCurrentChat}
+                      title="Eliminar chat privado"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
+                      type="button"
+                    >
+                      {/* Ícono tacho (solo privados) */}
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M9 3h6l1 2h5v2H3V5h5l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Zm-1 12h12a2 2 0 0 0 2-2V9H4v10a2 2 0 0 0 2 2Z" />
+                      </svg>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {
@@ -1156,6 +1571,7 @@ export default function ChatsPage() {
                     }}
                     title="Cerrar chat"
                     className="flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white text-black/60 hover:bg-black/5"
+                    type="button"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24">
                       <path
@@ -1168,7 +1584,7 @@ export default function ChatsPage() {
               </header>
 
               {/* Popup participantes */}
-              {selectedChat.isGroup && showMembers && (
+              {isGroupLike(selectedChat) && showMembers && (
                 <div
                   ref={membersPopupRef}
                   className="absolute left-5 top-[64px] z-30 w-72 rounded-2xl border border-black/10 bg-white/95 p-3 shadow-xl backdrop-blur"
@@ -1179,6 +1595,7 @@ export default function ChatsPage() {
                       onClick={() => setShowMembers(false)}
                       className="h-7 w-7 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
                       title="Cerrar"
+                      type="button"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24">
                         <path
@@ -1189,24 +1606,38 @@ export default function ChatsPage() {
                     </button>
                   </div>
 
+                  {/* Estados: cargando / error */}
+                  {participantsLoading && (
+                    <div className="px-2 py-2 text-sm text-black/60">Cargando participantes…</div>
+                  )}
+                  {participantsError && !participantsLoading && (
+                    <div className="px-2 py-2 text-sm text-red-600">{participantsError}</div>
+                  )}
+
+                  {/* Lista */}
                   <ul className="max-h-64 overflow-y-auto">
-                    {selectedChat.members?.length ? (
-                      selectedChat.members.map((id) => {
-                        const ct = contactMap.get(id);
-                        const name = ct?.name ?? id;
-                        const ini = (ct?.initials ?? initialsFromName(name)) || "•";
-                        return (
-                          <li key={id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-black/5">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] text-sm font-semibold">
-                              {ini}
-                            </div>
-                            <span className="text-sm text-[#2b2b2b]">{name}</span>
-                          </li>
-                        );
-                      })
-                    ) : (
-                      <li className="px-2 py-2 text-sm text-black/60">Sin miembros</li>
-                    )}
+                    {(participants.length
+                      ? participants.map((p) => ({ id: p.id, name: p.name, initials: p.initials ?? initialsFromName(p.name) }))
+                      : (selectedChat.members ?? []).map((id) => {
+                          const ct = contactMap.get(id);
+                          const name = ct?.name ?? `Usuario ${id}`;
+                          return { id, name, initials: initialsFromName(name) };
+                        })
+                    ).map((p) => (
+                      <li key={p.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-black/5">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] text-sm font-semibold">
+                          {p.initials}
+                        </div>
+                        <span className="text-sm text-[#2b2b2b]">{p.name}</span>
+                      </li>
+                    ))}
+
+                    {!participantsLoading &&
+                      !participantsError &&
+                      participants.length === 0 &&
+                      (!selectedChat.members || selectedChat.members.length === 0) && (
+                        <li className="px-2 py-2 text-sm text-black/60">Sin miembros</li>
+                      )}
                   </ul>
                 </div>
               )}
@@ -1310,7 +1741,7 @@ export default function ChatsPage() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
-              <h3 className="text-base font-semibold text-[#2b2b2b]">Nuevo chat privado</h3>
+              <h3 className="textbase font-semibold text-[#2b2b2b]">Nuevo chat privado</h3>
               <button
                 onClick={closeAllPickers}
                 className="h-8 w-8 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
