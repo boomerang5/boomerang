@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export type RawContact = Record<string, any>;
 export type Contact = {
   id: number | string;
+  id_usuario_contacto?: number | string | null; // ID del usuario (para llamadas)
   nombre: string;
   apellido?: string | null;
   apodo?: string | null;
@@ -15,6 +16,7 @@ export type Contact = {
 function mapContact(c: RawContact): Contact {
   return {
     id: c.id ?? c.id_usuario ?? c.user_id ?? String(Math.random()),
+    id_usuario_contacto: c.id_usuario_contacto ?? c.id_usuario ?? c.user_id ?? null,
     nombre: c.nombre ?? c.first_name ?? c.name ?? '—',
     apellido: c.apellido ?? c.last_name ?? null,
     apodo: c.apodo ?? c.nickname ?? null,
@@ -60,7 +62,10 @@ export function useContacts(
 
       const json = await res.json();
       const arr: RawContact[] = Array.isArray(json) ? json : json?.items ?? json?.data ?? [];
-      setContacts(arr.map(mapContact));
+      console.log('🔍 Raw contacts from API:', arr);
+      const mappedContacts = arr.map(mapContact);
+      console.log('🔍 Mapped contacts:', mappedContacts);
+      setContacts(mappedContacts);
     } catch (e) {
       setError('Error de red al obtener contactos.');
     } finally {
