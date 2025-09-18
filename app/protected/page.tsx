@@ -552,7 +552,7 @@ export default function DashboardPage() {
     console.log('Chat con', c);
   }
 
-  return (
+    return (
     <div className="space-y-8">
       {/* Header */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -610,22 +610,70 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Cards */}
-      <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
-        <Card title="Iniciar reunión" description="Crea una sala e invita a otros." buttonText="Crear reunión" />
+      {/* ====== Explorar con burbujas ====== */}
+      <section className="space-y-4">
+        {/*<h2 className="text-xl font-semibold text-foreground">Explorá Boomerang</h2>*/}
 
-        {/* Notificaciones */}
+
+        <div
+          className="grid grid-cols-3 sm:grid-cols-5 gap-6 justify-items-center"
+        >
+          <ActionBubble
+            href="/protected/videollamada"
+            emoji="🎥"
+            title="Videollamá"
+            subtitle="Cara a cara en segundos"
+          />
+          <ActionBubble
+            href="/protected/chats"
+            emoji="💬"
+            title="Usá la pizarra"
+            subtitle="Escribí con tu mano, sin mouse"
+          />
+          <ActionBubble
+            href="/protected/calendario"
+            emoji="📅"
+            title="Programá reuniones"
+            subtitle="Organizate con tiempo"
+          />
+          <ActionBubble
+            href="/protected/chatbot"
+            emoji="🤖"
+            title="Hablá con el chatbot"
+            subtitle="Tu asistente en la app"
+          />
+          <ActionBubble
+            href="/protected/contactos"
+            emoji="🌍"
+            title="Conocé gente"
+            subtitle="De todo el mundo"
+          />
+        </div>
+      </section>
+
+
+      {/* ====== Cards (reordenadas y con row-span) ====== */}
+      <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch lg:auto-rows-fr mt-6">
+        {/* Col 1 / Fila 1 */}
         <Card
+          title="Iniciar reunión"
+          description="Crea una sala e invita a otros."
+          buttonText="Crear reunión"
+        />
+
+        {/* Col 2 (alto: 2 filas) */}
+        <Card
+          className="lg:row-span-2"
           title="Notificaciones"
           content={
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 min-h-0">
               {reqLoading ? (
                 <p className="text-muted-foreground text-sm">Cargando…</p>
               ) : combinedNotifications.length === 0 ? (
                 <p className="text-muted-foreground text-sm">No hay notificaciones nuevas.</p>
               ) : (
-                <ul className="divide-y divide-white/20 max-h-48 overflow-y-auto pr-2">
-                  {combinedNotifications.map((n: NotificationItem) => (
+                <ul className="divide-y divide-white/20 overflow-y-auto pr-2 min-h-0">
+                  {combinedNotifications.map((n) => (
                     <li key={n.id} className="py-3 flex items-start gap-3">
                       <div className="flex-shrink-0 mt-1">
                         <i data-feather={iconFor(n.type)} className="w-4 h-4 text-orange-500" />
@@ -633,35 +681,21 @@ export default function DashboardPage() {
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm">{n.title}</div>
                         {n.message && <div className="text-xs text-muted-foreground mt-1">{n.message}</div>}
-                        {n.when && (
-                          <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>
-                        )}
+                        {n.when && <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>}
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
-                        {n.type === 'friend_request' && (n.meta as FriendRequest).estado === 'pendiente' && (
+                        {n.type === 'friend_request' && (n.meta as any).estado === 'pendiente' && (
                           <>
-                            <button
-                              onClick={() => handleNotifAccept(n)}
-                              className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600"
-                              title="Aceptar"
-                            >
+                            <button onClick={() => handleNotifAccept(n)} className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600" title="Aceptar">
                               <i data-feather="check" className="w-3 h-3" />
                             </button>
-                            <button
-                              onClick={() => handleNotifReject(n)}
-                              className="p-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-600"
-                              title="Rechazar"
-                            >
+                            <button onClick={() => handleNotifReject(n)} className="p-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-600" title="Rechazar">
                               <i data-feather="x" className="w-3 h-3" />
                             </button>
                           </>
                         )}
                         {n.type === 'meeting' && (
-                          <button
-                            onClick={() => handleNotifAccept(n)}
-                            className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-600"
-                            title="Ver en calendario"
-                          >
+                          <button onClick={() => handleNotifAccept(n)} className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-600" title="Ver en calendario">
                             <i data-feather="calendar" className="w-3 h-3" />
                           </button>
                         )}
@@ -674,99 +708,9 @@ export default function DashboardPage() {
           }
         />
 
-        {/* Contactos */}
-        <div className="md:row-span-2 flex flex-col">
-          <Card
-            className="flex flex-col flex-1 min-h-0"
-            title="Contactos"
-            content={
-              <div className="flex flex-col gap-4 flex-1 min-h-0">
-                <div className="relative flex-shrink-0">
-                  <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="Buscar por nombre, apellido o apodo…"
-                    className="w-full px-3 py-2 pr-8 rounded-md bg-white/20 border border-white/30 text-foreground backdrop-blur-sm"
-                  />
-                  <i
-                    data-feather="search"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-orange-500 w-4 h-4"
-                  />
-                </div>
-
-                <div className="flex-1 min-h-0">
-                  {contactsLoading ? (
-                    <p className="text-sm text-muted-foreground">Cargando…</p>
-                  ) : contactsError ? (
-                    <p className="text-sm text-red-500">Error de red al obtener contactos.</p>
-                  ) : filteredContacts.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Sin resultados.</p>
-                  ) : (
-                    <ul className="divide-y divide-white/20 max-h-96 overflow-y-auto pr-1">
-                      {filteredContacts.map((c: Contact) => (
-                        <li key={c.id} className="py-2 flex items-center gap-3">
-                          {c.foto ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={c.foto} alt={c.apodo ?? c.nombre} className="w-9 h-9 rounded-full object-cover" />
-                          ) : (
-                            <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-xs">
-                              👤
-                            </div>
-                          )}
-
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate">
-                              {c.nombre} {c.apellido ?? ''}
-                              {c.apodo ? <span className="opacity-70"> · {c.apodo}</span> : null}
-                            </div>
-                            {c.estado ? (
-                              <span className="text-xs opacity-70">
-                                {stateDot(c.estado)} {labelEstado(c.estado)}
-                              </span>
-                            ) : null}
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              title="Llamar"
-                              className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                              onClick={() => handleCall(c)}
-                            >
-                              <i data-feather="phone" className="w-4 h-4" />
-                            </button>
-                            <button
-                              title="Videollamada"
-                              className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                              onClick={() => handleVideo(c)}
-                            >
-                              <i data-feather="video" className="w-4 h-4" />
-                            </button>
-                            <button
-                              title="Chat"
-                              className="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition"
-                              onClick={() => handleChat(c)}
-                            >
-                              <i data-feather="message-circle" className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            }
-          />
-        </div>
-
+        {/* Col 3 (alto: 2 filas) */}
         <Card
-          title="Reuniones programadas"
-          list={['🗓 5 julio - Reunión equipo 10:00', '🗓 6 julio - Cliente Z 15:30']}
-          buttonText="Ver calendario"
-        />
-
-        {/* Perfil con links */}
-        <Card
+          className="lg:row-span-2"
           title="Perfil"
           content={
             <>
@@ -786,23 +730,65 @@ export default function DashboardPage() {
           }
           buttonText={
             <div className="flex gap-2 mt-3">
-              <Link
-                href="/protected/perfil"
-                className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold hover:brightness-105 transition"
-              >
+              <Link href="/protected/perfil" className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold hover:brightness-105 transition">
                 Ver perfil
               </Link>
-              <Link
-                href="/protected/perfil/editar"
-                className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold hover:brightness-105 transition"
-              >
+              <Link href="/protected/perfil/editar" className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold hover:brightness-105 transition">
                 Editar perfil
               </Link>
             </div>
           }
         />
+
+        {/* Col 1 / Fila 2 (debajo de "Iniciar reunión") */}
+        <Card
+          title="Reuniones programadas"
+          list={['🗓 5 julio - Reunión equipo 10:00', '🗓 6 julio - Cliente Z 15:30']}
+          buttonText="Ver calendario"
+        />
       </section>
+
     </div>
+  );
+}
+
+/* Action bubble (emoji + título) */
+function ActionBubble({
+  href,
+  emoji,
+  title,
+  subtitle,
+}: {
+  href: string;
+  emoji: string;      // usa un emoji (🧑‍💻, 💬, 📅, 🤖, 🌍, etc.)
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex flex-col items-center text-center gap-2"
+    >
+      <div className="relative">
+        {/* círculo principal */}
+        <div className="size-20 sm:size-24 rounded-full bg-orange-50/80 dark:bg-gray-700/50
+                        border border-orange-200/50 dark:border-gray-600/40
+                        shadow-sm group-hover:shadow-md transition
+                        flex items-center justify-center">
+          <span className="text-3xl sm:text-4xl">{emoji}</span>
+        </div>
+        {/* aro/halo al hover */}
+        <div className="absolute inset-0 rounded-full ring-0 group-hover:ring-8
+                        ring-orange-500/10 transition pointer-events-none" />
+      </div>
+
+      <div className="leading-tight">
+        <div className="font-semibold text-sm sm:text-base">{title}</div>
+        {subtitle && (
+          <div className="text-xs sm:text-sm text-muted-foreground">{subtitle}</div>
+        )}
+      </div>
+    </Link>
   );
 }
 
