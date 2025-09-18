@@ -6,45 +6,11 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import feather from 'feather-icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useContacts, type Contact } from './hooks/useContacts'; 
+import { useNotifications, type NotificationItem, type NotifType } from './hooks/useNotifications';
 
 type Perfil = { nombre: string | null; apellido: string | null; mail: string | null };
 
-// ----- Tipos y helpers para Contactos (REST) -----
-
-type NotifType =
-  | 'friend_request'
-  | 'calendar'
-  | 'scheduled_call'
-  | 'missed_call'
-  | 'system'
-  | 'meeting';
-
-type NotificationItem = {
-  id: string | number;
-  type: NotifType;
-  title: string;
-  message?: string | null;
-  when?: string | null;
-  avatar?: string | null;
-  meta?: Record<string, any>;
-};
-
-type FriendRequest = {
-  id: number;
-  id_solicitante: number;
-  id_receptor: number;
-  estado: string;
-  mensaje?: string | null;
-  fecha_solicitud?: string | null;
-  solicitante?: { id:number; nombre:string; apellido:string; apodo:string|null; mail?:string|null};
-};
-
-type Reunion = {
-  id: number;
-  titulo: string;
-  fecha_programada: string;
-};
+//los types de notificacion vienen del hook useNotifications
 
 // ===== Helpers UI =====
 function stateDot(estado: string) {
@@ -114,88 +80,24 @@ export default function DashboardPage() {
   // ---- ID de usuario ----
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
 
-  // ---- Estado Contactos (REST) ----
-  const [q, setQ] = useState('');
-  const qDebounced = useDebouncedValue(q, 350);
-  // Hook de contactos - trae, mapea y expone refresh
-  const { contacts, loading: contactsLoading, error: contactsError, refresh: refreshContacts } =
-    useContacts(supabase, idUsuario);
+// ---- Notificaciones (tabla Notificacion + Realtime)
+  const { notifications, loading: notiLoading, markAsRead } =
+    useNotifications(supabase, idUsuario);
 
-  // Estado de notificaciones
-  const [notifs, setNotifs] = useState<NotificationItem[]>([]);
-  const [notifsLoading, setNotifsLoading] = useState(true);
-  const [notifsError, setNotifsError] = useState<string | null>(null);
+// Lista que realmente renderiza la card (para poder quitar optimista)
+  const [localNotifs, setLocalNotifs] = useState<NotificationItem[]>([]);
+  useEffect(() => { setLocalNotifs(notifications); }, [notifications]);
 
-  // Solicitudes de amistad (realtime)
-  const [requests, setRequests] = useState<FriendRequest[]>([]);
-  const [reqLoading, setReqLoading] = useState(false);
-
-  // Reuniones de hoy
-  const [reuniones, setReuniones] = useState<Reunion[]>([]);
 
   // Estado para hora y fecha actual
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
-
-  // ===== Mezcla de notificaciones para la card =====
-  const combinedNotifications = useMemo(() => {
-    const notifications: NotificationItem[] = [];
-
-    requests.forEach((req) => {
-
-      const nombre = 
-        [req.solicitante?.nombre, req.solicitante?.apellido].filter(Boolean).join(' ') ||
-        req.solicitante?.apodo ||
-        `Usuario ${req.id_solicitante}`;
-      notifications.push({
-        id: `req_${req.id}`,
-        type: 'friend_request',
-        title: 'Solicitud de amistad',
-        message: req.mensaje || `${nombre} quiere agregarte`,
-        when: req.fecha_solicitud || new Date().toISOString(),
-        meta: req,
-      });
-    });
-
-    reuniones.forEach((reunion) => {
-      const meetingTime = new Date(reunion.fecha_programada);
-      const now = new Date();
-      const timeDiff = meetingTime.getTime() - now.getTime();
-      const hoursUntil = Math.floor(timeDiff / (1000 * 60 * 60));
-
-      let title = 'Reunión programada';
-      if (hoursUntil <= 1 && hoursUntil >= 0) title = 'Reunión próxima';
-      else if (hoursUntil < 0) title = 'Reunión pasada';
-
-      notifications.push({
-        id: `meeting_${reunion.id}`,
-        type: 'meeting',
-        title,
-        message: `${reunion.titulo} - ${meetingTime.toLocaleTimeString()}`,
-        when: reunion.fecha_programada,
-        meta: reunion,
-      });
-    });
-  
-
-    return notifications.sort((a, b) => {
-      const dateA = new Date(a.when || 0).getTime();
-      const dateB = new Date(b.when || 0).getTime();
-      return dateB - dateA;
-    });
-  }, [requests, reuniones, timeFmt]);
 
   // ===== UI helpers =====
   function iconFor(type: NotifType): string {
     switch (type) {
       case 'friend_request':
         return 'user-plus';
-      case 'calendar':
-        return 'calendar';
-      case 'scheduled_call':
-        return 'phone-outgoing';
-      case 'missed_call':
-        return 'phone-missed';
-      case 'meeting':
+      case 'meeting_invite':
         return 'calendar';
       default:
         return 'info';
@@ -203,57 +105,68 @@ export default function DashboardPage() {
   }
 
   async function handleNotifAccept(n: NotificationItem) {
-    try {
-      const { data: sess } = await supabase.auth.getSession();
-      const accessToken = sess.session?.access_token ?? '';
+  try {
+    if (n.type === 'friend_request') {
+      // IDs para la RPC (aceptar)
+      const idSolicitante =
+        Number((n.meta as any)?.id_solicitante) ??
+        Number((n.meta as any)?.solicitante?.id) ??
+        null;
 
-      if (n.type === 'friend_request') {
-        const req = n.meta as FriendRequest;
-        await handleAccept(req);
-        //luego de aceptar, refresca contactos, se va el pendiente 
-        refreshContacts(qDebounced || undefined);
-      } else if (n.type === 'meeting') {
-        router.push('/protected/calendario');
-      } else if (n.type === 'calendar') {
-        // abrir detalle / marcar como leída
-      } else if (n.type === 'scheduled_call') {
-        // unirse / abrir sala programada
+      if (idUsuario && idSolicitante) {
+        await supabase.rpc('accept_contact_request', {
+          p_id_solicitante: idSolicitante,
+          p_id_receptor: idUsuario,
+        });
       }
 
-      // update optimista 
-       if (n.type === 'friend_request' && n.meta) {
-        const req = n.meta as FriendRequest;
-        setRequests(prev => prev.filter(r => r.id !== req.id));
-      }     
-    } catch {
-      setNotifsError('No se pudo procesar la acción.');
+      if (typeof n.id === 'number') await markAsRead(n.id);
+
+      // Oculto esta tarjeta en la UI
+      setLocalNotifs(prev => prev.filter(x => x.id !== n.id));
+      return;
     }
+
+    if (n.type === 'meeting_invite') {
+      router.push('/protected/calendario');
+      if (typeof n.id === 'number') await markAsRead(n.id);
+      setLocalNotifs(prev => prev.filter(x => x.id !== n.id));
+      return;
+    }
+  } catch (e) {
+    console.error(e);
   }
+}
+
 
   async function handleNotifReject(n: NotificationItem) {
-    try {
-      const { data: sess } = await supabase.auth.getSession();
-      const accessToken = sess.session?.access_token ?? '';
-
-      if (n.type === 'friend_request' && n.meta) {
-        const req = n.meta as FriendRequest;
-        await handleReject(req);
-        //si rechaza, tmb refresca 
-        refreshContacts(qDebounced || undefined);
-      } else {
-        console.log('Descartar notificación:', n);
+  try {
+    if (n.type === 'friend_request') {
+      const idSolicitante =
+        Number((n.meta as any)?.id_solicitante) ??
+        Number((n.meta as any)?.solicitante?.id) ??
+        null;
+      if (idUsuario && idSolicitante) {
+        await supabase.rpc('reject_contact_request', {
+          p_id_solicitante: idSolicitante,
+          p_id_receptor: idUsuario,
+        });
       }
-
-      // Update optimista (Realtime igual va a confirmar con el UPDATE)
-      if (n.type === 'friend_request' && n.meta) {
-        const req = n.meta as FriendRequest;
-        setRequests((prev) => prev.filter((r) => r.id !== req.id));
-      }
-    } catch (e) {
-      console.error(e);
-      setNotifsError('No se pudo procesar la acción.');
+      if (typeof n.id === 'number') await markAsRead(n.id);
+      setLocalNotifs(prev => prev.filter(x => x.id !== n.id));
+      return;
     }
+
+    if (n.type === 'meeting_invite') {
+      if (typeof n.id === 'number') await markAsRead(n.id);
+      setLocalNotifs(prev => prev.filter(x => x.id !== n.id));
+      return;
+    }
+  } catch (e) {
+    console.error(e);
   }
+}
+
 
   function whenLabel(iso?: string | null) {
     if (!iso) return null;
@@ -267,7 +180,7 @@ export default function DashboardPage() {
   // Render de íconos
   useEffect(() => {
     feather.replace();
-  }, [combinedNotifications, contacts, q]);
+  }, [notifications]);
 
   // Actualizar hora cada minuto
   useEffect(() => {
@@ -276,11 +189,6 @@ export default function DashboardPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // ---- Contactos (via proxy)
-  useEffect(() => {
-    if (idUsuario === null) return;
-    refreshContacts(qDebounced || undefined);
-  }, [idUsuario, qDebounced]);
 
   // Perfil + resolver id_usuario (uuid -> Usuario.id)
   useEffect(() => {
@@ -329,228 +237,6 @@ export default function DashboardPage() {
     fetchPerfil();
   }, [supabase]);
 
-  // ---- Notificaciones (tu API)
-  useEffect(() => {
-    const ctrl = new AbortController();
-
-    (async () => {
-      if (!idUsuario) {
-        setNotifs([]);
-        setNotifsLoading(false);
-        return;
-      }
-
-      setNotifsLoading(true);
-      setNotifsError(null);
-      try {
-        const { data: sess } = await supabase.auth.getSession();
-        const accessToken = sess.session?.access_token ?? '';
-        if (!accessToken) throw new Error('Sin sesión');
-
-        const params = new URLSearchParams({ id_usuario: String(idUsuario) });
-        const res = await fetch(`/api/notificaciones?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          signal: ctrl.signal,
-          cache: 'no-store',
-        });
-
-        if (!res.ok) throw new Error(await res.text().catch(() => `Error ${res.status}`));
-
-        const json = await res.json();
-        const arr = Array.isArray(json) ? json : json?.items ?? json?.data ?? [];
-
-        const mapped: NotificationItem[] = arr.map((n: any) => ({
-          id: n.id ?? crypto.randomUUID(),
-          type: (n.type as NotifType) ?? (n.kind as NotifType) ?? (n.categoria as NotifType) ?? 'system',
-          title: n.title ?? n.titulo ?? n.asunto ?? 'Notificación',
-          message: n.message ?? n.mensaje ?? null,
-          when: n.when ?? n.fecha ?? n.created_at ?? null,
-          avatar: n.avatar ?? n.foto ?? n.path_foto_perfil ?? null,
-          meta: n,
-        }));
-
-        setNotifs(mapped);
-      } catch (e) {
-        if ((e as any)?.name !== 'AbortError') setNotifsError('Error al cargar notificaciones.');
-      } finally {
-        if (!ctrl.signal.aborted) setNotifsLoading(false);
-      }
-    })();
-
-    return () => ctrl.abort();
-  }, [idUsuario, supabase]);
-
-  // ---- Solicitudes pendientes entrantes + Realtime (filtrado por receptor)
-  useEffect(() => {
-    if (!idUsuario) return;
-
-    let mounted = true;
-
-    const load = async () => {
-      setReqLoading(true);
-      try {
-        const { data: reqs, error } = await supabase
-          .from('SolicitudContacto')
-          .select('id,id_solicitante,id_receptor,estado,mensaje,fecha_solicitud')
-          .eq('id_receptor', idUsuario)
-          .eq('estado', 'pendiente')
-          .order('fecha_solicitud', { ascending: false });
-        if (error) throw error;
-        if (!mounted) return;
-        
-        // Enriquecer con los datos del solicitante
-        const solicitantes = Array.from(
-          new Set((reqs ?? []).map(r => Number(r.id_solicitante)).filter(Boolean))
-        );
-        let byId: Record<number, any> = {};
-        if (solicitantes.length) {
-          const { data: usuarios } = await supabase
-            .from('Usuario')
-            .select('id,nombre,apellido,apodo,mail')
-            .in('id', solicitantes);
-          for (const u of usuarios ?? []) byId[Number(u.id)] = u;
-        }
-        const enriched: FriendRequest[] = (reqs ?? []).map(r => ({
-          ...r,
-          solicitante: byId[Number(r.id_solicitante)]
-            ? {
-                id: Number(byId[Number(r.id_solicitante)].id),
-                nombre: byId[Number(r.id_solicitante)].nombre ?? '',
-                apellido: byId[Number(r.id_solicitante)].apellido ?? '',
-                apodo: byId[Number(r.id_solicitante)].apodo ?? null,
-                mail: byId[Number(r.id_solicitante)].mail ?? null,
-              }
-            : undefined,
-        }));
-        setRequests(enriched);
-
-      } finally {
-        if (mounted) setReqLoading(false);
-      }
-    };
-
-    // carga inicial
-    load();
-
-
-  // suscripción realtime SOLO a mis filas (INSERT cuando yo soy receptor,
-  // y UPDATE tanto si soy receptor como si soy solicitante)
-  const ch = supabase
-    .channel(`home-req:${idUsuario}`)
-    // INSERT cuando me llegan solicitudes nuevas
-    .on(
-      'postgres_changes',
-      { schema: 'public', table: 'SolicitudContacto', event: 'INSERT', filter: `id_receptor=eq.${idUsuario}` },
-      async (payload) => {
-        const r = payload.new as any;
-        if (r?.estado !== 'pendiente') return;
-
-        // Enriquecer con datos del solicitante
-        const { data: u } = await supabase
-          .from('Usuario')
-          .select('id,nombre,apellido,apodo,mail')
-          .eq('id', r.id_solicitante)
-          .maybeSingle();
-
-        const enriched: FriendRequest = {
-          ...r,
-          solicitante: u
-            ? { id: Number(u.id), nombre: u.nombre ?? '', apellido: u.apellido ?? '', apodo: u.apodo ?? null, mail: u.mail ?? null }
-            : undefined,
-        };
-        setRequests(prev => (prev.some(x => x.id === enriched.id) ? prev : [enriched, ...prev]));
-      }
-    )
-    // UPDATE cuando cambia el estado y yo soy RECEPTOR
-    .on(
-      'postgres_changes',
-      { schema: 'public', table: 'SolicitudContacto', event: 'UPDATE', filter: `id_receptor=eq.${idUsuario}` },
-      (payload) => {
-        const r = payload.new as FriendRequest;
-        if (r?.estado !== 'pendiente') {
-          setRequests(prev => prev.filter(x => x.id !== r.id));
-        }
-      }
-    )
-    // UPDATE cuando cambia el estado y yo soy SOLICITANTE  ⬅️ NUEVO
-    .on(
-      'postgres_changes',
-      { schema: 'public', table: 'SolicitudContacto', event: 'UPDATE', filter: `id_solicitante=eq.${idUsuario}` },
-      (payload) => {
-        const r = payload.new as FriendRequest;
-        if (r?.estado !== 'pendiente') {
-          setRequests(prev => prev.filter(x => x.id !== r.id));
-        }
-      }
-    )
-    .subscribe();
-      
-    
-    return () => {
-      mounted = false;
-      supabase.removeChannel(ch);
-    };
-  }, [idUsuario, supabase]);
-
-  /* ===== Reuniones de hoy ===== */
-  useEffect(() => {
-    if (!idUsuario) return;
-    const fetchReuniones = async () => {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      const dateStr = `${yyyy}-${mm}-${dd}`;
-
-      const { data, error } = await supabase
-        .from('EventoLlamada')
-        .select('id, titulo, fecha_programada')
-        .gte('fecha_programada', `${dateStr} 00:00:00`)
-        .lte('fecha_programada', `${dateStr} 23:59:59`);
-
-      if (!error && data) setReuniones(data as Reunion[]);
-    };
-    fetchReuniones();
-  }, [idUsuario, supabase]);
-
-  /* ===== Acciones solicitudes ===== */
-  async function handleAccept(r: FriendRequest) {
-    await supabase.rpc('accept_contact_request', {
-      p_id_solicitante: r.id_solicitante,
-      p_id_receptor: r.id_receptor,
-    });
-  }
-  async function handleReject(r: FriendRequest) {
-    await supabase.rpc('reject_contact_request', {
-      p_id_solicitante: r.id_solicitante,
-      p_id_receptor: r.id_receptor,
-    });
-  }
-  async function handleCancel(r: FriendRequest) {
-    await supabase.rpc('cancel_contact_request', {
-      p_id_solicitante: r.id_solicitante,
-      p_id_receptor: r.id_receptor,
-    });
-  }
-
-  const filteredContacts = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return contacts;
-    return contacts.filter((c) => {
-      const full = `${c.nombre ?? ''} ${c.apellido ?? ''} ${c.apodo ?? ''}`.toLowerCase();
-      return full.includes(needle);
-    });
-  }, [contacts, q]);
-
-  function handleCall(c: Contact) {
-    console.log('Llamar a', c);
-  }
-  function handleVideo(c: Contact) {
-    console.log('Videollamar a', c);
-  }
-  function handleChat(c: Contact) {
-    console.log('Chat con', c);
-  }
 
     return (
     <div className="space-y-8">
@@ -667,13 +353,13 @@ export default function DashboardPage() {
           title="Notificaciones"
           content={
             <div className="flex flex-col gap-3 min-h-0">
-              {reqLoading ? (
+              {notiLoading ? (
                 <p className="text-muted-foreground text-sm">Cargando…</p>
-              ) : combinedNotifications.length === 0 ? (
+              ) : notifications.length === 0 ? (
                 <p className="text-muted-foreground text-sm">No hay notificaciones nuevas.</p>
               ) : (
                 <ul className="divide-y divide-white/20 overflow-y-auto pr-2 min-h-0">
-                  {combinedNotifications.map((n) => (
+                  {localNotifs.map((n) => (
                     <li key={n.id} className="py-3 flex items-start gap-3">
                       <div className="flex-shrink-0 mt-1">
                         <i data-feather={iconFor(n.type)} className="w-4 h-4 text-orange-500" />
@@ -684,7 +370,7 @@ export default function DashboardPage() {
                         {n.when && <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>}
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
-                        {n.type === 'friend_request' && (n.meta as any).estado === 'pendiente' && (
+                        {n.type === 'friend_request' && (
                           <>
                             <button onClick={() => handleNotifAccept(n)} className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600" title="Aceptar">
                               <i data-feather="check" className="w-3 h-3" />
@@ -694,7 +380,7 @@ export default function DashboardPage() {
                             </button>
                           </>
                         )}
-                        {n.type === 'meeting' && (
+                        {n.type === 'meeting_invite' && (
                           <button onClick={() => handleNotifAccept(n)} className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-600" title="Ver en calendario">
                             <i data-feather="calendar" className="w-3 h-3" />
                           </button>

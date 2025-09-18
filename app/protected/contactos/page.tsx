@@ -6,6 +6,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { Search, Phone, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useNotifications } from '../hooks/useNotifications';
+
 
 // Hook centralizado para agenda confirmada
 import { useContacts } from '../hooks/useContacts';
@@ -106,6 +108,13 @@ export default function ContactosPage() {
       }
     })();
   }, [supabase]);
+
+  const { notifications } = useNotifications(supabase, idUsuario);
+  const pendingFriendRequests = useMemo(
+    () => notifications.filter(n => n.type === 'friend_request' && !n.leida).length,
+    [notifications]
+  );
+
 
   /* ====== Hook de agenda confirmada ====== */
   const {
@@ -350,7 +359,7 @@ export default function ContactosPage() {
 
   async function acceptFromContacts(c: ContactoAgenda) {
   if (!c.id_solicitante || !c.id_receptor) return;
-  const { error } = await supabase.rpc('accept_contact_request_v2', {
+  const { error } = await supabase.rpc('accept_contact_request', {
     p_id_solicitante: Number(c.id_solicitante),
     p_id_receptor: Number(c.id_receptor),
   });
@@ -367,7 +376,7 @@ export default function ContactosPage() {
 
   async function rejectFromContacts(c: ContactoAgenda) {
     if (!c.id_solicitante || !c.id_receptor) return;
-    const { error } = await supabase.rpc('reject_contact_request_v2', {
+    const { error } = await supabase.rpc('reject_contact_request', {
       p_id_solicitante: Number(c.id_solicitante),
       p_id_receptor: Number(c.id_receptor),
     });
@@ -584,7 +593,16 @@ const combinedAgenda = useMemo(
     <main className="flex-1 px-6 py-8 flex flex-col gap-8">
       {/* Header + botón + buscador */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-foreground">Contactos</h1>
+        
+        <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+        Contactos
+        {pendingFriendRequests > 0 && (
+          <span className="inline-flex items-center justify-center text-xs font-semibold
+                            rounded-full px-2 py-0.5 bg-orange-100 text-orange-700">
+            {pendingFriendRequests}
+          </span>
+        )}
+      </h1>
 
         <div className="flex w-full md:max-w-xl items-center gap-3">
           <button
