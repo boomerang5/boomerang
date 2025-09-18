@@ -5,6 +5,7 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { Search, Phone, X, Check } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 // Hook centralizado para agenda confirmada
 import { useContacts } from '../hooks/useContacts';
@@ -12,7 +13,7 @@ import { useContacts } from '../hooks/useContacts';
 /* ================= Tipos ================= */
 type ContactoAgenda = {
   id?: number | string;
-  id_usuario_contacto?: number | string;
+  id_usuario_contacto?: number | string | null; // ID del usuario (para llamadas)
   nombre?: string;
   apellido?: string;
   apodo?: string | null;
@@ -88,6 +89,7 @@ async function fetchPendientesSalientes(supabase: any, idUsuario: number): Promi
 
 export default function ContactosPage() {
   const supabase = useSupabaseClient<any>();
+  const router = useRouter();
 
   /* ====== idUsuario interno (tabla Usuario) ====== */
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
@@ -378,6 +380,82 @@ export default function ContactosPage() {
     toast.success('Solicitud rechazada');
   }
 
+  /* ====== Lógica de videollamada ====== */
+  // Helper: si tengo un ID de usuario numérico, busco su UUID en tabla Usuario
+  async function getUuidFromUserNumericId(idNum: number): Promise<string | null> {
+    try {
+      console.log('🔍 Buscando UUID para ID:', idNum);
+      const { data, error } = await supabase
+        .from('Usuario')
+        .select('User_id')
+        .eq('id', idNum)
+        .maybeSingle();
+      
+      if (error) {
+        console.error('❌ Error en consulta Usuario:', error);
+        return null;
+      }
+      
+      console.log('🔍 Resultado consulta:', data);
+      return data?.User_id ?? null;
+    } catch (e) {
+      console.error('❌ Excepción en getUuidFromUserNumericId:', e);
+      return null;
+    }
+  }
+
+  // Función principal para navegar a videollamada
+  async function gotoCall(c: ContactoAgenda, kind: 'audio' | 'video') {
+    console.log('🔍 gotoCall - Contacto completo:', c);
+    console.log('🔍 id_usuario_contacto:', c.id_usuario_contacto);
+    console.log('🔍 id directo:', c.id);
+    
+    // Primero intentamos obtener el UUID del usuario contacto
+    let peer: string | null = null;
+
+    // PRIORIDAD 1: Si tenemos id_usuario_contacto, lo usamos para obtener el UUID
+    if (c.id_usuario_contacto != null) {
+      const idNum = Number(c.id_usuario_contacto);
+      console.log('🔍 Intentando con id_usuario_contacto:', idNum);
+      
+      if (Number.isFinite(idNum)) {
+        const uuid = await getUuidFromUserNumericId(idNum);
+        console.log('🔍 UUID encontrado con id_usuario_contacto:', uuid);
+        if (uuid) peer = uuid;
+      }
+    }
+
+    // PRIORIDAD 2: Si no encontramos UUID, intentamos con el ID directo del contacto
+    if (!peer && c.id != null) {
+      const idNum = Number(c.id);
+      console.log('🔍 Intentando con ID directo:', idNum);
+      
+      if (Number.isFinite(idNum)) {
+        const uuid = await getUuidFromUserNumericId(idNum);
+        console.log('🔍 UUID con ID directo:', uuid);
+        if (uuid) peer = uuid;
+      }
+    }
+
+    if (!peer) {
+      console.error('❌ No se pudo resolver UUID para contacto:', c);
+      console.error('❌ id_usuario_contacto:', c.id_usuario_contacto);
+      console.error('❌ id directo:', c.id);
+      toast.error(`No se pudo resolver el UUID del contacto ${c.nombre || 'desconocido'} para la llamada.`);
+      return;
+    }
+
+    console.log('✅ UUID resuelto:', peer);
+    const params = new URLSearchParams();
+    params.set('to', peer);
+    params.set('autocall', '1');
+    if (kind === 'video') params.set('type', 'video');
+    router.push(`/protected/videollamada?${params.toString()}`);
+  }
+
+  const handleCall = (c: ContactoAgenda) => { void gotoCall(c, 'audio'); };
+  const handleVideo = (c: ContactoAgenda) => { void gotoCall(c, 'video'); };
+
   /* ====== Realtime: mis solicitudes enviadas + contactos aceptados ====== */
   useEffect(() => {
     if (!idUsuario) return;
@@ -628,23 +706,39 @@ const combinedAgenda = useMemo(
                     </span>
                   )
                 ) : (
-                  // 👉 Contacto confirmado: botón de llamada habilitado
-                  <button
-                    onClick={() =>
-                      alert(`Iniciando llamada con ${fullName(c.nombre, c.apellido)}`)
-                    }
-                    disabled={!canCall}
-                    aria-label={canCall ? 'Llamar' : 'Solicitud pendiente'}
-                    title={canCall ? 'Llamar' : 'Solicitud pendiente'}
-                    className={[
-                      'inline-flex h-9 w-9 items-center justify-center rounded-full transition shadow',
-                      canCall
-                        ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:brightness-105'
-                        : 'bg-gray-300/70 text-gray-500 cursor-not-allowed',
-                    ].join(' ')}
-                  >
-                    <Phone className="h-4 w-4" />
-                  </button>
+                  // 👉 Contacto confirmado: botones de llamada habilitados
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCall(c)}
+                      disabled={!canCall}
+                      aria-label={canCall ? 'Llamar' : 'Solicitud pendiente'}
+                      title={canCall ? 'Llamar' : 'Solicitud pendiente'}
+                      className={[
+                        'inline-flex h-9 w-9 items-center justify-center rounded-full transition shadow',
+                        canCall
+                          ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:brightness-105'
+                          : 'bg-gray-300/70 text-gray-500 cursor-not-allowed',
+                      ].join(' ')}
+                    >
+                      <Phone className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleVideo(c)}
+                      disabled={!canCall}
+                      aria-label={canCall ? 'Videollamada' : 'Solicitud pendiente'}
+                      title={canCall ? 'Videollamada' : 'Solicitud pendiente'}
+                      className={[
+                        'inline-flex h-9 w-9 items-center justify-center rounded-full transition shadow',
+                        canCall
+                          ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:brightness-105'
+                          : 'bg-gray-300/70 text-gray-500 cursor-not-allowed',
+                      ].join(' ')}
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

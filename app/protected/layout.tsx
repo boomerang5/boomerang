@@ -1,16 +1,20 @@
+// app/protected/layout.tsx  (SERVER COMPONENT)
 import { redirect } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
-import ClientProviders from '@/app/ClientProviders';
 import ProtectedSidebar from '@/components/protectedSidebar';
+import ClientProviders from '@/app/ClientProviders';
+import CallNotificationsProvider from '@/components/CallNotificationsProvider';
 import type { ReactNode } from 'react';
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
   const supabase = await createClient();
   const { data: { session } } = await supabase.auth.getSession();
+
   if (!session) redirect('/sign-in');
 
   return (
-      <ClientProviders initialSession={session}>
+    <ClientProviders initialSession={session}>
+      <CallNotificationsProvider callRoute="/protected/videollamada">
         <div className="flex min-h-screen bg-transparent">
           <ProtectedSidebar />
           <main className="flex-1 overflow-visible">
@@ -19,6 +23,7 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
             </div>
           </main>
         </div>
-      </ClientProviders>
-    );
+      </CallNotificationsProvider>
+    </ClientProviders>
+  );
 }
