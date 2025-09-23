@@ -7,6 +7,7 @@ import feather from 'feather-icons';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useContacts, type Contact } from './hooks/useContacts'; 
+import { useNotifications } from './hooks/useNotifications'; 
 
 type Perfil = { nombre: string | null; apellido: string | null; mail: string | null };
 
@@ -14,11 +15,13 @@ type Perfil = { nombre: string | null; apellido: string | null; mail: string | n
 
 type NotifType =
   | 'friend_request'
+  | 'meeting_invite'
   | 'calendar'
   | 'scheduled_call'
   | 'missed_call'
   | 'system'
-  | 'meeting';
+  | 'meeting'
+  | 'event_cancelled';
 
 type NotificationItem = {
   id: string | number;
@@ -121,10 +124,9 @@ export default function DashboardPage() {
   const { contacts, loading: contactsLoading, error: contactsError, refresh: refreshContacts } =
     useContacts(supabase, idUsuario);
 
-  // Estado de notificaciones
-  const [notifs, setNotifs] = useState<NotificationItem[]>([]);
-  const [notifsLoading, setNotifsLoading] = useState(true);
-  const [notifsError, setNotifsError] = useState<string | null>(null);
+  // Hook de notificaciones - NUEVO: usar el hook existente
+  const { notifications: dbNotifications, loading: notifsLoading, error: notifsError } = 
+    useNotifications(supabase, idUsuario);
 
   // Solicitudes de amistad (realtime)
   const [requests, setRequests] = useState<FriendRequest[]>([]);
@@ -140,6 +142,21 @@ export default function DashboardPage() {
   const combinedNotifications = useMemo(() => {
     const notifications: NotificationItem[] = [];
 
+    // 🆕 AGREGAR NOTIFICACIONES DE LA BASE DE DATOS (meeting_invite, etc.)
+    if (dbNotifications && dbNotifications.length > 0) {
+      dbNotifications.forEach((dbNotif) => {
+        notifications.push({
+          id: `db_${dbNotif.id}`,
+          type: dbNotif.type,
+          title: dbNotif.title,
+          message: dbNotif.message || '',
+          when: dbNotif.when || new Date().toISOString(),
+          meta: dbNotif.meta,
+        });
+      });
+    }
+
+    // Solicitudes de amistad (mantener el sistema existente)
     requests.forEach((req) => {
 
       const nombre = 
@@ -182,13 +199,17 @@ export default function DashboardPage() {
       const dateB = new Date(b.when || 0).getTime();
       return dateB - dateA;
     });
-  }, [requests, reuniones, timeFmt]);
+  }, [dbNotifications, requests, reuniones, timeFmt]);
 
   // ===== UI helpers =====
   function iconFor(type: NotifType): string {
     switch (type) {
       case 'friend_request':
         return 'user-plus';
+      case 'meeting_invite':
+        return 'calendar';
+      case 'event_cancelled':
+        return 'x-circle';
       case 'calendar':
         return 'calendar';
       case 'scheduled_call':
@@ -212,6 +233,9 @@ export default function DashboardPage() {
         await handleAccept(req);
         //luego de aceptar, refresca contactos, se va el pendiente 
         refreshContacts(qDebounced || undefined);
+      } else if (n.type === 'meeting_invite') {
+        // Manejar confirmación de invitación a evento
+        await handleEventInviteResponse(n, 'accept');
       } else if (n.type === 'meeting') {
         router.push('/protected/calendario');
       } else if (n.type === 'calendar') {
@@ -226,7 +250,7 @@ export default function DashboardPage() {
         setRequests(prev => prev.filter(r => r.id !== req.id));
       }     
     } catch {
-      setNotifsError('No se pudo procesar la acción.');
+      console.error('No se pudo procesar la acción.');
     }
   }
 
@@ -240,6 +264,9 @@ export default function DashboardPage() {
         await handleReject(req);
         //si rechaza, tmb refresca 
         refreshContacts(qDebounced || undefined);
+      } else if (n.type === 'meeting_invite') {
+        // Manejar rechazo de invitación a evento
+        await handleEventInviteResponse(n, 'decline');
       } else {
         console.log('Descartar notificación:', n);
       }
@@ -251,7 +278,61 @@ export default function DashboardPage() {
       }
     } catch (e) {
       console.error(e);
-      setNotifsError('No se pudo procesar la acción.');
+      console.error('No se pudo procesar la acción.');
+    }
+  }
+
+  // 🆕 NUEVA FUNCIÓN: Manejar respuestas a invitaciones de eventos
+  async function handleEventInviteResponse(n: NotificationItem, response: 'accept' | 'decline') {
+    try {
+      if (!n.meta || !n.meta.id_evento) {
+        throw new Error('No se encontró información del evento en la notificación');
+      }
+
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess.session?.access_token ?? '';
+      if (!accessToken) {
+        throw new Error('No hay sesión activa');
+      }
+
+      // Usar el endpoint correcto de calendario
+      const responseResult = await fetch('/api/calendar/respond-invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          id_evento: n.meta.id_evento,
+          id_usuario: idUsuario,
+          confirmado: response === 'accept'
+        }),
+      });
+
+      if (responseResult.ok) {
+        console.log(`Invitación ${response === 'accept' ? 'aceptada' : 'rechazada'} exitosamente`);
+        
+        // 🆕 Marcar la notificación como respondida en el backend
+        const notificationId = String(n.id).replace('db_', '');
+        await fetch(`/api/notifications/${notificationId}/mark-responded`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            response: response
+          }),
+        });
+        
+        // El hook useNotifications se actualizará automáticamente por realtime
+      } else {
+        const errorData = await responseResult.text();
+        throw new Error(`Error al responder invitación: ${errorData}`);
+      }
+    } catch (error) {
+      console.error('Error al responder a invitación de evento:', error);
+      console.error('No se pudo responder a la invitación.');
     }
   }
 
@@ -328,57 +409,6 @@ export default function DashboardPage() {
     };
     fetchPerfil();
   }, [supabase]);
-
-  // ---- Notificaciones (tu API)
-  useEffect(() => {
-    const ctrl = new AbortController();
-
-    (async () => {
-      if (!idUsuario) {
-        setNotifs([]);
-        setNotifsLoading(false);
-        return;
-      }
-
-      setNotifsLoading(true);
-      setNotifsError(null);
-      try {
-        const { data: sess } = await supabase.auth.getSession();
-        const accessToken = sess.session?.access_token ?? '';
-        if (!accessToken) throw new Error('Sin sesión');
-
-        const params = new URLSearchParams({ id_usuario: String(idUsuario) });
-        const res = await fetch(`/api/notificaciones?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          signal: ctrl.signal,
-          cache: 'no-store',
-        });
-
-        if (!res.ok) throw new Error(await res.text().catch(() => `Error ${res.status}`));
-
-        const json = await res.json();
-        const arr = Array.isArray(json) ? json : json?.items ?? json?.data ?? [];
-
-        const mapped: NotificationItem[] = arr.map((n: any) => ({
-          id: n.id ?? crypto.randomUUID(),
-          type: (n.type as NotifType) ?? (n.kind as NotifType) ?? (n.categoria as NotifType) ?? 'system',
-          title: n.title ?? n.titulo ?? n.asunto ?? 'Notificación',
-          message: n.message ?? n.mensaje ?? null,
-          when: n.when ?? n.fecha ?? n.created_at ?? null,
-          avatar: n.avatar ?? n.foto ?? n.path_foto_perfil ?? null,
-          meta: n,
-        }));
-
-        setNotifs(mapped);
-      } catch (e) {
-        if ((e as any)?.name !== 'AbortError') setNotifsError('Error al cargar notificaciones.');
-      } finally {
-        if (!ctrl.signal.aborted) setNotifsLoading(false);
-      }
-    })();
-
-    return () => ctrl.abort();
-  }, [idUsuario, supabase]);
 
   // ---- Solicitudes pendientes entrantes + Realtime (filtrado por receptor)
   useEffect(() => {
@@ -633,11 +663,41 @@ export default function DashboardPage() {
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm">{n.title}</div>
                         {n.message && <div className="text-xs text-muted-foreground mt-1">{n.message}</div>}
-                        {n.when && (
+                        
+                        {/* 🆕 INFORMACIÓN PARA EVENTOS - NUEVO FORMATO */}
+                        {n.type === 'meeting_invite' && n.meta && (
+                          <div className="mt-2">
+                            {/* Nombre del evento como link clickeable */}
+                            <button
+                              onClick={() => {
+                                // Si tenemos el ID del evento, podríamos llevarlo a un modal específico
+                                // Por ahora, llevamos al calendario general
+                                router.push('/protected/calendario');
+                              }}
+                              className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors"
+                              title="Ir al calendario para ver el evento"
+                            >
+                              📅 {n.meta.nombre_evento || 'Evento sin nombre'}
+                            </button>
+                          </div>
+                        )}
+                        
+                        {/* 🆕 INFORMACIÓN PARA EVENTOS CANCELADOS */}
+                        {n.type === 'event_cancelled' && n.meta && (
+                          <div className="mt-2">
+                            <div className="text-sm font-medium text-red-600 dark:text-red-400">
+                              ❌ {n.meta.nombre_evento || 'Evento sin nombre'}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* 🆕 QUITAR n.when PARA EVENTOS, MANTENER PARA OTROS TIPOS */}
+                        {n.when && n.type !== 'meeting_invite' && n.type !== 'event_cancelled' && (
                           <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>
                         )}
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
+                        {/* Botones para solicitudes de amistad */}
                         {n.type === 'friend_request' && (n.meta as FriendRequest).estado === 'pendiente' && (
                           <>
                             <button
@@ -656,6 +716,35 @@ export default function DashboardPage() {
                             </button>
                           </>
                         )}
+                        
+                        {/* 🆕 BOTONES PARA INVITACIONES A EVENTOS - Solo si no ha sido respondida */}
+                        {n.type === 'meeting_invite' && !n.meta?.respondida && (
+                          <>
+                            <button
+                              onClick={() => handleNotifAccept(n)}
+                              className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600"
+                              title="Confirmar asistencia"
+                            >
+                              <i data-feather="check" className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => handleNotifReject(n)}
+                              className="p-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-600"
+                              title="Rechazar invitación"
+                            >
+                              <i data-feather="x" className="w-3 h-3" />
+                            </button>
+                          </>
+                        )}
+                        
+                        {/* 🆕 ESTADO DE RESPUESTA PARA EVENTOS YA RESPONDIDOS */}
+                        {n.type === 'meeting_invite' && n.meta?.respondida && (
+                          <div className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                            {n.meta.respuesta === 'accept' ? '✅ Aceptado' : '❌ Rechazado'}
+                          </div>
+                        )}
+                        
+                        {/* Botón para reuniones programadas */}
                         {n.type === 'meeting' && (
                           <button
                             onClick={() => handleNotifAccept(n)}

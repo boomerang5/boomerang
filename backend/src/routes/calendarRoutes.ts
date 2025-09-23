@@ -1,5 +1,5 @@
 import express from 'express';
-import { create_event, delete_event, get_event_details, get_user_events, respond_event_invite, update_event} from '../controllers/calendarController';
+import { create_event, delete_event, get_event_details, get_user_events, respond_event_invite, update_event, get_event_confirmation, update_event_confirmation, update_event_participants } from '../controllers/calendarController';
 
 const router = express.Router();
 
@@ -336,6 +336,12 @@ router.get('/user-events', get_user_events);
  */
 router.post('/respond-invite', respond_event_invite);
 
+// GET CONFIRMACION - Obtener estado de confirmación
+router.get('/confirmacion', get_event_confirmation);
+
+// PUT CONFIRMACION - Actualizar estado de confirmación  
+router.put('/confirmacion', update_event_confirmation);
+
 //--------------------------------------------------------------------------------------------------------------
 // PATCH UPDATE_EVENT
 /**
@@ -409,6 +415,92 @@ router.post('/respond-invite', respond_event_invite);
  */
 router.patch('/update', update_event);
 
+/**
+ * @swagger
+ * /api/calendar/invitados:
+ *   patch:
+ *     summary: Actualizar participantes de un evento
+ *     tags: [Calendario]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - id_evento
+ *               - id_editor
+ *             properties:
+ *               id_evento:
+ *                 type: integer
+ *                 example: 1
+ *               id_editor:
+ *                 type: integer
+ *                 example: 2
+ *               participantes:
+ *                 type: array
+ *                 description: IDs de usuarios participantes (opcional, array vacío elimina todos los invitados)
+ *                 items:
+ *                   type: integer
+ *                 example: [2, 3, 4]
+ *     responses:
+ *       200:
+ *         description: Participantes actualizados correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *               example:
+ *                 message: "Participantes actualizados correctamente"
+ *       400:
+ *         description: Datos inválidos
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *               example:
+ *                 error: "id_evento es requerido."
+ *       401:
+ *         description: No autorizado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *               example:
+ *                 error: "Usuario no autenticado."
+ *       403:
+ *         description: Sin permisos
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *               example:
+ *                 error: "Solo el creador puede actualizar los participantes del evento"
+ *       500:
+ *         description: Error interno del servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *               example:
+ *                 error: "Error interno del servidor."
+ */
+router.patch('/invitados', update_event_participants);
 
 
 export default router;

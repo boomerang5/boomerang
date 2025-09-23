@@ -6,6 +6,7 @@ import chatRoutes from './routes/chatRoutes';
 import mensajeRoutes from './routes/mensajeRoutes'
 import llamadaRoutes from './routes/llamadaRoutes'
 import calendarRoutes from './routes/calendarRoutes';
+import notificationRoutes from './routes/notificationRoutes';
 import swaggerUi from 'swagger-ui-express';
 const swaggerJsdoc = require('swagger-jsdoc');
 
@@ -41,6 +42,7 @@ app.use('/api/chats', chatRoutes);
 app.use('/api/mensajes', mensajeRoutes);
 app.use('/api/llamadas', llamadaRoutes);
 app.use('/api/calendar', calendarRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 const PORT = 3001;
 app.listen(PORT, () => {
