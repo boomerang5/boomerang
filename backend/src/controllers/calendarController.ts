@@ -390,21 +390,46 @@ export const update_event_confirmation = async (req: Request, res: Response) => 
       return res.status(500).json({ error: "Error al actualizar confirmación" });
     }
 
-    // Marcar como leídas las notificaciones relacionadas con este evento para este usuario
-    // cuando confirma o rechaza (no cuando está pendiente)
+    // Actualizar notificaciones relacionadas cuando confirma/rechaza desde calendario
     if (confirmacion !== 'pendiente') {
-      const { error: notifError } = await supabase
-        .from('Notificacion')
-        .update({ leida: true })
-        .eq('usuario_id', Number(usuario_id))
-        .eq('leida', false)
-        .like('data', `%"evento_id":${evento_id}%`);
+      try {
+        // Buscar notificaciones de meeting_invite o reinvite para este evento y usuario
+        const { data: notificaciones, error: notifError } = await supabase
+          .from('Notificacion')
+          .select('id, meta')
+          .eq('id_usuario', Number(usuario_id))
+          .in('tipo', ['meeting_invite', 'reinvite'])
+          .eq('leida', false);
 
-      if (notifError) {
-        console.error('Error al marcar notificaciones como leídas:', notifError);
-        // No retornamos error aquí porque la confirmación sí se guardó
-      } else {
-        console.log('✅ Notificaciones relacionadas marcadas como leídas');
+        if (!notifError && notificaciones) {
+          // Filtrar notificaciones de este evento específico
+          const notificacionesDelEvento = notificaciones.filter(notif => {
+            const meta = typeof notif.meta === 'string' ? JSON.parse(notif.meta) : notif.meta;
+            return meta?.id_evento === Number(evento_id) && !meta?.respondida;
+          });
+
+          const response = confirmacion === 'confirmado' ? 'accept' : 'decline';
+          
+          // Actualizar el meta de cada notificación
+          for (const notif of notificacionesDelEvento) {
+            const metaActual = typeof notif.meta === 'string' ? JSON.parse(notif.meta) : notif.meta;
+            const metaActualizado = {
+              ...metaActual,
+              respondida: true,
+              respuesta: response
+            };
+
+            await supabase
+              .from('Notificacion')
+              .update({ 
+                meta: metaActualizado,
+                leida: true 
+              })
+              .eq('id', notif.id);
+          }
+        }
+      } catch (e) {
+        console.error('Error actualizando notificaciones:', e);
       }
     }
 
