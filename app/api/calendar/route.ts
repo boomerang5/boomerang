@@ -139,22 +139,32 @@ export async function POST(req: NextRequest) {
 // PATCH: Actualizar evento/reunión
 export async function PATCH(req: NextRequest) {
   try {
+    console.log('🔄 [PROXY] PATCH /api/calendar - Petición recibida');
+    
     const auth = req.headers.get('authorization') || undefined;
     const bodyText = await req.text();
+    
+    console.log('📤 [PROXY] Body recibido:', bodyText);
     
     // Convertir color de nombre a hex antes de enviar al backend
     let bodyData;
     try {
       bodyData = JSON.parse(bodyText);
+      console.log('📝 [PROXY] Body parseado:', bodyData);
+      
       if (bodyData.color) {
+        const originalColor = bodyData.color;
         bodyData.color = convertColorNameToHex(bodyData.color);
+        console.log(`🎨 [PROXY] Color convertido: ${originalColor} → ${bodyData.color}`);
       }
     } catch {
       // Si no se puede parsear, enviar el body original
       bodyData = bodyText;
+      console.log('⚠️ [PROXY] No se pudo parsear el body, enviando original');
     }
 
     const upstreamUrl = `${API_BASE}/api/calendar/update`;
+    console.log(`🚀 [PROXY] Enviando a backend: ${upstreamUrl}`);
 
     const r = await fetch(upstreamUrl, {
       method: 'PATCH',
@@ -166,6 +176,9 @@ export async function PATCH(req: NextRequest) {
     });
 
     const text = await r.text();
+    console.log(`📥 [PROXY] Respuesta del backend: ${r.status} ${r.statusText}`);
+    console.log(`📄 [PROXY] Contenido respuesta:`, text);
+    
     if (!r.ok) return new NextResponse(text, { status: r.status });
 
     return new NextResponse(text, { 
@@ -175,6 +188,7 @@ export async function PATCH(req: NextRequest) {
       }, 
     });
   } catch (e: any) {
+    console.error('❌ [PROXY] Error en PATCH:', e);
     return NextResponse.json({ error: e?.message || 'Proxy error' }, { status: 500 });
   }
 }

@@ -15,7 +15,22 @@ const notificationRoutes_1 = __importDefault(require("./routes/notificationRoute
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const swaggerJsdoc = require('swagger-jsdoc');
 const app = (0, express_1.default)();
+// Middleware de logging ANTES de express.json()
+app.use((req, res, next) => {
+    if (req.method === 'PATCH') {
+        console.log(`🔍 [RAW] ${req.method} ${req.url} - ANTES de parsing`);
+    }
+    next();
+});
 app.use(express_1.default.json());
+// Middleware de logging DESPUÉS de express.json()
+app.use((req, res, next) => {
+    if (req.method === 'PATCH') {
+        console.log(`🔍 [PARSED] ${req.method} ${req.url} - DESPUÉS de parsing`);
+        console.log(`� [PARSED] Body:`, req.body);
+    }
+    next();
+});
 const swaggerOptions = {
     definition: {
         openapi: '3.0.0',
@@ -43,6 +58,13 @@ app.use('/api/mensajes', mensajeRoutes_1.default);
 app.use('/api/llamadas', llamadaRoutes_1.default);
 app.use('/api/calendar', calendarRoutes_1.default);
 app.use('/api/notifications', notificationRoutes_1.default);
+// Middleware para capturar rutas no manejadas
+app.use((req, res, next) => {
+    if (req.method === 'PATCH') {
+        console.log(`🚨 [UNHANDLED] PATCH ${req.url} - Ruta no manejada por ningún router`);
+    }
+    next();
+});
 const PORT = 3001;
 app.listen(PORT, () => {
     console.log(`Servidor backend corriendo en http://localhost:${PORT}`);

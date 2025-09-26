@@ -2,7 +2,7 @@ import supabase from '../../lib/supabase';
 
 export interface CreateNotificationParams {
   id_usuario: number;
-  tipo: 'meeting_invite' | 'friend_request' | 'system' | 'event_cancelled';
+  tipo: 'meeting_invite' | 'reinvite' | 'friend_request' | 'system' | 'event_cancelled';
   mensaje: string;
   meta?: any;
 }
@@ -51,25 +51,20 @@ export class NotificationService {
     nombreEvento: string, 
     organizador: string,
     id_evento: number,
-    fechaEvento?: string // 🆕 NUEVO: Fecha del evento
+    fechaEvento?: string,
+    descripcion?: string // 🆕 NUEVO: Descripción del evento
   ) {
     console.log('🔄 NotificationService.createEventInviteNotification iniciado:', {
       id_usuario,
       nombreEvento,
       organizador,
       id_evento,
-      fechaEvento
-    });
-    
-    // 🆕 NUEVO: Formatear mensaje con fecha y hora del evento
-    console.log('📝 Datos recibidos para crear mensaje:', {
-      nombreEvento,
       fechaEvento,
-      tieneEvento: !!nombreEvento,
-      tieneFecha: !!fechaEvento
+      descripcion
     });
     
-    let mensaje = `Te invitaron al evento "${nombreEvento}"`;
+    // ✅ Formatear mensaje bonito con fecha y hora (GMT-3 Argentina)
+    let mensaje = '';
     if (fechaEvento) {
       try {
         const fecha = new Date(fechaEvento);
@@ -77,40 +72,52 @@ export class NotificationService {
           weekday: 'long',
           day: 'numeric',
           month: 'long',
-          year: 'numeric'
+          year: 'numeric',
+          timeZone: 'America/Argentina/Buenos_Aires'
         });
         const horaFormateada = fecha.toLocaleTimeString('es-AR', {
           hour: '2-digit',
           minute: '2-digit',
-          hour12: false
+          hour12: false,
+          timeZone: 'America/Argentina/Buenos_Aires'
         });
-        mensaje = `Te invitaron al evento "${nombreEvento}" el ${fechaFormateada} a las ${horaFormateada}`;
+        
+        // Formato: "El día... a las..."
+        mensaje = `El día ${fechaFormateada} a las ${horaFormateada}`;
+        if (descripcion) {
+          mensaje += `\n📝 ${descripcion}`;
+        }
       } catch (error) {
         console.error('Error al formatear fecha:', error);
-        mensaje = `Te invitaron al evento "${nombreEvento}"`;
+        mensaje = descripcion || '';
       }
+    } else {
+      mensaje = descripcion || '';
     }
     
     console.log('✉️ Mensaje final generado:', mensaje);
     
     const meta = {
       tipo_notificacion: 'invitacion_evento',
-      id_evento: id_evento,
-      nombre_evento: nombreEvento,
+      id_evento: id_evento, // ✅ CORRECTO: id_evento (no evento_id)
+      titulo_evento: nombreEvento, // ✅ NUEVO: título del evento para el frontend
       organizador: organizador,
-      fecha_evento: fechaEvento // 🆕 NUEVO: Incluir fecha del evento
+      fecha: fechaEvento, // ✅ CORRECTO: fecha (no fecha_evento)
+      descripcion: descripcion
     };
 
-    console.log('📝 Datos para crear notificación:', {
+    console.log('� Debug CREATE - datos para crear notificación:', {
       id_usuario,
       tipo: 'meeting_invite',
       mensaje,
-      meta
+      meta,
+      id_evento_check: meta.id_evento,
+      titulo_evento_check: meta.titulo_evento
     });
 
     const result = await this.createNotification({
       id_usuario,
-      tipo: 'meeting_invite',
+      tipo: 'reinvite',
       mensaje,
       meta
     });
@@ -234,14 +241,16 @@ export class NotificationService {
     nombreEvento: string,
     organizador: string,
     id_evento: number,
-    fechaEvento?: string // 🆕 NUEVO: Fecha del evento
+    fechaEvento?: string,
+    descripcion?: string // 🆕 NUEVO: Descripción del evento
   ) {
     console.log('🔄 NotificationService.createMultipleEventInviteNotifications iniciado:', {
       userIds,
       nombreEvento,
       organizador,
       id_evento,
-      fechaEvento
+      fechaEvento,
+      descripcion
     });
     
     const notifications = [];
@@ -254,7 +263,8 @@ export class NotificationService {
           nombreEvento,
           organizador,
           id_evento,
-          fechaEvento // 🆕 NUEVO: Pasar fecha del evento
+          fechaEvento,
+          descripcion // 🆕 NUEVO: Pasar descripción del evento
         );
         notifications.push(notification);
         console.log(`✅ Notificación creada para usuario ${userId}:`, notification);

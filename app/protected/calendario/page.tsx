@@ -189,9 +189,63 @@ export default function CalendarioPage() {
 
       const eventosData = await response.json();
       
+      console.log('🔍 Datos recibidos del backend:', eventosData);
+      
+      // Log detallado de cada evento
+      eventosData.forEach((evento: any, index: number) => {
+        console.log(`📋 Evento ${index + 1} (ID: ${evento.id}):`, {
+          creado_por: evento.creado_por,
+          mi_confirmacion: evento.mi_confirmacion,
+          confirmacion: evento.confirmacion,
+          todosLosCampos: Object.keys(evento)
+        });
+      });
+      
       // Mapear campos del backend al formato esperado por el frontend
       const eventosMapeados = Array.isArray(eventosData) 
-        ? eventosData.map((evento: any) => {
+        ? await Promise.all(eventosData.map(async (evento: any) => {
+            // Determinar estado de confirmación con lógica robusta
+            let miConfirmacion = 'pendiente';
+            
+            if (evento.creado_por === usuarioId) {
+              // Si soy el creador, siempre confirmado
+              miConfirmacion = 'confirmado';
+              console.log(`👑 Evento ${evento.id}: Soy organizador -> confirmado`);
+            } else if (evento.mi_confirmacion) {
+              // Usar el campo del backend si existe
+              miConfirmacion = evento.mi_confirmacion;
+              console.log(`📋 Evento ${evento.id}: Backend dice -> ${evento.mi_confirmacion}`);
+            } else {
+              // FALLBACK: Consultar directamente la confirmación desde el frontend
+              console.log(`🔄 Evento ${evento.id}: Consultando confirmación directamente...`);
+              try {
+                const { data: sess } = await supabase.auth.getSession();
+                const { data: confirmacion } = await supabase
+                  .from('EventoInvitado')
+                  .select('confirmado')
+                  .eq('id_evento', evento.id)
+                  .eq('id_usuario', usuarioId)
+                  .single();
+                
+                if (confirmacion) {
+                  if (confirmacion.confirmado === true) {
+                    miConfirmacion = 'confirmado';
+                  } else if (confirmacion.confirmado === false) {
+                    miConfirmacion = 'rechazado';
+                  } else {
+                    miConfirmacion = 'pendiente';
+                  }
+                  console.log(`✅ Evento ${evento.id}: Confirmación directa -> ${miConfirmacion}`);
+                } else {
+                  console.log(`⚠️ Evento ${evento.id}: No hay registro de invitación`);
+                }
+              } catch (error) {
+                console.error(`❌ Error consultando confirmación evento ${evento.id}:`, error);
+              }
+            }
+
+            console.log(`✅ Evento ${evento.id} final: ${miConfirmacion}`);
+
             return {
               ...evento,
               fecha_programada: evento.fecha || evento.fecha_programada,
@@ -201,9 +255,9 @@ export default function CalendarioPage() {
                 nombre: 'Usuario ' + evento.creado_por
               } : undefined,
               usuarioEsCreador: evento.creado_por === usuarioId,
-              miConfirmacion: evento.mi_confirmacion || 'pendiente' // Usar directamente el campo del backend
+              miConfirmacion: miConfirmacion
             };
-          })
+          }))
         : [];
       
       setEventos(eventosMapeados);
@@ -364,6 +418,15 @@ export default function CalendarioPage() {
         // Editar evento existente
         
         // 1. Actualizar datos básicos del evento
+        console.log('🔄 Actualizando evento - enviando datos:', {
+          id_evento: eventoSeleccionado.id,
+          id_editor: usuarioId,
+          titulo: eventoData.titulo,
+          descripcion: eventoData.descripcion,
+          fecha: eventoData.fecha_programada,
+          color: eventoData.color,
+        });
+
         const response = await fetch('/api/calendar', {
           method: 'PATCH',
           headers: {
@@ -380,8 +443,15 @@ export default function CalendarioPage() {
           }),
         });
 
+        console.log('📤 Respuesta de actualización de evento:', {
+          status: response.status,
+          ok: response.ok
+        });
+
         if (!response.ok) {
-          throw new Error(`Error al actualizar evento: ${response.status}`);
+          const errorText = await response.text();
+          console.error('❌ Error al actualizar evento:', errorText);
+          throw new Error(`Error al actualizar evento: ${response.status} - ${errorText}`);
         }
 
         // 2. Actualizar invitados del evento
@@ -799,9 +869,21 @@ export default function CalendarioPage() {
       // También actualizar los detalles del evento si está abierto
       setEventoDetalles(detallesAnteriores => {
         if (detallesAnteriores && detallesAnteriores.id === eventoDetalles.id) {
+          // Actualizar también mi confirmación en la lista de invitados
+          const invitadosActualizados = detallesAnteriores.invitados?.map(invitado => {
+            if (invitado.id === usuarioId) {
+              return {
+                ...invitado,
+                confirmacion: confirmacion
+              };
+            }
+            return invitado;
+          }) || [];
+
           return {
             ...detallesAnteriores,
-            miConfirmacion: confirmacion
+            miConfirmacion: confirmacion,
+            invitados: invitadosActualizados
           };
         }
         return detallesAnteriores;
@@ -820,39 +902,38 @@ export default function CalendarioPage() {
   };
 
   // Función para obtener estilos según estado de confirmación
-  const obtenerEstilosEvento = (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado') => {
+  const obtenerEstilosEvento = (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado', esOrganizador?: boolean) => {
     const baseColor = obtenerClaseColor(color);
     
-    let resultado;
+    // Si soy el organizador, siempre mostrar como confirmado
+    const estadoFinal = esOrganizador ? 'confirmado' : miConfirmacion;
     
-    switch (miConfirmacion) {
+    switch (estadoFinal) {
       case 'pendiente':
-        // Solo borde, fondo transparente/semi-transparente
-        resultado = {
-          className: `border-2 border-solid ${baseColor.replace('bg-', 'border-')} bg-opacity-20 ${baseColor} text-gray-800 dark:text-gray-200`,
-          estiloTexto: 'text-gray-800 dark:text-gray-200'
+        // Borde punteado con fondo semi-transparente
+        return {
+          className: `border-2 border-dashed ${baseColor.replace('bg-', 'border-')} bg-opacity-30 ${baseColor}`,
+          estiloTexto: 'text-gray-800 dark:text-gray-200',
+          patronRechazado: false
         };
-        break;
+        
       case 'rechazado':
-        // Patrón diagonal/textura para indicar rechazado
-        resultado = {
-          className: `${baseColor} bg-opacity-60 relative overflow-hidden`,
+        // Fondo con patrón diagonal para indicar rechazo
+        return {
+          className: `${baseColor} bg-opacity-50 relative overflow-hidden`,
           estiloTexto: 'text-white relative z-10',
-          // Agregamos un patrón de líneas diagonales
           patronRechazado: true
         };
-        break;
+        
       case 'confirmado':
       default:
-        // Estilo normal/completo
-        resultado = {
+        // Estilo normal sólido
+        return {
           className: baseColor,
-          estiloTexto: 'text-white'
+          estiloTexto: 'text-white',
+          patronRechazado: false
         };
-        break;
     }
-    
-    return resultado;
   };
 
   return (
@@ -1011,7 +1092,7 @@ function VistaDia({ eventos, fecha, onEventoClick, onClickEspacio, obtenerClaseC
   onEventoClick: (evento: Evento) => void, 
   onClickEspacio: (fechaPredefinida: Date) => void, 
   obtenerClaseColor: (color?: string) => string,
-  obtenerEstilosEvento: (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado') => any
+  obtenerEstilosEvento: (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado', esOrganizador?: boolean) => any
 }) {
   const eventosDia = eventos.filter(evento => {
     const fechaEvento = new Date(evento.fecha_programada);
@@ -1052,7 +1133,7 @@ function VistaDia({ eventos, fecha, onEventoClick, onClickEspacio, obtenerClaseC
           const minutos = fechaEvento.getMinutes();
           const top = (hora * 64) + (minutos / 60 * 64);
           
-          const estilos = obtenerEstilosEvento(evento.color, evento.miConfirmacion);
+          const estilos = obtenerEstilosEvento(evento.color, evento.miConfirmacion, evento.usuarioEsCreador);
           
           return (
             <button
@@ -1096,7 +1177,7 @@ function VistaSemana({ eventos, fecha, onEventoClick, onClickEspacio, obtenerCla
   onEventoClick: (evento: Evento) => void, 
   onClickEspacio: (fechaPredefinida: Date) => void, 
   obtenerClaseColor: (color?: string) => string,
-  obtenerEstilosEvento: (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado') => any
+  obtenerEstilosEvento: (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado', esOrganizador?: boolean) => any
 }) {
   // Obtener los días de la semana
   const inicioSemana = new Date(fecha);
@@ -1165,7 +1246,7 @@ function VistaSemana({ eventos, fecha, onEventoClick, onClickEspacio, obtenerCla
                   const minutos = fechaEvento.getMinutes();
                   const top = (hora * 64) + (minutos / 60 * 64);
                   
-                  const estilos = obtenerEstilosEvento(evento.color, evento.miConfirmacion);
+                  const estilos = obtenerEstilosEvento(evento.color, evento.miConfirmacion, evento.usuarioEsCreador);
                   
                   return (
                     <div
@@ -1206,7 +1287,7 @@ function VistaMes({ eventos, fecha, onEventoClick, onClickEspacio, obtenerClaseC
   onEventoClick: (evento: Evento) => void, 
   onClickEspacio: (fechaPredefinida: Date) => void, 
   obtenerClaseColor: (color?: string) => string,
-  obtenerEstilosEvento: (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado') => any
+  obtenerEstilosEvento: (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado', esOrganizador?: boolean) => any
 }) {
   // Calcular los días del mes y semanas
   const primerDiaMes = new Date(fecha.getFullYear(), fecha.getMonth(), 1);
@@ -1269,7 +1350,7 @@ function VistaMes({ eventos, fecha, onEventoClick, onClickEspacio, obtenerClaseC
                   
                   <div className="flex-1 space-y-1 overflow-hidden">
                     {eventosDia.slice(0, 3).map(evento => {
-                      const estilos = obtenerEstilosEvento(evento.color, evento.miConfirmacion);
+                      const estilos = obtenerEstilosEvento(evento.color, evento.miConfirmacion, evento.usuarioEsCreador);
                       
                       return (
                         <div
@@ -1295,6 +1376,9 @@ function VistaMes({ eventos, fecha, onEventoClick, onClickEspacio, obtenerClaseC
                             )}
                             {evento.miConfirmacion === 'rechazado' && (
                               <span className="ml-1 text-[10px] bg-red-500 text-white px-1 rounded">✗</span>
+                            )}
+                            {evento.miConfirmacion === 'confirmado' && (
+                              <span className="ml-1 text-[10px] bg-green-500 text-white px-1 rounded">✓</span>
                             )}
                           </span>
                         </div>
@@ -1379,6 +1463,32 @@ function ModalEvento({
   const [busquedaContacto, setBusquedaContacto] = useState('');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [colorSeleccionado, setColorSeleccionado] = useState(evento?.color || 'blue');
+
+  // Efecto para actualizar campos cuando se abre modal de edición
+  useEffect(() => {
+    if (evento) {
+      console.log('🔄 Actualizando campos del modal para editar evento:', evento);
+      
+      setTitulo(evento.titulo || '');
+      setDescripcion(evento.descripcion || '');
+      setColorSeleccionado(evento.color || 'blue');
+      
+      if (evento.fecha_programada) {
+        const formatearFechaLocal = (date: Date) => {
+          const offset = date.getTimezoneOffset();
+          const fechaLocal = new Date(date.getTime() - (offset * 60 * 1000));
+          return fechaLocal.toISOString().slice(0, 16);
+        };
+        
+        const fechaFormateada = formatearFechaLocal(new Date(evento.fecha_programada));
+        console.log('📅 Actualizando fecha en modal:', {
+          fechaOriginal: evento.fecha_programada,
+          fechaFormateada
+        });
+        setFecha(fechaFormateada);
+      }
+    }
+  }, [evento]);
 
   // Efecto para actualizar invitados seleccionados cuando cambien los contactos
   useEffect(() => {
@@ -1771,7 +1881,7 @@ function ModalDetallesEvento({
   onBorrar: () => void;
   onConfirmar?: (confirmacion: 'confirmado' | 'rechazado') => Promise<void>;
   obtenerClaseColor: (color?: string) => string;
-  obtenerEstilosEvento: (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado') => any;
+  obtenerEstilosEvento: (color?: string, miConfirmacion?: 'pendiente' | 'confirmado' | 'rechazado', esOrganizador?: boolean) => any;
 }) {
   const fechaEvento = new Date(evento.fecha_programada);
   
@@ -1831,7 +1941,7 @@ function ModalDetallesEvento({
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               {(() => {
-                const estilos = obtenerEstilosEvento(evento.color, evento.miConfirmacion);
+                const estilos = obtenerEstilosEvento(evento.color, evento.miConfirmacion, esCreador);
                 return (
                   <div className={`w-4 h-4 rounded-full ${estilos.className} relative`}>
                     {estilos.patronRechazado && (
@@ -1849,13 +1959,13 @@ function ModalDetallesEvento({
                 {/* Solo mostrar badge de confirmación si NO soy el organizador */}
                 {evento.creado_por !== usuarioId && (
                   <>
-                    {evento.miConfirmacion === 'pendiente' && (
+                    {confirmacionActual === 'pendiente' && (
                       <span className="ml-2 text-sm bg-yellow-500 text-white px-2 py-1 rounded-full">Pendiente</span>
                     )}
-                    {evento.miConfirmacion === 'rechazado' && (
+                    {confirmacionActual === 'rechazado' && (
                       <span className="ml-2 text-sm bg-red-500 text-white px-2 py-1 rounded-full">Rechazado</span>
                     )}
-                    {evento.miConfirmacion === 'confirmado' && (
+                    {confirmacionActual === 'confirmado' && (
                       <span className="ml-2 text-sm bg-green-500 text-white px-2 py-1 rounded-full">Confirmado</span>
                     )}
                   </>

@@ -1,4 +1,5 @@
 import supabase from '../../lib/supabase';
+import { NotificationService } from "../notifications/notificationService";
 
 export const updateEventParticipantsService = async (
   idEvento: number,
@@ -32,6 +33,10 @@ export const updateEventParticipantsService = async (
     }
 
     console.log('✅ Participantes actualizados correctamente');
+
+    // NOTA: No enviamos notificaciones aquí porque updateEventService ya maneja 
+    // todas las notificaciones cuando se actualiza un evento (incluyendo cambios de participantes)
+    
   } catch (error: any) {
     console.error('❌ Error en updateEventParticipantsService:', error);
     throw new Error(error.message || 'Error al actualizar participantes del evento');

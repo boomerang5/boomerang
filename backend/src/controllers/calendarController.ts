@@ -59,7 +59,8 @@ export const create_event = async (req: Request, res: Response) => {
           titulo,
           organizadorNombre,
           Number(id),
-          fecha // Pasar fecha del evento
+          fecha, // Pasar fecha del evento
+          descripcion // 🆕 NUEVO: Pasar descripción del evento
         );
 
         console.log(`✅ Creadas ${invitados.length} notificaciones para nuevo evento`);
@@ -281,9 +282,9 @@ export const respond_event_invite = async (req: Request, res: Response) => {
       // Obtener las notificaciones del usuario para buscar la correspondiente a este evento
       const userNotifications = await NotificationService.getUserNotifications(Number(id_usuario));
       
-      // Buscar la notificación de este evento específico
+      // Buscar la notificación de este evento específico (meeting_invite o reinvite)
       const eventNotification = userNotifications.find((notification: any) => 
-        notification.tipo === 'meeting_invite' && 
+        (notification.tipo === 'meeting_invite' || notification.tipo === 'reinvite') && 
         notification.meta?.id_evento === Number(id_evento) &&
         !notification.meta?.respondida // Solo si no ha sido marcada como respondida
       );
@@ -323,7 +324,7 @@ export const get_event_confirmation = async (req: Request, res: Response) => {
   }
 
   try {
-    // Obtener confirmación desde la base de datos
+    // Obtener confirmación desde la base de datos usando el campo original
     const { data, error } = await supabase
       .from('EventoInvitado')
       .select('confirmado')
@@ -336,7 +337,7 @@ export const get_event_confirmation = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "No se encontró la invitación" });
     }
 
-    // Mapear el valor booleano a string para el frontend
+    // Mapear el valor booleano a string para el frontend (sistema original)
     let confirmacion = 'pendiente';
     if (data.confirmado === true) {
       confirmacion = 'confirmado';
@@ -369,7 +370,7 @@ export const update_event_confirmation = async (req: Request, res: Response) => 
   }
 
   try {
-    // Mapear string a booleano/null para la base de datos
+    // Mapear string a booleano/null para la base de datos (sistema original)
     let confirmado = null;
     if (confirmacion === 'confirmado') {
       confirmado = true;
@@ -377,7 +378,7 @@ export const update_event_confirmation = async (req: Request, res: Response) => 
       confirmado = false;
     }
 
-    // Actualizar en la base de datos
+    // Actualizar en la base de datos usando el campo original
     const { error } = await supabase
       .from('EventoInvitado')
       .update({ confirmado })
@@ -387,6 +388,24 @@ export const update_event_confirmation = async (req: Request, res: Response) => 
     if (error) {
       console.error('Error al actualizar confirmación:', error);
       return res.status(500).json({ error: "Error al actualizar confirmación" });
+    }
+
+    // Marcar como leídas las notificaciones relacionadas con este evento para este usuario
+    // cuando confirma o rechaza (no cuando está pendiente)
+    if (confirmacion !== 'pendiente') {
+      const { error: notifError } = await supabase
+        .from('Notificacion')
+        .update({ leida: true })
+        .eq('usuario_id', Number(usuario_id))
+        .eq('leida', false)
+        .like('data', `%"evento_id":${evento_id}%`);
+
+      if (notifError) {
+        console.error('Error al marcar notificaciones como leídas:', notifError);
+        // No retornamos error aquí porque la confirmación sí se guardó
+      } else {
+        console.log('✅ Notificaciones relacionadas marcadas como leídas');
+      }
     }
 
     return res.status(200).json({ 
@@ -402,15 +421,38 @@ export const update_event_confirmation = async (req: Request, res: Response) => 
 //---------------------------------------------------------------------------------------------
 // UPDATE_EVENT
 export const update_event = async (req: Request, res: Response) => {
+  // Usar process.stdout.write para asegurar que se muestre inmediatamente
+  process.stdout.write('🎯 [CONTROLLER] update_event INICIADO - ¡FUNCIÓN EJECUTADA!\n');
+  process.stdout.write(`🔄 update_event - Datos: ${JSON.stringify(req.body)}\n`);
+  
+  console.log('🎯 [CONTROLLER] update_event INICIADO - ¡FUNCIÓN EJECUTADA!');
+  console.log('🔄 update_event - Datos recibidos:', {
+    body: req.body,
+    fecha_raw: req.body.fecha,
+    fecha_tipo: typeof req.body.fecha
+  });
+  
   const { id_evento, id_editor, titulo, fecha, descripcion, color } = req.body;
   if (!id_evento || !id_editor) {
     return res.status(400).json({ error: "Faltan campos requeridos." });
   }
+  
   try {
+    console.log('📤 Llamando a updateEventService con:', {
+      id_evento: Number(id_evento),
+      id_editor: Number(id_editor),
+      titulo,
+      fecha: fecha ? new Date(fecha) : undefined,
+      descripcion,
+      color
+    });
+    
     await updateEventService(Number(id_evento), Number(id_editor), titulo ?? undefined, fecha ? new Date(fecha) : undefined, descripcion ?? undefined, color ?? undefined);
+    
+    console.log('✅ update_event completado exitosamente');
     return res.status(200).json({ message: "Evento actualizado correctamente" });
   } catch (err: any) {
-    console.error("❌ Error inesperado:", err);
+    console.error("❌ Error inesperado en update_event:", err);
     return res.status(500).json({ error: err.message || "Error interno del servidor." });
   }
 };

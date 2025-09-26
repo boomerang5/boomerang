@@ -11,7 +11,25 @@ import swaggerUi from 'swagger-ui-express';
 const swaggerJsdoc = require('swagger-jsdoc');
 
 const app = express();
+
+// Middleware de logging ANTES de express.json()
+app.use((req, res, next) => {
+  if (req.method === 'PATCH') {
+    console.log(`🔍 [RAW] ${req.method} ${req.url} - ANTES de parsing`);
+  }
+  next();
+});
+
 app.use(express.json());
+
+// Middleware de logging DESPUÉS de express.json()
+app.use((req, res, next) => {
+  if (req.method === 'PATCH') {
+    console.log(`🔍 [PARSED] ${req.method} ${req.url} - DESPUÉS de parsing`);
+    console.log(`� [PARSED] Body:`, req.body);
+  }
+  next();
+});
 
 const swaggerOptions = {
   definition: {
@@ -43,6 +61,14 @@ app.use('/api/mensajes', mensajeRoutes);
 app.use('/api/llamadas', llamadaRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/notifications', notificationRoutes);
+
+// Middleware para capturar rutas no manejadas
+app.use((req, res, next) => {
+  if (req.method === 'PATCH') {
+    console.log(`🚨 [UNHANDLED] PATCH ${req.url} - Ruta no manejada por ningún router`);
+  }
+  next();
+});
 
 const PORT = 3001;
 app.listen(PORT, () => {

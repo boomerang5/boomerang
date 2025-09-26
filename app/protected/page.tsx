@@ -16,6 +16,7 @@ type Perfil = { nombre: string | null; apellido: string | null; mail: string | n
 type NotifType =
   | 'friend_request'
   | 'meeting_invite'
+  | 'reinvite'
   | 'calendar'
   | 'scheduled_call'
   | 'missed_call'
@@ -125,7 +126,7 @@ export default function DashboardPage() {
     useContacts(supabase, idUsuario);
 
   // Hook de notificaciones - NUEVO: usar el hook existente
-  const { notifications: dbNotifications, loading: notifsLoading, error: notifsError } = 
+  const { notifications: dbNotifications, loading: notifsLoading, error: notifsError, markAsRead } = 
     useNotifications(supabase, idUsuario);
 
   // Solicitudes de amistad (realtime)
@@ -208,6 +209,8 @@ export default function DashboardPage() {
         return 'user-plus';
       case 'meeting_invite':
         return 'calendar';
+      case 'reinvite':
+        return 'calendar';
       case 'event_cancelled':
         return 'x-circle';
       case 'calendar':
@@ -233,7 +236,7 @@ export default function DashboardPage() {
         await handleAccept(req);
         //luego de aceptar, refresca contactos, se va el pendiente 
         refreshContacts(qDebounced || undefined);
-      } else if (n.type === 'meeting_invite') {
+      } else if (n.type === 'meeting_invite' || n.type === 'reinvite') {
         // Manejar confirmación de invitación a evento
         await handleEventInviteResponse(n, 'accept');
       } else if (n.type === 'meeting') {
@@ -264,7 +267,7 @@ export default function DashboardPage() {
         await handleReject(req);
         //si rechaza, tmb refresca 
         refreshContacts(qDebounced || undefined);
-      } else if (n.type === 'meeting_invite') {
+      } else if (n.type === 'meeting_invite' || n.type === 'reinvite') {
         // Manejar rechazo de invitación a evento
         await handleEventInviteResponse(n, 'decline');
       } else {
@@ -285,7 +288,16 @@ export default function DashboardPage() {
   // 🆕 NUEVA FUNCIÓN: Manejar respuestas a invitaciones de eventos
   async function handleEventInviteResponse(n: NotificationItem, response: 'accept' | 'decline') {
     try {
+      console.log('🔍 Debug handleEventInviteResponse:', {
+        notificationId: n.id,
+        type: n.type,
+        meta: n.meta,
+        hasIdEvento: !!(n.meta && n.meta.id_evento),
+        metaKeys: n.meta ? Object.keys(n.meta) : 'no meta'
+      });
+
       if (!n.meta || !n.meta.id_evento) {
+        console.error('❌ Meta inválido:', { meta: n.meta });
         throw new Error('No se encontró información del evento en la notificación');
       }
 
@@ -665,7 +677,7 @@ export default function DashboardPage() {
                         {n.message && <div className="text-xs text-muted-foreground mt-1">{n.message}</div>}
                         
                         {/* 🆕 INFORMACIÓN PARA EVENTOS - NUEVO FORMATO */}
-                        {n.type === 'meeting_invite' && n.meta && (
+                        {(n.type === 'meeting_invite' || n.type === 'reinvite') && n.meta && (
                           <div className="mt-2">
                             {/* Nombre del evento como link clickeable */}
                             <button
@@ -677,7 +689,7 @@ export default function DashboardPage() {
                               className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors"
                               title="Ir al calendario para ver el evento"
                             >
-                              📅 {n.meta.nombre_evento || 'Evento sin nombre'}
+                              📅 {n.meta.titulo_evento || n.meta.nombre_evento || 'Evento sin nombre'}
                             </button>
                           </div>
                         )}
@@ -686,13 +698,29 @@ export default function DashboardPage() {
                         {n.type === 'event_cancelled' && n.meta && (
                           <div className="mt-2">
                             <div className="text-sm font-medium text-red-600 dark:text-red-400">
-                              ❌ {n.meta.nombre_evento || 'Evento sin nombre'}
+                              ❌ {n.meta.titulo_evento || n.meta.nombre_evento || 'Evento sin nombre'}
                             </div>
                           </div>
                         )}
                         
+                        {/* 🆕 INFORMACIÓN PARA NOTIFICACIONES DE SISTEMA (evento modificado, etc.) */}
+                        {n.type === 'system' && n.meta && n.meta.titulo_evento && (
+                          <div className="mt-2">
+                            <button
+                              onClick={() => {
+                                router.push('/protected/calendario');
+                                markAsRead(Number(n.id));
+                              }}
+                              className="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 underline cursor-pointer transition-colors"
+                              title="Ir al calendario para ver el evento"
+                            >
+                              📋 {n.meta.titulo_evento}
+                            </button>
+                          </div>
+                        )}
+                        
                         {/* 🆕 QUITAR n.when PARA EVENTOS, MANTENER PARA OTROS TIPOS */}
-                        {n.when && n.type !== 'meeting_invite' && n.type !== 'event_cancelled' && (
+                        {n.when && n.type !== 'meeting_invite' && n.type !== 'reinvite' && n.type !== 'event_cancelled' && n.type !== 'system' && (
                           <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>
                         )}
                       </div>
@@ -718,7 +746,7 @@ export default function DashboardPage() {
                         )}
                         
                         {/* 🆕 BOTONES PARA INVITACIONES A EVENTOS - Solo si no ha sido respondida */}
-                        {n.type === 'meeting_invite' && !n.meta?.respondida && (
+                        {(n.type === 'meeting_invite' || n.type === 'reinvite') && !n.meta?.respondida && (
                           <>
                             <button
                               onClick={() => handleNotifAccept(n)}
@@ -738,7 +766,7 @@ export default function DashboardPage() {
                         )}
                         
                         {/* 🆕 ESTADO DE RESPUESTA PARA EVENTOS YA RESPONDIDOS */}
-                        {n.type === 'meeting_invite' && n.meta?.respondida && (
+                        {(n.type === 'meeting_invite' || n.type === 'reinvite') && n.meta?.respondida && (
                           <div className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                             {n.meta.respuesta === 'accept' ? '✅ Aceptado' : '❌ Rechazado'}
                           </div>

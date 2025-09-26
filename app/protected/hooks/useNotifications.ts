@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type NotifType = 'friend_request' | 'meeting_invite' | 'system';
+export type NotifType = 'friend_request' | 'meeting_invite' | 'reinvite' | 'system';
 
 export type NotificationItem = {
   id: number;
@@ -13,11 +13,26 @@ export type NotificationItem = {
   meta?: any;
 };
 
-function titleFor(type: NotifType) {
+function titleFor(type: NotifType, mensaje?: string, meta?: any) {
   switch (type) {
-    case 'friend_request':   return 'Solicitud de amistad';
-    case 'meeting_invite':   return 'Te invitaron a una reunión';
-    default:                 return 'Notificación';
+    case 'friend_request':   
+      return 'Solicitud de amistad';
+    case 'meeting_invite':   
+      // Para invitaciones de evento, SIEMPRE usar el formato "Te invitaron al evento [Nombre]"
+      if (meta && meta.titulo_evento) {
+        return `Te invitaron al evento "${meta.titulo_evento}"`;
+      }
+      // Si no hay meta.titulo_evento, generar título genérico
+      console.warn('Notificación meeting_invite sin meta.titulo_evento:', { meta, mensaje });
+      return 'Te invitaron a una reunión';
+    case 'reinvite':
+      // Para re-invitaciones (eventos actualizados)
+      if (meta && meta.titulo_evento) {
+        return `Nueva invitación: "${meta.titulo_evento}"`;
+      }
+      return 'Nueva invitación a evento';
+    default:                 
+      return 'Notificación';
   }
 }
 
@@ -53,7 +68,7 @@ export function useNotifications(
       const mapped: NotificationItem[] = (data ?? []).map((n: any) => ({
         id: Number(n.id),
         type: (n.tipo as NotifType) ?? 'system',
-        title: titleFor(n.tipo as NotifType),
+        title: titleFor(n.tipo as NotifType, n.mensaje, n.meta),
         message: n.mensaje ?? null,
         when: n.fecha_envio ?? null,
         leida: !!n.leida,
@@ -83,7 +98,7 @@ export function useNotifications(
           const item: NotificationItem = {
             id: Number(n.id),
             type: (n.tipo as NotifType) ?? 'system',
-            title: titleFor(n.tipo as NotifType),
+            title: titleFor(n.tipo as NotifType, n.mensaje, n.meta),
             message: n.mensaje ?? null,
             when: n.fecha_envio ?? null,
             leida: !!n.leida,
