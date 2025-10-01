@@ -7,6 +7,7 @@ import mensajeRoutes from './routes/mensajeRoutes'
 import llamadaRoutes from './routes/llamadaRoutes'
 import calendarRoutes from './routes/calendarRoutes';
 import notificationRoutes from './routes/notificationRoutes';
+import reportsRoutes from './routes/reportsRoutes';
 import swaggerUi from 'swagger-ui-express';
 const swaggerJsdoc = require('swagger-jsdoc');
 
@@ -61,6 +62,7 @@ app.use('/api/mensajes', mensajeRoutes);
 app.use('/api/llamadas', llamadaRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/reports', reportsRoutes);
 
 // Middleware para capturar rutas no manejadas
 app.use((req, res, next) => {

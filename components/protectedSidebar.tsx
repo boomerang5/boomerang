@@ -52,6 +52,11 @@ export default function ProtectedSidebar() {
           <Link href="/protected/calendario" aria-label="Calendario">
             <i data-feather="calendar" className={cls('/protected/calendario')} />
           </Link>
+
+          {/* Reportes */}
+          <Link href="/protected/reportes" aria-label="Reportes">
+            <i data-feather="bar-chart-2" className={cls('/protected/reportes')} />
+          </Link>
         </div>
 
         <div className="flex flex-col items-center gap-5 mb-4">

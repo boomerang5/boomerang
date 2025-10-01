@@ -12,6 +12,7 @@ const mensajeRoutes_1 = __importDefault(require("./routes/mensajeRoutes"));
 const llamadaRoutes_1 = __importDefault(require("./routes/llamadaRoutes"));
 const calendarRoutes_1 = __importDefault(require("./routes/calendarRoutes"));
 const notificationRoutes_1 = __importDefault(require("./routes/notificationRoutes"));
+const reportsRoutes_1 = __importDefault(require("./routes/reportsRoutes"));
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const swaggerJsdoc = require('swagger-jsdoc');
 const app = (0, express_1.default)();
@@ -58,6 +59,7 @@ app.use('/api/mensajes', mensajeRoutes_1.default);
 app.use('/api/llamadas', llamadaRoutes_1.default);
 app.use('/api/calendar', calendarRoutes_1.default);
 app.use('/api/notifications', notificationRoutes_1.default);
+app.use('/api/reports', reportsRoutes_1.default);
 // Middleware para capturar rutas no manejadas
 app.use((req, res, next) => {
     if (req.method === 'PATCH') {

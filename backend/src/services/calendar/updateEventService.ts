@@ -100,22 +100,12 @@ export async function updateEventService(
         timeZone: 'America/Argentina/Buenos_Aires'
       });
 
-      console.log('🔔 Datos para notificaciones:', {
-        fechaParametro: fecha,
-        fechaDB: eventoCompleto.fecha,
-        fechaParaNotificacion: fechaParaNotificacion.toISOString(),
-        fechaFormateada,
-        horaFormateada,
-        cantidadInvitados: invitados.length
-      });
-
       for (const invitado of invitados) {
         try {
           console.log(`🔄 Enviando notificaciones a usuario ${invitado.id_usuario}...`);
           
-          // 1. Notificación de sistema
-          console.log('📢 ANTES de crear notificación SYSTEM');
-          const systemResult = await NotificationService.createNotification({
+          // 1. Notificación de cambio (tipo system) - SIN botones
+          const notificationSystem = await NotificationService.createNotification({
             id_usuario: invitado.id_usuario,
             tipo: 'system',
             mensaje: `🔄 El evento "${eventoCompleto.titulo}" fue modificado\n\nEl día ${fechaFormateada} a las ${horaFormateada}\n\n⚠️ Tu confirmación volvió al estado pendiente`,
@@ -123,38 +113,42 @@ export async function updateEventService(
               id_evento: idEvento,
               tipo_cambio: 'modificacion',
               titulo_evento: eventoCompleto.titulo,
-              fecha: fechaParaNotificacion.toISOString(),
+              fecha: fechaParaNotificacion.toISOString(), // Usar la fecha nueva
               organizador: editorNombre
             }
           });
-          console.log('✅ DESPUES de crear notificación SYSTEM:', systemResult);
+          
+          console.log(`✅ Notificación SYSTEM creada para usuario ${invitado.id_usuario}:`, notificationSystem);
 
-          // 2. Nueva invitación (igual que cuando se crea el evento)
-          console.log('📢 ANTES de crear notificación MEETING_INVITE');
-          console.log('📊 Parámetros para createEventInviteNotification:', {
-            id_usuario: invitado.id_usuario,
-            nombreEvento: eventoCompleto.titulo,
-            organizador: editorNombre,
+          const metaData = {
             id_evento: idEvento,
-            fechaEvento: fechaParaNotificacion.toISOString(),
-            descripcion: eventoCompleto.descripcion
+            titulo_evento: eventoCompleto.titulo,
+            fecha: fechaParaNotificacion.toISOString(), // Usar la fecha nueva, no la vieja de la DB
+            organizador: editorNombre
+          };
+
+          console.log('🔍 Debug UPDATE - enviando notificación de invitación:', {
+            id_usuario: invitado.id_usuario,
+            tipo: 'meeting_invite',
+            meta: metaData,
+            idEvento: idEvento,
+            titulo: eventoCompleto.titulo
+          });
+
+          // 2. Nueva invitación (tipo meeting_invite) - CON botones para confirmar
+          const mensajeInvitacion = `El día ${fechaFormateada} a las ${horaFormateada}` +
+                                    (eventoCompleto.descripcion ? `\n📝 ${eventoCompleto.descripcion}` : '');
+
+          const notificationInvite = await NotificationService.createNotification({
+            id_usuario: invitado.id_usuario,
+            tipo: 'meeting_invite',
+            mensaje: mensajeInvitacion,
+            meta: metaData
           });
           
-          const inviteResult = await NotificationService.createEventInviteNotification(
-            invitado.id_usuario,
-            eventoCompleto.titulo,
-            editorNombre,
-            idEvento,
-            fechaParaNotificacion.toISOString(),
-            eventoCompleto.descripcion
-          );
-          console.log('✅ DESPUES de crear notificación MEETING_INVITE:', inviteResult);
+          console.log(`✅ Notificación MEETING_INVITE creada para usuario ${invitado.id_usuario}:`, notificationInvite);
         } catch (error) {
-          console.error(`❌ ERROR COMPLETO enviando notificaciones a usuario ${invitado.id_usuario}:`, {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-            fullError: error
-          });
+          console.error(`Error enviando notificaciones a usuario ${invitado.id_usuario}:`, error);
         }
       }
       console.log('✅ Nuevas invitaciones enviadas');
