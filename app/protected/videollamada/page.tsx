@@ -1,6 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import * as SpeechSDK from 'microsoft-cognitiveservices-speech-sdk'
+// Utilidad para obtener el token de Azure Speech Translation
+async function fetchSpeechToken() {
+  const res = await fetch('http://localhost:4000/token');
+  if (!res.ok) throw new Error('No se pudo obtener el token de traducción');
+  return await res.json(); // { token, region }
+}
 import { useRouter } from 'next/navigation'
 import clsx from 'clsx'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
@@ -114,6 +121,11 @@ function pickTargets(keys: string[]) {
 
 export default function VideoCallPage() {
   const router = useRouter()
+  // Traducción de voz
+  const [translationText, setTranslationText] = useState('')
+    const recognizerRef = useRef<SpeechSDK.TranslationRecognizer | null>(null)
+    const synthesizerRef = useRef<SpeechSDK.SpeechSynthesizer | null>(null)
+    const lastTokenRef = useRef<{ token: string, region: string } | null>(null)
 
   // ---- UI base
   const [inCall, setInCall] = useState(false)
@@ -172,6 +184,140 @@ export default function VideoCallPage() {
   const [captionsOn, setCaptionsOn] = useState(false)
   const [shareOn, setShareOn] = useState(false)
   const [translateOn, setTranslateOn] = useState(false)
+
+  // === Opciones de idiomas y voces ===
+const LANGUAGE_OPTIONS = [
+  { value: 'en', label: 'Inglés', voices: [
+    { value: 'en-US-AriaNeural', label: 'Femenina (Inglés)' },
+    { value: 'en-US-GuyNeural', label: 'Masculina (Inglés)' },
+  ] },
+  { value: 'pt', label: 'Portugués', voices: [
+    { value: 'pt-BR-FranciscaNeural', label: 'Femenina (Portugués)' },
+    { value: 'pt-BR-AntonioNeural', label: 'Masculina (Portugués)' },
+  ] },
+  { value: 'fr', label: 'Francés', voices: [
+    { value: 'fr-FR-DeniseNeural', label: 'Femenina (Francés)' },
+    { value: 'fr-FR-HenriNeural', label: 'Masculina (Francés)' },
+  ] },
+  { value: 'it', label: 'Italiano', voices: [
+    { value: 'it-IT-ElsaNeural', label: 'Femenina (Italiano)' },
+    { value: 'it-IT-DiegoNeural', label: 'Masculina (Italiano)' },
+  ] },
+];
+const [targetLang, setTargetLang] = useState('en');
+const [voice, setVoice] = useState(LANGUAGE_OPTIONS[0].voices[0].value);
+
+// Actualizar voz cuando cambia idioma
+useEffect(() => {
+  const lang = LANGUAGE_OPTIONS.find(l => l.value === targetLang);
+  if (lang) setVoice(lang.voices[0].value);
+}, [targetLang]);
+
+  // Manejar encendido/apagado de traducción
+  useEffect(() => {
+    if (!translateOn) {
+      // Apagar recognizer si está encendido
+      if (recognizerRef.current) {
+        recognizerRef.current.stopContinuousRecognitionAsync(() => {
+          recognizerRef.current?.close();
+              // Apagar recognizer y synthesizer si están encendidos
+        });
+      }
+      setTranslationText('');
+      return;
+    }
+
+              if (synthesizerRef.current) {
+                synthesizerRef.current.close();
+                synthesizerRef.current = null;
+              }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { token, region } = await fetchSpeechToken();
+        const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+        const speechConfig = SpeechSDK.SpeechTranslationConfig.fromAuthorizationToken(token, region);
+        // Configura idioma de origen y destino (ajusta según tu app)
+        speechConfig.speechRecognitionLanguage = 'es-ES';
+        speechConfig.addTargetLanguage(targetLang);
+
+        const recognizer = new SpeechSDK.TranslationRecognizer(speechConfig, audioConfig);
+        recognizerRef.current = recognizer;
+
+        recognizer.recognizing = (s, e) => {
+          if (!cancelled) setTranslationText(e.result.translations.get(targetLang) || '');
+        };
+        recognizer.recognized = (s, e) => {
+          if (!cancelled && e.result.reason === SpeechSDK.ResultReason.TranslatedSpeech) {
+            setTranslationText(e.result.translations.get(targetLang) || '');
+          }
+        };
+        recognizer.canceled = (s, e) => {
+          if (!cancelled) setTranslationText('');
+        };
+        recognizer.sessionStopped = () => {
+          if (!cancelled) setTranslationText('');
+        };
+
+        recognizer.startContinuousRecognitionAsync();
+      } catch (err: any) {
+        setTranslationText('Error al iniciar traducción: ' + (err?.message || err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (recognizerRef.current) {
+        recognizerRef.current.stopContinuousRecognitionAsync(() => {
+          recognizerRef.current?.close();
+          recognizerRef.current = null;
+        });
+      }
+      setTranslationText('');
+    };
+  }, [translateOn, targetLang]);
+
+  // === TTS: hablar traducción cada vez que cambia translationText ===
+useEffect(() => {
+  if (!translateOn) return;
+  if (!translationText || translationText.startsWith('Error')) return;
+  (async () => {
+    try {
+      // Cerrar cualquier sintetizador anterior
+      if (synthesizerRef.current) {
+        synthesizerRef.current.close();
+        synthesizerRef.current = null;
+      }
+      // Obtener token y región
+      const { token, region } = await fetchSpeechToken();
+      const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(token, region);
+      // Usar una voz muy común para pruebas
+      speechConfig.speechSynthesisVoiceName = voice;
+      const audioConfig = SpeechSDK.AudioConfig.fromDefaultSpeakerOutput();
+      const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig, audioConfig);
+      synthesizerRef.current = synthesizer;
+      synthesizer.speakTextAsync(
+        translationText,
+        (result: SpeechSDK.SpeechSynthesisResult) => {
+          if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+        console.log('TTS succeeded');
+          } else {
+        console.error('TTS failed:', result.errorDetails);
+          }
+          synthesizer.close();
+          synthesizerRef.current = null;
+        },
+        (error: string) => {
+          console.error('TTS error:', error);
+          synthesizer.close();
+          synthesizerRef.current = null;
+        }
+      );
+    } catch (err) {
+      console.error('TTS exception:', err);
+    }
+  })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [translationText]);
 
   const toggleCaptions = () => setCaptionsOn(v => !v)
   const toggleShare = () => { setShareOn(v => !v) }
@@ -961,6 +1107,38 @@ export default function VideoCallPage() {
 
       {/* Main */}
       <main className="relative flex-1 overflow-visible">
+        {/* Traducción en tiempo real */}
+        {translateOn && (
+          <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 dark:bg-black/80 px-6 py-3 shadow-lg border border-orange-400/40 text-lg font-semibold text-orange-700 dark:text-orange-200 max-w-xl w-full text-center flex flex-col items-center gap-2">
+            <div>{translationText || 'Escuchando…'}</div>
+            <div className="flex flex-wrap gap-2 items-center justify-center text-base font-normal mt-1">
+              <label>
+                Idioma:
+                <select
+                  className="ml-1 px-2 py-1 rounded border"
+                  value={targetLang}
+                  onChange={e => setTargetLang(e.target.value)}
+                >
+                  {LANGUAGE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Voz:
+                <select
+                  className="ml-1 px-2 py-1 rounded border"
+                  value={voice}
+                  onChange={e => setVoice(e.target.value)}
+                >
+                  {(LANGUAGE_OPTIONS.find(l => l.value === targetLang)?.voices || []).map(v => (
+                    <option key={v.value} value={v.value}>{v.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+        )}
         <div className={clsx('grid h-full w-full', panel === 'none' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-[1fr_360px] lg:grid-cols-[1fr_420px]')}>
           <section className="p-4 sm:p-6 lg:p-8">
             <div className="grid gap-4 sm:gap-6 justify-center md:grid-cols-2">
@@ -1096,7 +1274,7 @@ function VideoTile({
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M12 1v11a4 4 0 004-4V5a4 4 0 00-8 0v3a4 4 0 004 4" stroke="currentColor" strokeWidth="2"/></svg>
             </span>
             <span className="rounded-md bg-white/20 p-1" title={camOn ? 'Cámara encendida' : 'Cámara apagada'}>
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M23 7l-7 5 7 5V7zM1 5h14a2 2 0 012 2v10a2 2 0 01-2 2H1z" stroke="currentColor" strokeWidth="2"/></svg>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M23 7l-7 5 7 5V7zM1 5h14a2 2 0 012 2v10a2 2 0 01-2 2H1a1 1 0 01-1-1V6a1 1 0 011-1z" stroke="currentColor" strokeWidth="2"/></svg>
             </span>
           </div>
         </div>
