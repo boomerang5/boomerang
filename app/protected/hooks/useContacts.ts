@@ -1,4 +1,4 @@
-// app/protected/hooks/useContacts.ts
+
 import { useEffect, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
