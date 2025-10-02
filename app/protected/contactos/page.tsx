@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { Search, Phone, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useNotifications } from '../hooks/useNotifications';
+
 
 // Hook centralizado para agenda confirmada
 import { useContacts } from '../hooks/useContacts';
@@ -91,6 +93,34 @@ export default function ContactosPage() {
   const supabase = useSupabaseClient<any>();
   const router = useRouter();
 
+  type UsuarioMin = { id: number; nombre?: string | null; apellido?: string | null; apodo?: string | null };
+
+  const userCacheRef = useRef<Map<number, UsuarioMin>>(new Map());
+
+  const getUserMin = useCallback(
+    async (id: number): Promise<UsuarioMin | null> => {
+      if (!Number.isFinite(id)) return null;
+      const cached = userCacheRef.current.get(id);
+      if (cached) return cached;
+
+      const { data, error } = await supabase
+        .from('Usuario')
+        .select('id,nombre,apellido,apodo')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error) return null;
+      if (data) {
+        const u: UsuarioMin = { id: Number(data.id), nombre: data.nombre ?? null, apellido: data.apellido ?? null, apodo: data.apodo ?? null };
+        userCacheRef.current.set(u.id, u);
+        return u;
+      }
+      return null;
+    },
+    [supabase]
+  );
+
+
   /* ====== idUsuario interno (tabla Usuario) ====== */
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
   useEffect(() => {
@@ -106,6 +136,13 @@ export default function ContactosPage() {
       }
     })();
   }, [supabase]);
+
+  const { notifications } = useNotifications(supabase, idUsuario);
+  const pendingFriendRequests = useMemo(
+    () => notifications.filter(n => n.type === 'friend_request' && !n.leida).length,
+    [notifications]
+  );
+
 
   /* ====== Hook de agenda confirmada ====== */
   const {
@@ -338,6 +375,20 @@ export default function ContactosPage() {
           ];
         });
 
+        const pendingKey = Number(idUsuarioContacto);
+
+        // 🔹 Enriquecer apenas podamos (cache-friendly):
+        const u = await getUserMin(pendingKey);
+        if (u) {
+          setOutsList(prev =>
+            prev.map(c =>
+              Number(c.id_usuario_contacto ?? c.id) === pendingKey
+                ? { ...c, nombre: u.nombre ?? '', apellido: u.apellido ?? '', apodo: u.apodo ?? null }
+                : c
+            )
+          );
+        }
+
         toast.success('Solicitud enviada ✅');
         if (isModalOpen) handleCloseModal();
       } catch (e: any) {
@@ -345,12 +396,12 @@ export default function ContactosPage() {
         toast.error(e?.message || 'No se pudo enviar la solicitud.');
       }
     },
-    [idUsuario, supabase, isModalOpen, agendaIds]
+    [idUsuario, supabase, isModalOpen, agendaIds, getUserMin]
   );
 
   async function acceptFromContacts(c: ContactoAgenda) {
   if (!c.id_solicitante || !c.id_receptor) return;
-  const { error } = await supabase.rpc('accept_contact_request_v2', {
+  const { error } = await supabase.rpc('accept_contact_request', {
     p_id_solicitante: Number(c.id_solicitante),
     p_id_receptor: Number(c.id_receptor),
   });
@@ -367,7 +418,7 @@ export default function ContactosPage() {
 
   async function rejectFromContacts(c: ContactoAgenda) {
     if (!c.id_solicitante || !c.id_receptor) return;
-    const { error } = await supabase.rpc('reject_contact_request_v2', {
+    const { error } = await supabase.rpc('reject_contact_request', {
       p_id_solicitante: Number(c.id_solicitante),
       p_id_receptor: Number(c.id_receptor),
     });
@@ -479,22 +530,16 @@ export default function ContactosPage() {
           });
 
           // outsList enriquecida (solo mientras esté pendiente)
-          if (payload.eventType === 'INSERT' && row.estado === 'pendiente') {
-            const { data: u } = await supabase
-              .from('Usuario')
-              .select('id,nombre,apellido,apodo')
-              .eq('id', receptor)
-              .maybeSingle();
-
-            setOutsList(prev => {
-              const key = String(receptor);
-              const exists = prev.some(c => String(c.id_usuario_contacto ?? c.id) === key);
-              if (exists || agendaIds.has(receptor)) return prev;
-              return [
-                ...prev,
+         if (payload.eventType === 'INSERT' && row.estado === 'pendiente') {
+          const u = await getUserMin(Number(row.id_receptor));
+          setOutsList(prev => {
+            const exists = prev.some(c => Number(c.id_usuario_contacto) === Number(row.id_receptor));
+            if (exists || agendaIds.has(Number(row.id_receptor))) return prev;
+            return [
+              ...prev,
                 {
                   id: `pending-${row.id}`,
-                  id_usuario_contacto: receptor,
+                  id_usuario_contacto: row.id_receptor,
                   nombre: u?.nombre ?? '',
                   apellido: u?.apellido ?? '',
                   apodo: u?.apodo ?? null,
@@ -535,13 +580,8 @@ export default function ContactosPage() {
           if (!row) return;
 
           if (payload.eventType === 'INSERT' && row.estado === 'pendiente') {
-            // Enriquecer con nombre del solicitante
-            const { data: u } = await supabase
-              .from('Usuario')
-              .select('id,nombre,apellido,apodo')
-              .eq('id', row.id_solicitante)
-              .maybeSingle();
-
+            // 🔹 Enriquecer con cache (getUserMin) apenas llega
+            const u = await getUserMin(Number(row.id_solicitante));
             setInList(prev => ([
               {
                 id: `in-${row.id}`,
@@ -558,12 +598,14 @@ export default function ContactosPage() {
               },
               ...prev.filter(x => x.id !== `in-${row.id}`),
             ]));
+            return;
           }
 
           if (payload.eventType === 'UPDATE' && row.estado !== 'pendiente') {
-            // aceptada o rechazada -> quitar de la lista
+            // aceptada/rechazada => quitar de lista y, si es aceptada, refrescar agenda
             setInList(prev => prev.filter(x => x.id !== `in-${row.id}`));
             if (row.estado === 'aceptada') { await refreshAgenda(); }
+            return;
           }
         }
       )
@@ -584,7 +626,16 @@ const combinedAgenda = useMemo(
     <main className="flex-1 px-6 py-8 flex flex-col gap-8">
       {/* Header + botón + buscador */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-foreground">Contactos</h1>
+
+        <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+        Contactos
+        {pendingFriendRequests > 0 && (
+          <span className="inline-flex items-center justify-center text-xs font-semibold
+                            rounded-full px-2 py-0.5 bg-orange-100 text-orange-700">
+            {pendingFriendRequests}
+          </span>
+        )}
+      </h1>
 
         <div className="flex w-full md:max-w-xl items-center gap-3">
           <button
