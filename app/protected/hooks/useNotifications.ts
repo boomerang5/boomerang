@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type NotifType = 'friend_request' | 'meeting_invite' | 'reinvite' | 'system';
+/* ================== Tipos ================== */
+export type NotifType =
+  | 'friend_request'
+  | 'friend_request_accepted'
+  | 'friend_request_rejected'
+  | 'meeting_invite'
+  | 'system';
 
 export type NotificationItem = {
   id: number;
@@ -13,32 +19,58 @@ export type NotificationItem = {
   meta?: any;
 };
 
-function titleFor(type: NotifType, mensaje?: string, meta?: any) {
+/* =============== Helpers de título =============== */
+function titleFor(type: NotifType, mensaje?: string | null, meta?: any): string {
   switch (type) {
-    case 'friend_request':   
+    case 'friend_request':
       return 'Solicitud de amistad';
-    case 'meeting_invite':   
-      // Para invitaciones de evento, SIEMPRE usar el formato "Te invitaron al evento [Nombre]"
-      if (meta && meta.titulo_evento) {
-        return `Te invitaron al evento "${meta.titulo_evento}"`;
-      }
-      // Si no hay meta.titulo_evento, generar título genérico
-      console.warn('Notificación meeting_invite sin meta.titulo_evento:', { meta, mensaje });
-      return 'Te invitaron a una reunión';
-    case 'reinvite':
-      // Para re-invitaciones (eventos actualizados)
-      if (meta && meta.titulo_evento) {
-        return `Nueva invitación: "${meta.titulo_evento}"`;
-      }
-      return 'Nueva invitación a evento';
-    default:                 
+    case 'friend_request_accepted':
+      return 'Solicitud aceptada';
+    case 'friend_request_rejected':
+      return 'Solicitud rechazada';
+    case 'meeting_invite':
+      // Si hay nombre de evento, mostralo
+      if (meta?.titulo_evento) return `Invitación a "${meta.titulo_evento}"`;
+      return 'Invitación a reunión';
+    default:
       return 'Notificación';
   }
 }
 
+/* Mapear fila cruda -> NotificationItem unificado (tolerante a columnas) */
+function mapRow(n: any): NotificationItem {
+  const t = (n.tipo as NotifType) ?? (n.type as NotifType) ?? 'system';
+
+  const nombre =
+    n.meta?.receptor_name ??
+    n.meta?.emisor_name ??
+    n.meta?.from_name ??
+    'Alguien';
+
+  let msg: string | null = n.mensaje ?? n.message ?? null;
+  if (!msg) {
+    if (t === 'friend_request_accepted') msg = `${nombre} aceptó tu solicitud de amistad.`;
+    else if (t === 'friend_request_rejected') msg = `${nombre} rechazó tu solicitud de amistad.`;
+    else if (t === 'friend_request') msg = `${nombre} quiere agregarte.`;
+    else if (t === 'meeting_invite') msg = 'Invitación a reunión';
+  }
+
+  const meta = n.meta ?? null;
+
+  return {
+    id: Number(n.id),                 // id numérico consistente
+    type: t,
+    title: titleFor(t, msg, meta),
+    message: msg,
+    when: n.fecha_envio ?? n.when ?? n.created_at ?? null,
+    leida: !!(n.leida ?? n.read ?? n.is_read),
+    meta,
+  };
+}
+
 /**
  * Hook único para leer y escuchar la tabla `Notificacion`.
- * - Carga inicial + Realtime (INSERT/UPDATE)
+ * - Carga inicial + Realtime (INSERT/UPDATE/DELETE)
  * - Acciones: markAsRead, markAllAsRead, refresh
  */
 export function useNotifications(
@@ -47,7 +79,7 @@ export function useNotifications(
 ) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // ---- Carga inicial
   const refresh = async () => {
@@ -55,79 +87,66 @@ export function useNotifications(
     setLoading(true);
     setError(null);
     try {
-      // Con RLS igual sólo vuelven las del usuario autenticado,
-      // pero filtramos por las dudas para mejorar el plan de consulta.
       const { data, error } = await supabase
         .from('Notificacion')
-        .select('id, id_usuario, tipo, mensaje, meta, leida, fecha_envio')
+        .select('id,id_usuario,tipo,mensaje,meta,leida,fecha_envio,created_at')
         .eq('id_usuario', idUsuario)
         .order('fecha_envio', { ascending: false });
 
       if (error) throw error;
 
-      const mapped: NotificationItem[] = (data ?? []).map((n: any) => ({
-        id: Number(n.id),
-        type: (n.tipo as NotifType) ?? 'system',
-        title: titleFor(n.tipo as NotifType, n.mensaje, n.meta),
-        message: n.mensaje ?? null,
-        when: n.fecha_envio ?? null,
-        leida: !!n.leida,
-        meta: n.meta ?? null,
-      }));
-
+      const mapped: NotificationItem[] = (data ?? []).map(mapRow);
       setNotifications(mapped);
     } catch (e) {
+      console.error(e);
       setError('Error al cargar notificaciones.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [idUsuario]);
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idUsuario]);
 
-  // ---- Realtime (INSERT/UPDATE)
+  // ---- Realtime (INSERT/UPDATE/DELETE)
   useEffect(() => {
     if (!idUsuario) return;
+
     const ch = supabase
       .channel(`notifs:${idUsuario}`)
       .on(
         'postgres_changes',
         { schema: 'public', table: 'Notificacion', event: 'INSERT', filter: `id_usuario=eq.${idUsuario}` },
-        payload => {
-          const n: any = payload.new;
-          const item: NotificationItem = {
-            id: Number(n.id),
-            type: (n.tipo as NotifType) ?? 'system',
-            title: titleFor(n.tipo as NotifType, n.mensaje, n.meta),
-            message: n.mensaje ?? null,
-            when: n.fecha_envio ?? null,
-            leida: !!n.leida,
-            meta: n.meta ?? null,
-          };
-          // Evitar duplicado si ya está
+        (payload) => {
+          const item = mapRow(payload.new);
+          // Si llega friend_request ya leída, limpiamos (caso edge)
+          if (item.type === 'friend_request' && item.leida) {
+            setNotifications(prev => prev.filter(x => x.id !== item.id));
+            return;
+          }
+          // De-dupe + prepend
           setNotifications(prev =>
-            prev.some(p => Number(p.id) === item.id) ? prev : [item, ...prev]
+            prev.some(x => x.id === item.id) ? prev : [item, ...prev]
           );
         }
       )
       .on(
         'postgres_changes',
         { schema: 'public', table: 'Notificacion', event: 'UPDATE', filter: `id_usuario=eq.${idUsuario}` },
-        payload => {
-          const n: any = payload.new;
-          setNotifications(prev =>
-            prev.map(x =>
-              Number(x.id) === Number(n.id)
-                ? {
-                    ...x,
-                    message: n.mensaje ?? x.message,
-                    when: n.fecha_envio ?? x.when,
-                    leida: !!n.leida,
-                    meta: n.meta ?? x.meta,
-                  }
-                : x
-            )
-          );
+        (payload) => {
+          const item = mapRow(payload.new);
+          setNotifications(prev => prev.map(x => (x.id === item.id ? item : x)));
+        }
+      )
+      .on(
+        'postgres_changes',
+        { schema: 'public', table: 'Notificacion', event: 'DELETE', filter: `id_usuario=eq.${idUsuario}` },
+        (payload) => {
+          const idDel = Number(payload.old?.id);
+          if (!idDel) return;
+          setNotifications(prev => prev.filter(x => x.id !== idDel));
         }
       )
       .subscribe();
@@ -141,18 +160,23 @@ export function useNotifications(
       await supabase.from('Notificacion').update({ leida: true }).eq('id', id);
       // Optimista
       setNotifications(prev => prev.map(n => (n.id === id ? { ...n, leida: true } : n)));
-    } catch {/* noop */}
+    } catch {
+      /* noop */
+    }
   }
 
   async function markAllAsRead() {
     if (!idUsuario) return;
     try {
-      await supabase.from('Notificacion')
+      await supabase
+        .from('Notificacion')
         .update({ leida: true })
         .eq('id_usuario', idUsuario)
         .eq('leida', false);
       setNotifications(prev => prev.map(n => ({ ...n, leida: true })));
-    } catch {/* noop */}
+    } catch {
+      /* noop */
+    }
   }
 
   const unreadCount = useMemo(
