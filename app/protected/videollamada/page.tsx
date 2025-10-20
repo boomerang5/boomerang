@@ -123,6 +123,8 @@ export default function VideoCallPage() {
   const router = useRouter()
   // Traducción de voz
   const [translationText, setTranslationText] = useState('')
+  const [originalText, setOriginalText] = useState('') // Texto original del peer
+  const [translationLatency, setTranslationLatency] = useState<number | null>(null)
   const recognizerRef = useRef<SpeechSDK.TranslationRecognizer | null>(null)
   const synthesizerRef = useRef<SpeechSDK.SpeechSynthesizer | null>(null)
   const lastTokenRef = useRef<{ token: string, region: string } | null>(null)
@@ -132,6 +134,10 @@ export default function VideoCallPage() {
   const ttsSenderRef = useRef<RTCRtpSender | null>(null)
   const micSenderRef = useRef<RTCRtpSender | null>(null)
   const [finalText, setFinalText] = useState('')
+  const [autoDetectLang, setAutoDetectLang] = useState(false)
+  const [sourceLang, setSourceLang] = useState('es-ES')
+  const [showOriginalText, setShowOriginalText] = useState(true)
+  const [translationError, setTranslationError] = useState<string | null>(null)
 
   // === DEBUG helpers (exposed to window) ===
   function startSenderDebug(sender: RTCRtpSender, tag = 'TTS') {
@@ -245,7 +251,17 @@ export default function VideoCallPage() {
   const [translateOn, setTranslateOn] = useState(false)
 
   // === Opciones de idiomas y voces ===
-const LANGUAGE_OPTIONS = [
+const SOURCE_LANGUAGE_OPTIONS = [
+  { value: 'es-ES', label: 'Español' },
+  { value: 'en-US', label: 'Inglés' },
+  { value: 'pt-BR', label: 'Portugués' },
+  { value: 'fr-FR', label: 'Francés' },
+  { value: 'it-IT', label: 'Italiano' },
+  { value: 'de-DE', label: 'Alemán' },
+  { value: 'auto', label: 'Detección automática' },
+];
+
+const TARGET_LANGUAGE_OPTIONS = [
   { value: 'en', label: 'Inglés', voices: [
     { value: 'en-US-AriaNeural', label: 'Femenina (Inglés)' },
     { value: 'en-US-GuyNeural', label: 'Masculina (Inglés)' },
@@ -262,13 +278,17 @@ const LANGUAGE_OPTIONS = [
     { value: 'it-IT-ElsaNeural', label: 'Femenina (Italiano)' },
     { value: 'it-IT-DiegoNeural', label: 'Masculina (Italiano)' },
   ] },
+  { value: 'es', label: 'Español', voices: [
+    { value: 'es-ES-ElviraNeural', label: 'Femenina (Español)' },
+    { value: 'es-ES-AlvaroNeural', label: 'Masculina (Español)' },
+  ] },
 ];
 const [targetLang, setTargetLang] = useState('en');
-const [voice, setVoice] = useState(LANGUAGE_OPTIONS[0].voices[0].value);
+const [voice, setVoice] = useState(TARGET_LANGUAGE_OPTIONS[0].voices[0].value);
 
 // Actualizar voz cuando cambia idioma
 useEffect(() => {
-  const lang = LANGUAGE_OPTIONS.find(l => l.value === targetLang);
+  const lang = TARGET_LANGUAGE_OPTIONS.find(l => l.value === targetLang);
   if (lang) setVoice(lang.voices[0].value);
 }, [targetLang]);
 
@@ -279,130 +299,188 @@ useEffect(() => {
       if (recognizerRef.current) {
         recognizerRef.current.stopContinuousRecognitionAsync(() => {
           recognizerRef.current?.close();
-              // Apagar recognizer y synthesizer si están encendidos
         });
       }
+      if (synthesizerRef.current) {
+        synthesizerRef.current.close();
+        synthesizerRef.current = null;
+      }
       setTranslationText('');
+      setOriginalText('');
+      setTranslationLatency(null);
+      setTranslationError(null);
       return;
     }
 
-              if (synthesizerRef.current) {
-                synthesizerRef.current.close();
-                synthesizerRef.current = null;
-              }
     let cancelled = false;
+    let remoteAudioContext: AudioContext | null = null;
+    let remoteAudioSource: MediaStreamAudioSourceNode | null = null;
+    let remoteAudioDestination: MediaStreamAudioDestinationNode | null = null;
+
     (async () => {
       try {
+        setTranslationError(null);
         const { token, region } = await fetchSpeechToken();
+        lastTokenRef.current = { token, region };
 
-        // 1) Pedir el mic con mejoras (DSP del browser)
-        let micStream: MediaStream | null = null
-        try {
-          micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              noiseSuppression: true,
-              echoCancellation: true,
-              autoGainControl: true,
-              channelCount: 1,
-              sampleRate: 48000
-            }
-          })
-        } catch (e) {
-          console.warn('No se pudo obtener micStream mejorado, fallback al default:', e)
+        // 1) Capturar audio del peer (remoteVideoRef) en lugar del micrófono local
+        const remoteVideo = remoteVideoRef.current;
+        if (!remoteVideo || !remoteVideo.srcObject) {
+          setTranslationError('No hay audio del peer disponible. Asegúrate de estar en una llamada.');
+          console.warn('No remote video/audio available');
+          return;
         }
 
-        // 2) Crear audioConfig para el recognizer. Intentamos fromStreamInput si está disponible,
-        //    si no, caemos a fromDefaultMicrophoneInput().
-        let audioConfig: any
-        try {
-          if (micStream && (SpeechSDK as any).AudioConfig && (SpeechSDK as any).AudioConfig.fromStreamInput) {
-            audioConfig = SpeechSDK.AudioConfig.fromStreamInput(micStream)
-          } else {
-            audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput()
+        const remoteStream = remoteVideo.srcObject as MediaStream;
+        const remoteAudioTrack = remoteStream.getAudioTracks()[0];
+        
+        if (!remoteAudioTrack) {
+          setTranslationError('El peer no está enviando audio.');
+          console.warn('No remote audio track');
+          return;
+        }
+
+        // 2) Crear AudioContext para capturar el audio del peer
+        remoteAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        remoteAudioSource = remoteAudioContext.createMediaStreamSource(remoteStream);
+        remoteAudioDestination = remoteAudioContext.createMediaStreamDestination();
+
+        // Conectar el audio del peer al destino
+        remoteAudioSource.connect(remoteAudioDestination);
+
+        // 3) Crear audioConfig usando el audio del peer
+        const audioConfig = SpeechSDK.AudioConfig.fromStreamInput(remoteAudioDestination.stream);
+
+        // 4) Configurar SpeechTranslationConfig
+        const stConfig = SpeechSDK.SpeechTranslationConfig.fromAuthorizationToken(token, region);
+        
+        // Detección automática o idioma específico
+        if (sourceLang === 'auto') {
+          try {
+            stConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguages, JSON.stringify({
+              mode: 'Single'
+            }));
+            stConfig.addTargetLanguage(targetLang);
+          } catch (e) {
+            console.warn('Auto-detect not supported, falling back to es-ES');
+            stConfig.speechRecognitionLanguage = 'es-ES';
+            stConfig.addTargetLanguage(targetLang);
           }
-        } catch (e) {
-          console.warn('Error creando audioConfig con stream, fallback a default:', e)
-          audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput()
+        } else {
+          stConfig.speechRecognitionLanguage = sourceLang;
+          stConfig.addTargetLanguage(targetLang);
         }
 
-        // 3) Opcional: usar otro stream para WebRTC (si no existe ya)
-        try {
-          if (!localStreamRef.current) {
-            localStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-          }
-        } catch (e) {
-          // no fatal
-          console.warn('No se pudo obtener localStreamRef (video/audio) opcional:', e)
-        }
-
-        // 4) Configurar SpeechTranslationConfig con mejoras
-        const stConfig = SpeechSDK.SpeechTranslationConfig.fromAuthorizationToken(token, region)
-        stConfig.speechRecognitionLanguage = 'es-ES'
-        stConfig.addTargetLanguage(targetLang)
-
-        // Post-processing (mayúsculas/puntuación), silenciador de segmentación y profanity
+        // Post-processing y configuraciones
         try {
           stConfig.setProperty(
             SpeechSDK.PropertyId.SpeechServiceResponse_PostProcessingOption,
             'TrueText'
-          )
+          );
         } catch (e) {}
         try {
           stConfig.setProperty(
             SpeechSDK.PropertyId.Speech_SegmentationSilenceTimeoutMs,
             String(800)
-          )
+          );
         } catch (e) {}
-        try { stConfig.setProfanity(SpeechSDK.ProfanityOption.Raw) } catch (e) {}
+        try { 
+          stConfig.setProfanity(SpeechSDK.ProfanityOption.Raw);
+        } catch (e) {}
 
-        const recognizer = new SpeechSDK.TranslationRecognizer(stConfig, audioConfig)
-        recognizerRef.current = recognizer
+        const recognizer = new SpeechSDK.TranslationRecognizer(stConfig, audioConfig);
+        recognizerRef.current = recognizer;
 
         // Phrase list para nombres/tecnicismos
         try {
-          const pl = SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer)
-          ;['Boomerang', 'Supabase', 'WebRTC', 'Azure', 'Aria', 'Vercel'].forEach(p => pl.addPhrase(p))
+          const pl = SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer);
+          ['Boomerang', 'Supabase', 'WebRTC', 'Azure', 'Aria', 'Vercel'].forEach(p => pl.addPhrase(p));
         } catch (e) {}
 
         recognizer.recognizing = (s: any, e: any) => {
-          if (!cancelled) setTranslationText(e.result.translations.get(targetLang) || '')
-        }
+          if (!cancelled) {
+            const startTime = Date.now();
+            const translated = e.result.translations.get(targetLang) || '';
+            setTranslationText(translated);
+            
+            // Calcular latencia
+            const latency = Date.now() - startTime;
+            setTranslationLatency(latency);
+          }
+        };
+
         recognizer.recognized = (s: any, e: any) => {
           if (!cancelled && e.result.reason === SpeechSDK.ResultReason.TranslatedSpeech) {
-            const txt = e.result.translations.get(targetLang) || ''
-            setTranslationText(txt)
-            setFinalText(txt) // disparar TTS solo con texto final
+            const startTime = Date.now();
+            const translated = e.result.translations.get(targetLang) || '';
+            const original = e.result.text || '';
+            
+            setTranslationText(translated);
+            setOriginalText(original);
+            setFinalText(translated); // disparar TTS solo con texto final
+            
+            // Calcular latencia total
+            const latency = Date.now() - startTime;
+            setTranslationLatency(latency);
           }
-        }
-        recognizer.canceled = (s: any, e: any) => {
-          if (!cancelled) setTranslationText('')
-        }
-        recognizer.sessionStopped = () => {
-          if (!cancelled) setTranslationText('')
-        }
+        };
 
-        recognizer.startContinuousRecognitionAsync()
+        recognizer.canceled = (s: any, e: any) => {
+          if (!cancelled) {
+            console.warn('Translation canceled:', e.errorDetails);
+            setTranslationError(e.errorDetails || 'Traducción cancelada');
+            setTranslationText('');
+            setOriginalText('');
+          }
+        };
+
+        recognizer.sessionStopped = () => {
+          if (!cancelled) {
+            setTranslationText('');
+            setOriginalText('');
+          }
+        };
+
+        await recognizer.startContinuousRecognitionAsync();
+        console.log('✓ Translation started - listening to peer audio');
       } catch (err: any) {
-        setTranslationText('Error al iniciar traducción: ' + (err?.message || err))
+        console.error('Translation error:', err);
+        setTranslationError('Error al iniciar traducción: ' + (err?.message || err));
+        setTranslationText('');
       }
-    })()
+    })();
+
     return () => {
       cancelled = true;
+      
+      // Limpiar AudioContext del peer
+      try {
+        if (remoteAudioSource) remoteAudioSource.disconnect();
+        if (remoteAudioDestination) remoteAudioDestination.stream.getTracks().forEach(t => t.stop());
+        if (remoteAudioContext) remoteAudioContext.close();
+      } catch (e) {
+        console.warn('Error cleaning up remote audio:', e);
+      }
+
       if (recognizerRef.current) {
         recognizerRef.current.stopContinuousRecognitionAsync(() => {
           recognizerRef.current?.close();
           recognizerRef.current = null;
         });
       }
+      
       setTranslationText('');
+      setOriginalText('');
+      setTranslationLatency(null);
     };
-  }, [translateOn, targetLang]);
+  }, [translateOn, targetLang, sourceLang]);
 
   // === TTS: hablar traducción cada vez que cambia translationText ===
 // ==== TTS: sintetizar SOLO texto final y enviar al peer vía MediaStreamDestination ====
 useEffect(() => {
   if (!translateOn) return;
   if (!finalText || finalText.startsWith('Error')) return;
+  if (translationError) return; // No hacer TTS si hay error
 
   (async () => {
     try {
@@ -412,23 +490,30 @@ useEffect(() => {
         synthesizerRef.current = null
       }
 
-      const { token, region } = await fetchSpeechToken();
-      const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(token, region);
+      const tokenData = lastTokenRef.current || await fetchSpeechToken();
+      const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(tokenData.token, tokenData.region);
       speechConfig.speechSynthesisVoiceName = voice;
 
       // No provemos audioConfig: evitamos reproducir localmente
       const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
       synthesizerRef.current = synthesizer;
 
+      const ttsStartTime = Date.now();
+      console.log(`🎤 TTS: Starting synthesis for "${finalText}"`);
+
       synthesizer.speakTextAsync(
         finalText,
         async (result: SpeechSDK.SpeechSynthesisResult) => {
           try {
+            const ttsLatency = Date.now() - ttsStartTime;
+            console.log(`✅ TTS: Completed in ${ttsLatency}ms`);
+            
             synthesizer.close();
             synthesizerRef.current = null;
 
             if (result.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
               console.error('TTS failed:', (result as any).errorDetails)
+              setTranslationError('Error en síntesis de voz: ' + ((result as any).errorDetails || 'Desconocido'));
               return
             }
 
@@ -498,20 +583,23 @@ useEffect(() => {
 
           } catch (err) {
             console.error('TTS speak handler error', err)
+            setTranslationError('Error procesando audio TTS: ' + (err as Error).message);
           }
         },
         (error: string) => {
           console.error('TTS error:', error)
+          setTranslationError('Error en TTS: ' + error);
           try { synthesizer.close() } catch {}
           synthesizerRef.current = null
         }
       )
     } catch (err) {
       console.error('TTS exception:', err)
+      setTranslationError('Error iniciando TTS: ' + (err as Error).message);
     }
   })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [finalText])
+}, [finalText, translateOn])
 
   const toggleCaptions = () => setCaptionsOn(v => !v)
   const toggleShare = () => { setShareOn(v => !v) }
@@ -1362,33 +1450,113 @@ useEffect(() => {
       <main className="relative flex-1 overflow-visible">
         {/* Traducción en tiempo real */}
         {translateOn && (
-          <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 dark:bg-black/80 px-6 py-3 shadow-lg border border-orange-400/40 text-lg font-semibold text-orange-700 dark:text-orange-200 max-w-xl w-full text-center flex flex-col items-center gap-2">
-            <div>{translationText || 'Escuchando…'}</div>
-            <div className="flex flex-wrap gap-2 items-center justify-center text-base font-normal mt-1">
-              <label>
-                Idioma:
-                <select
-                  className="ml-1 px-2 py-1 rounded border"
-                  value={targetLang}
-                  onChange={e => setTargetLang(e.target.value)}
-                >
-                  {LANGUAGE_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Voz:
-                <select
-                  className="ml-1 px-2 py-1 rounded border"
-                  value={voice}
-                  onChange={e => setVoice(e.target.value)}
-                >
-                  {(LANGUAGE_OPTIONS.find(l => l.value === targetLang)?.voices || []).map(v => (
-                    <option key={v.value} value={v.value}>{v.label}</option>
-                  ))}
-                </select>
-              </label>
+          <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/95 dark:bg-black/90 px-6 py-4 shadow-2xl border border-orange-400/40 max-w-3xl w-[95vw] text-center">
+            {/* Mensaje de error */}
+            {translationError && (
+              <div className="mb-3 p-2 rounded-lg bg-red-100 dark:bg-red-900/30 border border-red-400 text-red-700 dark:text-red-300 text-sm">
+                ⚠️ {translationError}
+              </div>
+            )}
+
+            {/* Indicador de estado */}
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
+              </span>
+              <span className="text-sm font-medium text-orange-600 dark:text-orange-400">
+                {translationText ? 'Traduciendo...' : 'Escuchando audio del peer...'}
+              </span>
+              {translationLatency && (
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  ({translationLatency}ms)
+                </span>
+              )}
+            </div>
+
+            {/* Texto original */}
+            {showOriginalText && originalText && (
+              <div className="mb-2 p-3 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Original:</div>
+                <div className="text-base text-gray-700 dark:text-gray-300 italic">{originalText}</div>
+              </div>
+            )}
+
+            {/* Texto traducido */}
+            <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700">
+              <div className="text-xs text-orange-600 dark:text-orange-400 mb-1">Traducción:</div>
+              <div className="text-lg font-semibold text-orange-700 dark:text-orange-200">
+                {translationText || 'Esperando...'}
+              </div>
+            </div>
+
+            {/* Controles de configuración */}
+            <div className="mt-4 pt-3 border-t border-gray-300 dark:border-gray-600">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                {/* Idioma origen */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-gray-600 dark:text-gray-400">Idioma origen:</label>
+                  <select
+                    className="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
+                    value={sourceLang}
+                    onChange={e => setSourceLang(e.target.value)}
+                  >
+                    {SOURCE_LANGUAGE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Idioma destino */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-gray-600 dark:text-gray-400">Idioma destino:</label>
+                  <select
+                    className="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
+                    value={targetLang}
+                    onChange={e => setTargetLang(e.target.value)}
+                  >
+                    {TARGET_LANGUAGE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Voz */}
+                <div className="flex flex-col gap-1 sm:col-span-2">
+                  <label className="text-xs text-gray-600 dark:text-gray-400">Voz TTS:</label>
+                  <select
+                    className="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
+                    value={voice}
+                    onChange={e => setVoice(e.target.value)}
+                  >
+                    {(TARGET_LANGUAGE_OPTIONS.find(l => l.value === targetLang)?.voices || []).map(v => (
+                      <option key={v.value} value={v.value}>{v.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Toggles adicionales */}
+              <div className="mt-3 flex items-center justify-center gap-4 text-xs">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showOriginalText}
+                    onChange={e => setShowOriginalText(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-gray-600 dark:text-gray-400">Mostrar original</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={captionsOn}
+                    onChange={toggleCaptions}
+                    className="rounded"
+                  />
+                  <span className="text-gray-600 dark:text-gray-400">Subtítulos</span>
+                </label>
+              </div>
             </div>
           </div>
         )}
@@ -1431,6 +1599,7 @@ useEffect(() => {
           captionsOn={captionsOn}
           shareOn={shareOn}
           translateOn={translateOn}
+          translationError={translationError}
           onToggleMic={toggleLocalMic}
           onToggleCam={toggleLocalCam}
           onToggleCaptions={toggleCaptions}
@@ -1451,13 +1620,6 @@ useEffect(() => {
           />
         )}
       </main>
-      {/* DEBUG: Test TTS button */}
-      <button
-        onClick={() => setFinalText('Testing one two three')}
-        className="fixed left-4 bottom-4 z-[9999] px-3 py-1.5 rounded bg-black/70 text-white text-xs"
-      >
-        Test TTS
-      </button>
     </div>
   )
 }
@@ -1547,11 +1709,11 @@ function VideoTile({
 /* =================== Barra de controles flotante =================== */
 
 function CallControls({
-  micOn, camOn, captionsOn, shareOn, translateOn,
+  micOn, camOn, captionsOn, shareOn, translateOn, translationError,
   onToggleMic, onToggleCam, onToggleCaptions, onToggleShare, onToggleTranslate,
   onOpenChat, onOpenPeople, onOpenSettings, onHangup,
 }: {
-  micOn: boolean; camOn: boolean; captionsOn: boolean; shareOn: boolean; translateOn: boolean;
+  micOn: boolean; camOn: boolean; captionsOn: boolean; shareOn: boolean; translateOn: boolean; translationError: string | null;
   onToggleMic: () => void; onToggleCam: () => void; onToggleCaptions: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
   onOpenChat: () => void; onOpenPeople: () => void; onOpenSettings: () => void; onHangup: () => void;
 }) {
@@ -1579,15 +1741,18 @@ function CallControls({
         <button
           onClick={onToggleTranslate}
           className={clsx(
-            "hidden sm:inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition",
+            "hidden sm:inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all",
             translateOn
-              ? "bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow"
-              : "bg-gradient-to-r from-orange-300 to-orange-500 text-white/95 hover:text-white"
+              ? "bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow-lg ring-2 ring-orange-300"
+              : "bg-gradient-to-r from-orange-300 to-orange-500 text-white/95 hover:text-white hover:shadow-md"
           )}
-          title="Traducción en tiempo real"
+          title={translateOn ? "Desactivar traducción en tiempo real" : "Activar traducción en tiempo real"}
         >
-          <i data-feather="globe" className="w-5 h-5" />
+          <i data-feather="globe" className={clsx("w-5 h-5", translateOn && "animate-pulse")} />
           {translateOn ? "Traducción ON" : "Traducción"}
+          {translateOn && translationError && (
+            <span className="ml-1 text-xs">⚠️</span>
+          )}
         </button>
 
         <button
