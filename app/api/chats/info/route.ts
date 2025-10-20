@@ -20,20 +20,19 @@ export async function GET(req: NextRequest) {
     }
 
     const base =
+      process.env.BACKEND_API_BASE_URL ||
+      process.env.BACKEND_URL ||
       process.env.NEXT_PUBLIC_BACKEND_URL ||
       process.env.API_BASE_URL ||
-      process.env.BACKEND_URL;
+      'http://localhost:3001';
 
-    if (!base) {
-      return NextResponse.json(
-        { message: "No está configurada la URL del backend (BACKEND_URL | API_BASE_URL | NEXT_PUBLIC_BACKEND_URL)" },
-        { status: 500 }
-      );
-    }
+    console.log('🔧 URL del backend configurada:', base);
 
     const url = `${base.replace(/\/+$/, "")}/api/chats/info?id_usuario=${encodeURIComponent(
       id_usuario
     )}&id_chat=${encodeURIComponent(id_chat)}`;
+
+    console.log('🌐 URL completa para obtener info del chat:', url);
 
     const r = await fetch(url, {
       method: "GET",

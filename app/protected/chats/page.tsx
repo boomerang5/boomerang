@@ -1,1853 +1,1741 @@
-"use client";
+'use client'
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-// @ts-ignore
-import feather from "feather-icons";
-import { useSupabaseClient } from "@supabase/auth-helpers-react";
+import React, { useState, useEffect, useRef } from 'react'
+import { ArrowLeft, Search, Plus, Send, Paperclip } from 'lucide-react'
+import { createClient } from '../../../utils/supabase/client'
 
-/* ===== Tipos ===== */
-type Msg = {
-  id?: number; // id fila de Mensaje
-  from: "me" | "them";
-  text: string;
-  time: string;
-  eliminado?: boolean | null;
-};
-type Chat = {
-  id: string;
-  name: string;
-  initials: string;
-  time: string;
-  unread?: number;
-  preview: string;
-  online?: boolean;
-  messages: Msg[];
-  isGroup?: boolean;
-  /** 1 = privado, 2 = grupal (preferido) */
-  idTipoChat?: number;
-  members?: string[];
-};
-type RawContact = Record<string, any>;
-type Contact = { id: string; name: string; initials?: string };
-type Participant = { id: string; name: string; initials?: string };
-
-// Fila cruda de DB (Mensaje)
-type DBMessage = {
-  id: number;
-  id_chat: number;
-  id_emisor: number;
-  fecha: string;
-  texto: string;
-  eliminado: boolean | null;
-  id_archivo?: number | null;
-};
-
-/* ===== Helpers ===== */
-function initialsFromName(name: string) {
-  const parts = name.trim().split(/\s+/);
-  const a = parts[0]?.[0] ?? "";
-  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : parts[0]?.[1] ?? "";
-  return (a + b).toUpperCase();
-}
-function nowHHMM(ts?: string | number | Date) {
-  try {
-    return new Date(ts ?? Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
-function toMillis(s: string | number | Date | undefined) {
-  const t = s ? new Date(s).getTime() : NaN;
-  return Number.isFinite(t) ? t : Date.now();
-}
-
-/** ====== Mapeo robusto del listado de chats (usa id_tipo_chat si viene) ====== */
-function mapRawChatToUI(r: any): Chat {
-  const id = String(r?.id_chat ?? r?.chat_id ?? r?.id ?? crypto.randomUUID());
-
-  // Normalizamos id_tipo_chat desde distintas claves
-  const idTipoChatRaw = r?.id_tipo_chat ?? r?.tipo_chat_id ?? r?.tipo_chat ?? r?.idTipoChat;
-  const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : undefined;
-
-  const isGroup =
-    (idTipoChat === 2) ||
-    Boolean(r?.is_group ?? r?.grupo ?? r?.es_grupo) ||
-    (r?.tipo && String(r.tipo).toLowerCase() === "grupo");
-
-  const fallbackName = `Chat ${id}`;
-  const name =
-    r?.nombre ??
-    r?.name ??
-    r?.titulo ??
-    r?.contacto_nombre ??
-    r?.contacto?.nombre ??
-    fallbackName;
-
-  const initials = initialsFromName(String(name));
-
-  const preview =
-    r?.ultimo_mensaje ??
-    r?.last_message?.texto ??
-    r?.lastMessage?.text ??
-    r?.preview ??
-    "";
-
-  const time =
-    r?.fecha_ultimo_mensaje ??
-    r?.ultima_hora ??
-    r?.last_message?.hora ??
-    r?.lastMessage?.time ??
-    r?.time ??
-    "Ahora";
-
-  const unread = Number(r?.no_leidos ?? r?.unread ?? 0) || 0;
-
-  const members: string[] = Array.from(
-    (r?.miembros ?? r?.members ?? r?.participantes ?? []) as any[]
-  ).map((m: any) => String(m?.id ?? m?.id_usuario ?? m));
-
-  return {
-    id,
-    name: String(name),
-    initials,
-    time: String(time),
-    unread,
-    preview: String(preview),
-    online: false,
-    messages: [],
-    isGroup,
-    idTipoChat,
-    members,
-  };
-}
-
-/* ===== Heurística para detectar/grabar "grupal" incluso en chats viejos ===== */
-function groupFlagFromInfoLike(obj: any): boolean {
-  // Si viene id_tipo_chat del /info, es la fuente de verdad
-  const idTipoChatRaw = obj?.id_tipo_chat ?? obj?.tipo_chat_id ?? obj?.tipo_chat ?? obj?.idTipoChat;
-  const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : undefined;
-
-  return Boolean(
-    (idTipoChat === 2) ||
-      obj?.is_group ||
-      obj?.grupo ||
-      obj?.es_grupo ||
-      (obj?.tipo && String(obj.tipo).toLowerCase() === "grupo") ||
-      obj?.id_grupo ||
-      obj?.group_id
-  );
-}
-function isGroupLike(c?: Chat | null): boolean {
-  if (!c) return false;
-  if (c.idTipoChat === 2) return true;           // preferimos dato oficial
-  if (c.idTipoChat === 1) return false;
-  if (c.isGroup) return true;
-  if (Array.isArray(c.members) && c.members.length >= 3) return true;
-  return false;
+// Tipos para los datos de chats
+interface ChatData {
+  id: number
+  nombre: string
+  id_tipo_chat: 1 | 2  // 1 = privado, 2 = grupal
+  ultimo_mensaje?: string
+  fecha_ultimo_mensaje?: string
+  fecha_creacion?: string
+  participantes?: any[]
 }
 
 export default function ChatsPage() {
-  useEffect(() => {
-    feather.replace();
-  }, []);
+  // Estados existentes
+  const [activeTab, setActiveTab] = useState('todos') // 'todos', 'chats', 'grupos'
+  const [selectedChat, setSelectedChat] = useState<string | null>(null)
+  
+  // Nuevos estados para funcionalidad
+  const [userChats, setUserChats] = useState<ChatData[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showNewChatMenu, setShowNewChatMenu] = useState(false)
+  const [showContactsList, setShowContactsList] = useState(false)
+  const [contacts, setContacts] = useState<any[]>([])
+  const [loadingContacts, setLoadingContacts] = useState(false)
+  const [contactsError, setContactsError] = useState<string | null>(null)
+  const [creatingChat, setCreatingChat] = useState(false)
+  
+  // Estados para crear grupo
+  const [showGroupTitleModal, setShowGroupTitleModal] = useState(false)
+  const [showGroupContactsModal, setShowGroupContactsModal] = useState(false)
+  const [groupTitle, setGroupTitle] = useState('')
+  const [selectedContacts, setSelectedContacts] = useState<any[]>([])
+  
+  // Estado para búsqueda
+  const [searchTerm, setSearchTerm] = useState('')
+  
+  // Estado para el chat seleccionado con sus detalles
+  const [selectedChatData, setSelectedChatData] = useState<ChatData | null>(null)
+  
+  // Estados para notificaciones y contadores de mensajes no leídos
+  const [unreadCounts, setUnreadCounts] = useState<{ [chatId: string]: number }>({})
+  
+  // Estados para validación de chat existente
+  const [showExistingChatModal, setShowExistingChatModal] = useState(false)
+  const [existingChatData, setExistingChatData] = useState<{chat: any, contact: any} | null>(null)
+  
+  // Estado para el modal de participantes
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false)
+  
+  const newChatMenuRef = useRef<HTMLDivElement>(null)
 
-  const supabase = useSupabaseClient();
-
-  /* ===== Estado ===== */
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("");
-
-  const [muted, setMuted] = useState<Record<string, boolean>>({});
-  const [archived, setArchived] = useState<Record<string, boolean>>({});
-  const [unreadById, setUnreadById] = useState<Record<string, number>>({});
-  const [messagesById, setMessagesById] = useState<Record<string, Msg[]>>({});
-  const [messageText, setMessageText] = useState("");
-  const [sending, setSending] = useState(false);
-
-  const [chatsLoading, setChatsLoading] = useState(false);
-  const [chatsError, setChatsError] = useState<string | null>(null);
-
-  // Para mapear me/them
-  const [myUserId, setMyUserId] = useState<number | null>(null);
-
-  // Solo mensajes no eliminados
-  const ONLY_ACTIVE = true;
-
-  // Última actividad por chat (para ordenar por "reciente primero")
-  const [lastActivityById, setLastActivityById] = useState<Record<string, number>>({});
-
-  /* ===== Refs ===== */
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const globalChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-
-  /* ===== Menús ===== */
-  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
-  const plusMenuRef = useRef<HTMLDivElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  /* ===== Modales creación ===== */
-  type PickerMode = "none" | "private" | "groupName" | "groupMembers";
-  const [pickerMode, setPickerMode] = useState<PickerMode>("none");
-  const [contactQuery, setContactQuery] = useState("");
-
-  /* ===== Grupo ===== */
-  const [groupName, setGroupName] = useState("");
-  const [groupMembers, setGroupMembers] = useState<Set<string>>(new Set());
-
-  /* ===== Popup miembros ===== */
-  const [showMembers, setShowMembers] = useState(false);
-  const groupNameBtnRef = useRef<HTMLButtonElement>(null);
-  const membersPopupRef = useRef<HTMLDivElement>(null);
-
-  // Estado de participantes (cargados desde /api/chats/info)
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [participantsLoading, setParticipantsLoading] = useState(false);
-  const [participantsError, setParticipantsError] = useState<string | null>(null);
-
-  /* ===== Contactos (backend) ===== */
-  const [remoteContacts, setRemoteContacts] = useState<Contact[] | null>(null);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactsError, setContactsError] = useState<string | null>(null);
-
-  /* ===== Derivados ===== */
-  const [search, setSearch] = useState("");
-  const [chatFilter, setChatFilter] = useState<"all" | "private" | "group">("all");
-  const selectedChat = useMemo(() => chats.find((c) => c.id === selectedId), [chats, selectedId]);
-
-  // Orden visible de chats + filtro por búsqueda
-  const visibleChats = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    let list = query
-      ? chats.filter(
-          (c) =>
-            c.name.toLowerCase().includes(query) ||
-            (c.preview || "").toLowerCase().includes(query)
-        )
-      : [...chats];
-
-    if (chatFilter !== "all") {
-      const wantGroup = chatFilter === "group";
-      list = list.filter((c) =>
-        wantGroup
-          ? (c.idTipoChat === 2 || isGroupLike(c))
-          : (c.idTipoChat === 1 || (!c.idTipoChat && !isGroupLike(c)))
-      );
-    }
-
-    list.sort((a, b) => {
-      const archCmp = Number(!!archived[a.id]) - Number(!!archived[b.id]);
-      if (archCmp !== 0) return archCmp;
-      const la = lastActivityById[a.id] ?? 0;
-      const lb = lastActivityById[b.id] ?? 0;
-      return lb - la;
-    });
-    return list;
-  }, [search, chats, archived, lastActivityById, chatFilter]);
-
-  const contactsForSearch = remoteContacts ?? [];
-  const filteredContacts = useMemo(() => {
-    const q = contactQuery.trim().toLowerCase();
-    return contactsForSearch.filter((c) => (q ? c.name.toLowerCase().includes(q) : true));
-  }, [contactsForSearch, contactQuery]);
-  const contactMap = useMemo(() => new Map(contactsForSearch.map((c) => [c.id, c] as const)), [contactsForSearch]);
-
-  /* ===== Efectos UI ===== */
-  useEffect(() => {
-    if (!selectedChat) return;
-    scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" });
-  }, [selectedChat]);
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) setPlusMenuOpen(false);
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-      if (
-        membersPopupRef.current &&
-        !membersPopupRef.current.contains(e.target as Node) &&
-        groupNameBtnRef.current &&
-        !groupNameBtnRef.current.contains(e.target as Node)
-      ) {
-        setShowMembers(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setPlusMenuOpen(false);
-        setMenuOpen(false);
-        setShowMembers(false);
-        closeAllPickers();
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, []);
-
-  /* ===== UI helpers ===== */
-  const autoResize = () => {
-    const t = textareaRef.current;
-    if (!t) return;
-    t.style.height = "auto";
-    t.style.height = Math.min(t.scrollHeight, 120) + "px";
-  };
-  const handleSelect = (id: string) => {
-    setSelectedId(id);
-    setUnreadById((p) => ({ ...p, [id]: 0 }));
-    setShowMembers(false);
-    // limpiar estado de participantes al cambiar de chat
-    setParticipants([]);
-    setParticipantsError(null);
-    setParticipantsLoading(false);
-  };
-
-  /* ===== Acciones header ===== */
-  const toggleMute = () => {
-    if (!selectedId) return;
-    setMuted((m) => ({ ...m, [selectedId]: !m[selectedId] }));
-    setMenuOpen(false);
-  };
-  const clearChat = () => {
-    if (!selectedId) return;
-    setMessagesById((prev) => ({ ...prev, [selectedId]: [] }));
-    setChats((prev) => prev.map((c) => (c.id === selectedId ? { ...c, preview: "" } : c)));
-    setMenuOpen(false);
-  };
-  const toggleArchive = () => {
-    if (!selectedId) return;
-    setArchived((a) => ({ ...a, [selectedId]: !a[selectedId] }));
-    setMenuOpen(false);
-  };
-
-  /* =========================================================
-     Resolver id_usuario y token desde Supabase
-     ========================================================= */
-  async function resolveIdUsuarioAndToken(): Promise<{ idUsuario: number; accessToken: string }> {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token ?? "";
-    if (!accessToken) throw new Error("Sin sesión de Supabase");
-
-    const { data: uuidData } = await supabase.rpc("get_usuario_uuid");
-    const uuid: string =
-      (typeof uuidData === "string" && uuidData) ||
-      (uuidData && (uuidData as any).uuid) ||
-      (uuidData && (uuidData as any).user_uuid) ||
-      sessionData?.session?.user?.id;
-
-    if (!uuid) throw new Error("No se pudo resolver el UUID del usuario");
-
-    const { data: row, error } = await supabase.from("Usuario").select("id").eq("User_id", uuid).maybeSingle();
-    if (error) throw error;
-
-    const idUsuario = Number(row?.id);
-    if (!idUsuario) throw new Error("No se encontró el id de Usuario");
-
-    return { idUsuario, accessToken };
+  // Función para obtener datos del chat seleccionado
+  const getSelectedChatData = (chatId: string): ChatData | null => {
+    return userChats.find(chat => {
+      const currentChatId = (chat as any).id || (chat as any).id_chat
+      return currentChatId?.toString() === chatId
+    }) || null
   }
 
-  /* ===== Contactos backend ===== */
-  function mapContact(c: RawContact): Contact {
-    const nombre = [c?.nombre, c?.apellido].filter(Boolean).join(" ").trim();
-    const display = nombre || c?.apodo || `Contacto ${c?.id_usuario_contacto ?? c?.id ?? ""}`;
-    const id = String(c?.id_usuario_contacto ?? c?.id ?? c?.user_id ?? crypto.randomUUID());
-    return { id, name: display, initials: initialsFromName(display) };
-  }
-  async function loadContactsFromBackend(search?: string) {
-    try {
-      setContactsLoading(true);
-      setContactsError(null);
-
-      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-
-      const params = new URLSearchParams();
-      params.set("id_usuario", String(idUsuario));
-      if (search && search.trim()) params.set("busqueda", search.trim());
-
-      const url = `/api/contacts/misContactos?${params.toString()}`;
-      const r = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      });
-
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        console.error("Error misContactos:", r.status, txt);
-        throw new Error("No se pudieron cargar los contactos.");
-      }
-
-      const json = await r.json();
-      const arr: RawContact[] = Array.isArray(json) ? json : json?.items ?? json?.data ?? [];
-      setRemoteContacts(arr.map(mapContact));
-    } catch (err: any) {
-      setRemoteContacts([]);
-      setContactsError(err?.message || "No se pudieron cargar los contactos.");
-    } finally {
-      setContactsLoading(false);
-    }
+  // Función para marcar mensajes como leídos
+  const markChatAsRead = (chatId: string) => {
+    setUnreadCounts(prev => {
+      const newCounts = { ...prev }
+      delete newCounts[chatId]
+      return newCounts
+    })
   }
 
-  /* ===== CHATS: cargar listado ===== */
-  async function loadUserChatsFromBackend() {
-    try {
-      setChatsLoading(true);
-      setChatsError(null);
-
-      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-
-      const url = `/api/chats/user?id_usuario=${encodeURIComponent(String(idUsuario))}`;
-      const r = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      });
-
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        console.error("Error /api/chats/user:", r.status, txt);
-        throw new Error("No se pudieron cargar tus chats.");
-      }
-
-      const json = await r.json();
-      const arr: any[] = Array.isArray(json) ? json : json?.items ?? json?.data ?? [];
-      const mapped = arr.map(mapRawChatToUI);
-
-      setChats(mapped);
-      setMessagesById(Object.fromEntries(mapped.map((c) => [c.id, [] as Msg[]])));
-      setUnreadById(Object.fromEntries(mapped.map((c) => [c.id, c.unread ?? 0])));
-      setSelectedId((prev) => prev || (mapped[0]?.id ?? ""));
-
-      // Inicializamos "última actividad"
-      const base = Date.now();
-      const initLA = Object.fromEntries(mapped.map((c, i) => [c.id, base - i])) as Record<string, number>;
-      setLastActivityById(initLA);
-
-      // Enriquecer nombres/miembros
-      await enrichChatsWithInfo(mapped);
-
-      // Guardar mi id_usuario
-      setMyUserId(idUsuario);
-    } catch (err: any) {
-      setChats([]);
-      setMessagesById({});
-      setUnreadById({});
-      setSelectedId("");
-      setChatsError(err?.message || "No se pudieron cargar tus chats.");
-    } finally {
-      setChatsLoading(false);
-    }
+  // Función para incrementar contador de mensajes no leídos
+  const incrementUnreadCount = (chatId: string) => {
+    setUnreadCounts(prev => ({
+      ...prev,
+      [chatId]: (prev[chatId] || 0) + 1
+    }))
   }
 
-  // ===== Enriquecer nombres/miembros con /api/chats/info (bulk) =====
-  async function enrichChatsWithInfo(list: Chat[]) {
-    if (!list.length) return;
-
-    const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-
-    const full = (o: any) => [o?.nombre, o?.apellido].filter(Boolean).join(" ").trim();
-    const firstNonMe = (arr: any[]) =>
-      arr.find((p) => String(p?.id_usuario ?? p?.id ?? p) !== String(idUsuario)) ?? arr[0];
-
-    const requests = list.map(async (c) => {
-      try {
-        const url = `/api/chats/info?id_usuario=${encodeURIComponent(
-          String(idUsuario)
-        )}&id_chat=${encodeURIComponent(String(c.id))}`;
-
-        const r = await fetch(url, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          cache: "no-store",
-        });
-
-        if (!r.ok) {
-          console.warn("[/api/chats/info]", c.id, r.status, await r.text());
-          return { id: c.id, info: null };
-        }
-        const info = await r.json();
-        return { id: c.id, info };
-      } catch (e) {
-        console.warn("[/api/chats/info] fallo", c.id, e);
-        return { id: c.id, info: null };
-      }
-    });
-
-    const results = await Promise.all(requests);
-
-    setChats((prev) => {
-      const byId = new Map(prev.map((x) => [x.id, x] as const));
-
-      const updatesLA: Record<string, number> = {};
-
-      for (const { id, info } of results) {
-        if (!info) continue;
-        const current = byId.get(id);
-        if (!current) continue;
-
-        const idTipoChatRaw = info?.id_tipo_chat ?? info?.tipo_chat_id ?? info?.tipo_chat ?? info?.idTipoChat;
-        const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : current.idTipoChat;
-
-        const isGroup =
-          (idTipoChat === 2) ||
-          Boolean(info?.is_group ?? info?.grupo ?? info?.es_grupo) ||
-          (info?.tipo && String(info.tipo).toLowerCase() === "grupo") ||
-          (Array.isArray(info?.participantes ?? info?.members) &&
-            (info?.participantes ?? info?.members).length >= 3);
-
-        const members: string[] = Array.from(
-          (info?.miembros ?? info?.members ?? info?.participantes ?? []) as any[]
-        ).map((m: any) => String(m?.id ?? m?.id_usuario ?? m));
-
-        let name = "";
-        if (isGroup) {
-          const gName =
-            info?.nombre ?? info?.titulo ?? info?.group_name ?? info?.nombre_grupo ?? "";
-          name = (gName && String(gName).trim()) || current.name;
-        } else {
-          const contacto = info?.contacto ?? info?.peer ?? info?.otro ?? null;
-          if (contacto) {
-            const firstTry = contacto?.nombre_completo ?? full(contacto);
-            name =
-              (firstTry && String(firstTry).trim()) ||
-              (contacto?.apodo && String(contacto.apodo).trim()) ||
-              (contacto?.nombre && String(contacto.nombre).trim()) ||
-              current.name;
-          } else if (Array.isArray(info?.participantes ?? info?.members)) {
-            const p = firstNonMe(info?.participantes ?? info?.members);
-            if (p) {
-              const firstTry = p?.nombre_completo ?? full(p);
-              name =
-                (firstTry && String(firstTry).trim()) ||
-                (p?.apodo && String(p.apodo).trim()) ||
-                (p?.nombre && String(p.nombre).trim()) ||
-                current.name;
-            }
-          }
-        }
-
-        const initials = initialsFromName(name || current.name);
-        const preview = (info?.ultimo_mensaje ?? info?.last_message?.texto) ?? current.preview;
-        const time = (info?.ultima_hora ?? info?.last_message?.hora) ?? current.time;
-
-        if (info?.ultima_hora || info?.last_message?.hora) {
-          updatesLA[id] = toMillis(info?.ultima_hora ?? info?.last_message?.hora);
-        }
-
-        byId.set(id, {
-          ...current,
-          name: name || current.name,
-          initials,
-          isGroup,
-          idTipoChat,
-          members: members.length ? members : current.members,
-          preview: String(preview ?? ""),
-          time: String(time ?? current.time),
-        });
-      }
-
-      if (Object.keys(updatesLA).length) {
-        setLastActivityById((prev) => ({ ...prev, ...updatesLA }));
-      }
-
-      return Array.from(byId.values());
-    });
-  }
-
-  /* ===== Nuevo: refrescar info del chat seleccionado (para grupos antiguos) ===== */
-  async function refreshSingleChatInfo(chatId: string) {
-    try {
-      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-
-      const url = `/api/chats/info?id_usuario=${encodeURIComponent(
-        String(idUsuario)
-      )}&id_chat=${encodeURIComponent(String(chatId))}`;
-
-      const r = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      });
-      if (!r.ok) {
-        return;
-      }
-      const info = await r.json();
-
-      const idTipoChatRaw = info?.id_tipo_chat ?? info?.tipo_chat_id ?? info?.tipo_chat ?? info?.idTipoChat;
-      const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : undefined;
-
-      const isGroup =
-        (idTipoChat === 2) ||
-        Boolean(info?.is_group ?? info?.grupo ?? info?.es_grupo) ||
-        (info?.tipo && String(info.tipo).toLowerCase() === "grupo") ||
-        (Array.isArray(info?.participantes ?? info?.members) &&
-          (info?.participantes ?? info?.members).length >= 3);
-
-      const members: string[] = Array.from(
-        (info?.miembros ?? info?.members ?? info?.participantes ?? []) as any[]
-      ).map((m: any) => String(m?.id ?? m?.id_usuario ?? m));
-
-      const full = (o: any) => [o?.nombre, o?.apellido].filter(Boolean).join(" ").trim();
-      let newName = "";
-      if (isGroup) {
-        newName =
-          info?.nombre ??
-          info?.titulo ??
-          info?.group_name ??
-          info?.nombre_grupo ??
-          "";
-      } else {
-        const contacto = info?.contacto ?? info?.peer ?? info?.otro ?? null;
-        if (contacto) {
-          newName =
-            contacto?.nombre_completo ??
-            full(contacto) ??
-            contacto?.apodo ??
-            contacto?.nombre ??
-            "";
-        }
-      }
-
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === chatId
-            ? {
-                ...c,
-                isGroup,
-                idTipoChat: idTipoChat ?? c.idTipoChat,
-                members: members.length ? members : c.members,
-                name: newName ? String(newName).trim() : c.name,
-                initials: initialsFromName(newName ? String(newName).trim() : c.name),
-              }
-            : c
-        )
-      );
-    } catch {
-      // Silencioso
-    }
-  }
-
-  /* ====== Carga de participantes para el pop-up ====== */
-  async function loadParticipants(chatId: string) {
-    try {
-      setParticipantsLoading(true);
-      setParticipantsError(null);
-
-      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-      const url = `/api/chats/info?id_usuario=${encodeURIComponent(
-        String(idUsuario)
-      )}&id_chat=${encodeURIComponent(String(chatId))}`;
-
-      const r = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      });
-
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        console.warn("Error /api/chats/info:", r.status, txt);
-        throw new Error("No se pudieron cargar los participantes.");
-      }
-
-      const info = await r.json();
-      const arr: any[] = Array.isArray(info?.miembros ?? info?.members ?? info?.participantes)
-        ? (info?.miembros ?? info?.members ?? info?.participantes)
-        : [];
-
-      const list: Participant[] = arr.map((m: any) => {
-        const id = String(m?.id_usuario ?? m?.id ?? m?.user_id ?? m);
-        const nameCandidate =
-          m?.nombre_completo ||
-          [m?.nombre, m?.apellido].filter(Boolean).join(" ").trim() ||
-          m?.apodo ||
-          m?.nombre ||
-          `Usuario ${id}`;
-        return { id, name: String(nameCandidate), initials: initialsFromName(String(nameCandidate)) };
-      });
-
-      setParticipants(list);
-    } catch (e: any) {
-      setParticipants([]);
-      setParticipantsError(e?.message || "No se pudieron cargar los participantes.");
-    } finally {
-      setParticipantsLoading(false);
-    }
-  }
-
-  /* ===== cargar al entrar ===== */
-  useEffect(() => {
-    loadUserChatsFromBackend();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /* ===== Suscripción Realtime por chat seleccionado ===== */
-  useEffect(() => {
-    // Heurística + fetch perezoso: si no detectamos grupo, tratamos de completarlo.
-    // Si ya viene idTipoChat, lo respetamos.
-    if (selectedId) {
-      const sc = chats.find((c) => c.id === selectedId);
-      if (sc) {
-        if (sc.idTipoChat === 2 && !sc.isGroup) {
-          // Marcar como grupo en base al dato oficial
-          setChats((prev) => prev.map((c) => (c.id === sc.id ? { ...c, isGroup: true } : c)));
-        } else if (sc.idTipoChat !== 1 && !isGroupLike(sc)) {
-          (async () => {
-            try {
-              const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-              const url = `/api/chats/info?id_usuario=${encodeURIComponent(
-                String(idUsuario)
-              )}&id_chat=${encodeURIComponent(String(sc.id))}`;
-              const r = await fetch(url, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-                cache: "no-store",
-              });
-              if (!r.ok) return;
-              const info = await r.json();
-              const members: string[] = Array.from(
-                (info?.miembros ?? info?.members ?? info?.participantes ?? []) as any[]
-              ).map((m: any) => String(m?.id ?? m?.id_usuario ?? m));
-              const idTipoChatRaw = info?.id_tipo_chat ?? info?.tipo_chat_id ?? info?.tipo_chat ?? info?.idTipoChat;
-              const idTipoChat = Number.isFinite(Number(idTipoChatRaw)) ? Number(idTipoChatRaw) : sc.idTipoChat;
-              const flag = (idTipoChat === 2) || groupFlagFromInfoLike(info) || members.length >= 3;
-
-              if (flag || members.length || idTipoChat) {
-                setChats((prev) =>
-                  prev.map((c) =>
-                    c.id === sc.id
-                      ? {
-                          ...c,
-                          idTipoChat: idTipoChat ?? c.idTipoChat,
-                          isGroup: flag || c.isGroup,
-                          members: members.length ? members : c.members,
-                        }
-                      : c
-                  )
-                );
-              }
-            } catch {}
-          })();
-        }
-      }
-    }
-
-    const unsubscribe = async () => {
-      const ch = channelRef.current;
-      if (ch) {
-        try {
-          await ch.unsubscribe();
-        } catch {}
-        channelRef.current = null;
-      }
-    };
-
-    if (!selectedId) {
-      unsubscribe();
-      return;
-    }
-
-    (async () => {
-      try {
-        const { idUsuario } = await resolveIdUsuarioAndToken();
-        setMyUserId(idUsuario);
-
-        await loadHistoryFromDB(selectedId, idUsuario);
-
-        const chatNum = Number(selectedId);
-        const ch = supabase
-          .channel(`mensaje-chat-${chatNum}`)
-          .on(
-            "postgres_changes",
-            { event: "INSERT", schema: "public", table: "Mensaje", filter: `id_chat=eq.${chatNum}` },
-            (payload) => {
-              const row = payload.new as DBMessage;
-              if (ONLY_ACTIVE && row.eliminado === true) return;
-              appendIncomingRow(row, idUsuario);
-            }
-          )
-          .on(
-            "postgres_changes",
-            { event: "UPDATE", schema: "public", table: "Mensaje", filter: `id_chat=eq.${chatNum}` },
-            (payload) => {
-              const row = payload.new as DBMessage;
-              if (ONLY_ACTIVE && row.eliminado === true) {
-                setMessagesById((prev) => ({
-                  ...prev,
-                  [selectedId]: (prev[selectedId] ?? []).filter((m) => m.id !== row.id),
-                }));
-                return;
-              }
-              setMessagesById((prev) => {
-                const list = prev[selectedId] ?? [];
-                const idx = list.findIndex((m) => m.id === row.id);
-                const msg = dbRowToMsg(row, idUsuario);
-                if (idx === -1) return { ...prev, [selectedId]: [...list, msg] };
-                const next = [...list];
-                next[idx] = msg;
-                return { ...prev, [selectedId]: next };
-              });
-              setLastActivityById((prev) => ({ ...prev, [String(row.id_chat)]: toMillis(row.fecha) }));
-            }
-          )
-          .subscribe();
-
-        channelRef.current = ch;
-      } catch (e) {
-        console.error("Realtime subscribe error:", e);
-      }
-    })();
-
-    return () => {
-      unsubscribe();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, chats]);
-
-  /* ===== Suscripción global a nuevos mensajes ===== */
-  useEffect(() => {
-    let active = true;
-
-    (async () => {
-      if (globalChannelRef.current) {
-        try {
-          await globalChannelRef.current.unsubscribe();
-        } catch {}
-        globalChannelRef.current = null;
-      }
-
-      const ch = supabase
-        .channel("mensaje-global")
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "Mensaje" },
-          (payload) => {
-            if (!active) return;
-            const row = payload.new as DBMessage;
-            if (ONLY_ACTIVE && row.eliminado === true) return;
-
-            const chatId = String(row.id_chat);
-
-            setLastActivityById((prev) => ({ ...prev, [chatId]: toMillis(row.fecha) }));
-
-            setChats((prev) => {
-              const exists = prev.some((c) => c.id === chatId);
-              if (!exists) return prev;
-              return prev.map((c) =>
-                c.id === chatId ? { ...c, preview: row.texto ?? c.preview, time: nowHHMM(row.fecha) } : c
-              );
-            });
-
-            setUnreadById((prev) => {
-              if (chatId === selectedId) return prev;
-              const nextVal = (prev[chatId] ?? 0) + 1;
-              return { ...prev, [chatId]: nextVal };
-            });
-          }
-        )
-        .subscribe();
-
-      globalChannelRef.current = ch;
-    })();
-
-    return () => {
-      active = false;
-      (async () => {
-        if (globalChannelRef.current) {
-          try {
-            await globalChannelRef.current.unsubscribe();
-          } catch {}
-          globalChannelRef.current = null;
-        }
-      })();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, selectedId, ONLY_ACTIVE]);
-
-  /* ===== Helpers de mensajes (DB <-> UI) ===== */
-  function dbRowToMsg(row: DBMessage, myId: number): Msg {
-    return {
-      id: row.id,
-      from: row.id_emisor === myId ? "me" : "them",
-      text: row.texto ?? "",
-      time: nowHHMM(row.fecha),
-      eliminado: row.eliminado,
-    };
-  }
-
-  async function loadHistoryFromDB(chatId: string, myId: number) {
-    const chatNum = Number(chatId);
-    let query = supabase
-      .from("Mensaje")
-      .select("*")
-      .eq("id_chat", chatNum)
-      .order("fecha", { ascending: true })
-      .limit(50);
-
-    if (ONLY_ACTIVE) query = query.is("eliminado", false);
-
-    const { data, error } = await query;
-    if (error) {
-      console.error("loadHistoryFromDB:", error);
-      return;
-    }
-    const mapped = (data ?? []).map((r) => dbRowToMsg(r as DBMessage, myId));
-    setMessagesById((prev) => ({ ...prev, [chatId]: mapped }));
-    const last = (data ?? [])[data!.length - 1] as DBMessage | undefined;
-    if (last) {
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === chatId
-            ? { ...c, preview: last.texto ?? "", time: nowHHMM(last.fecha) }
-            : c
-        )
-      );
-      setLastActivityById((prev) => ({ ...prev, [chatId]: toMillis(last.fecha) }));
-    }
-    setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 0);
-  }
-
-  function appendIncomingRow(row: DBMessage, myId: number) {
-    const msg = dbRowToMsg(row, myId);
-    const chatKey = String(row.id_chat);
-
-    setMessagesById((prev) => ({ ...prev, [chatKey]: [...(prev[chatKey] ?? []), msg] }));
-
-    // actualizar preview/hora
-    setChats((prev) =>
-      prev.map((c) =>
-        c.id === chatKey ? { ...c, preview: row.texto ?? "", time: nowHHMM(row.fecha) } : c
-      )
-    );
-
-    // actualizar última actividad
-    setLastActivityById((prev) => ({ ...prev, [chatKey]: toMillis(row.fecha) }));
-
-    // si no está seleccionado, sumar no leídos
-    if (chatKey !== selectedId) {
-      setUnreadById((prev) => ({ ...prev, [chatKey]: (prev[chatKey] ?? 0) + 1 }));
-    }
-
-    if (chatKey === selectedId) {
-      setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 0);
-    }
-  }
-
-  /* ===== Menú “+” ===== */
-  const startPrivateFlow = async () => {
-    setPlusMenuOpen(false);
-    setContactQuery("");
-    await loadContactsFromBackend();
-    setPickerMode("private");
-  };
-  const startGroupFlow = async () => {
-    setPlusMenuOpen(false);
-    setGroupName("");
-    setGroupMembers(new Set());
-    setContactQuery("");
-    await loadContactsFromBackend();
-    setPickerMode("groupName");
-  };
-  const closeAllPickers = () => {
-    setPickerMode("none");
-    setContactQuery("");
-    setGroupName("");
-    setGroupMembers(new Set());
-  };
-
-  /* ===== Crear chats ===== */
-  const createOrOpenPrivateChat = async (ct: Contact) => {
-    try {
-      const exists = chats.find((c) => c.id === ct.id && !isGroupLike(c));
-      if (exists) {
-        handleSelect(exists.id);
-        closeAllPickers();
-        return;
-      }
-
-      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-
-      const r = await fetch("/api/chats/create", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          id_usuario: idUsuario,
-          id_contacto: Number(ct.id),
-        }),
-      });
-
-      let newChatId = ct.id; // fallback
-      if (r.ok) {
-        const json = await r.json().catch(() => ({}));
-        if (json?.id_chat != null) newChatId = String(json.id_chat);
-      } else {
-        console.warn("[/api/chats/create] status:", r.status, await r.text());
-      }
-
-      const newChat: Chat = {
-        id: newChatId,
-        name: ct.name,
-        initials: ct.initials ?? initialsFromName(ct.name),
-        time: "Ahora",
-        preview: "",
-        online: true,
-        messages: [],
-        isGroup: false,
-        idTipoChat: 1,
-      };
-      setChats((prev) => [...prev, newChat]);
-      setMessagesById((prev) => ({ ...prev, [newChat.id]: [] }));
-      setUnreadById((prev) => ({ ...prev, [newChat.id]: 0 }));
-
-      // actividad reciente
-      setLastActivityById((prev) => ({ ...prev, [newChat.id]: Date.now() }));
-
-      handleSelect(newChat.id);
-      closeAllPickers();
-      setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 50);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const createGroupChat = async () => {
-    const name = groupName.trim();
-    if (!name || groupMembers.size === 0) return;
-
-    try {
-      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-
-      const ids = Array.from(groupMembers)
-        .map((s) => Number(s))
-        .filter((n) => !Number.isNaN(n));
-
-      // endpoint para crear grupo + chat
-      const r = await fetch("/api/chats/create-group-with-chat", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          id_usuario_creador: idUsuario,
-          nombre: name,
-          descripcion: "",
-          participantes: ids,
-        }),
-      });
-
-      let newId = `group-${Date.now()}`;
-      if (r.ok) {
-        const json = await r.json().catch(() => ({}));
-        if (json?.id_chat != null) newId = String(json.id_chat);
-      } else {
-        console.warn("[/api/chats/create-group-with-chat] status:", r.status, await r.text());
-      }
-
-      const newChat: Chat = {
-        id: newId,
-        name,
-        initials: initialsFromName(name),
-        time: "Ahora",
-        preview: "",
-        online: true,
-        messages: [],
-        isGroup: true,
-        idTipoChat: 2,
-        members: Array.from(groupMembers),
-      };
-      setChats((prev) => [...prev, newChat]);
-      setMessagesById((prev) => ({ ...prev, [newChat.id]: [] }));
-      setUnreadById((prev) => ({ ...prev, [newChat.id]: 0 }));
-
-      // actividad reciente
-      setLastActivityById((prev) => ({ ...prev, [newChat.id]: Date.now() }));
-
-      handleSelect(newChat.id);
-      closeAllPickers();
-      setTimeout(() => scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" }), 50);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  /* ===== SALIR DEL GRUPO ===== */
-  const leaveCurrentGroup = async () => {
-    try {
-      if (!selectedId) return;
-      const sc = chats.find((c) => c.id === selectedId);
-      if (!sc || !isGroupLike(sc)) return;
-
-      const ok = confirm(`¿Seguro que querés salir del grupo "${sc.name}"?`);
-      if (!ok) return;
-
-      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-
-      // Intento principal: POST con JSON
-      let r = await fetch("/api/chats/leave", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ id_emisor: idUsuario, id_chat: Number(selectedId) }),
-      });
-
-      // Fallback
-      if (!r.ok && (r.status === 405 || r.status === 404)) {
-        const qs = new URLSearchParams({
-          id_emisor: String(idUsuario),
-          id_chat: String(selectedId),
-        });
-        r = await fetch(`/api/chats/leave?${qs.toString()}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        console.error("Error /api/chats/leave:", r.status, txt);
-        alert("No se pudo salir del grupo. Revisa la consola para más detalle.");
-        return;
-      }
-
-      try {
-        await channelRef.current?.unsubscribe();
-      } catch {}
-      channelRef.current = null;
-
-      setChats((prev) => prev.filter((c) => c.id !== selectedId));
-      setMessagesById((prev) => {
-        const copy = { ...prev };
-        delete copy[selectedId];
-        return copy;
-      });
-      setUnreadById((prev) => {
-        const copy = { ...prev };
-        delete copy[selectedId];
-        return copy;
-      });
-      setMuted((prev) => {
-        const copy = { ...prev };
-        delete copy[selectedId];
-        return copy;
-      });
-      setArchived((prev) => {
-        const copy = { ...prev };
-        delete copy[selectedId];
-        return copy;
-      });
-      setLastActivityById((prev) => {
-        const copy = { ...prev };
-        delete copy[selectedId];
-        return copy;
-      });
-
-      setSelectedId("");
-      setShowMembers(false);
-    } catch (err) {
-      console.error(err);
-      alert("No se pudo salir del grupo.");
-    }
-  };
-
-  /* ===== ELIMINAR CHAT PRIVADO ===== */
-  const deleteCurrentChat = async () => {
-    try {
-      if (!selectedId) return;
-      const sc = chats.find((c) => c.id === selectedId);
-      if (!sc) return;
-
-      if (isGroupLike(sc)) {
-        alert("La eliminación es solo para chats privados. En grupos usá 'Salir'.");
-        return;
-      }
-
-      const ok = confirm(`¿Eliminar el chat con "${sc.name}"? Esta acción no se puede deshacer.`);
-      if (!ok) return;
-
-      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-
-      const body = { id_emisor: idUsuario, id_chat: Number(selectedId) };
-      let r = await fetch("/api/chats/delete", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!r.ok && (r.status === 405 || r.status === 404)) {
-        const qs = new URLSearchParams({ id_emisor: String(idUsuario), id_chat: String(selectedId) });
-        r = await fetch(`/api/chats/delete?${qs.toString()}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        console.error("Error /api/chats/delete:", r.status, txt);
-        alert("No se pudo eliminar el chat (sin respuesta OK del backend). Revisa la consola para más detalle.");
-        return;
-      }
-
-      try {
-        await channelRef.current?.unsubscribe();
-      } catch {}
-      channelRef.current = null;
-
-      setChats((prev) => prev.filter((c) => c.id !== selectedId));
-      setMessagesById((prev) => {
-        const clone = { ...prev };
-        delete clone[selectedId];
-        return clone;
-      });
-      setUnreadById((prev) => {
-        const clone = { ...prev };
-        delete clone[selectedId];
-        return clone;
-      });
-      setMuted((prev) => {
-        const clone = { ...prev };
-        delete clone[selectedId];
-        return clone;
-      });
-      setArchived((prev) => {
-        const clone = { ...prev };
-        delete clone[selectedId];
-        return clone;
-      });
-      setLastActivityById((prev) => {
-        const clone: Record<string, number> = { ...prev };
-        delete clone[selectedId];
-        return clone;
-      });
-
-      setSelectedId("");
-      setShowMembers(false);
-    } catch (err) {
-      console.error(err);
-      alert("No se pudo eliminar el chat.");
-    }
-  };
-
-  /* ===== Envío a DB (realtime lo agrega) ===== */
-  const sendMessageToDB = async () => {
-    const txt = messageText.trim();
-    if (!txt || !selectedId || sending) return;
-
-    try {
-      setSending(true);
-      const { idUsuario } = await resolveIdUsuarioAndToken();
-
-      const { error } = await supabase
-        .from("Mensaje")
-        .insert({
-          id_chat: Number(selectedId),
-          id_emisor: idUsuario,
-          texto: txt,
+  // Función para mover un chat al primer lugar cuando recibe mensaje nuevo
+  const moveToTopAndUpdateLastMessage = (chatId: string, lastMessage: string, messageDate: string) => {
+    setUserChats(prevChats => {
+      // Deduplicar primero para evitar problemas
+      const deduplicatedChats = prevChats.reduce((acc, current) => {
+        const currentId = (current as any).id || (current as any).id_chat
+        const exists = acc.some(chat => {
+          const existingId = (chat as any).id || (chat as any).id_chat
+          return existingId?.toString() === currentId?.toString()
         })
+        if (!exists) acc.push(current)
+        return acc
+      }, [] as ChatData[])
+      
+      const chatIndex = deduplicatedChats.findIndex(chat => {
+        const currentChatId = (chat as any).id || (chat as any).id_chat
+        return currentChatId?.toString() === chatId
+      })
+
+      if (chatIndex === -1) return deduplicatedChats // Chat no encontrado
+
+      const updatedChats = [...deduplicatedChats]
+      const chatToMove = { ...updatedChats[chatIndex] }
+      
+      // Actualizar último mensaje y fecha
+      chatToMove.ultimo_mensaje = lastMessage
+      chatToMove.fecha_ultimo_mensaje = messageDate
+      
+      // Remover chat de su posición actual
+      updatedChats.splice(chatIndex, 1)
+      
+      // Agregar al principio
+      updatedChats.unshift(chatToMove)
+      
+      return updatedChats
+    })
+  }
+
+  // Función para buscar si ya existe un chat privado con un contacto
+  const findExistingPrivateChat = (contactId: number) => {
+    return userChats.find(chat => {
+      // Solo buscar en chats privados (id_tipo_chat === 1)
+      if (chat.id_tipo_chat !== 1) return false
+      
+      // Buscar en participantes si coincide el id_usuario_contacto
+      if (chat.participantes && Array.isArray(chat.participantes)) {
+        return chat.participantes.some((participant: any) => 
+          participant.id_usuario_contacto === contactId
+        )
+      }
+      
+      return false
+    })
+  }
+
+  // Función para abrir el chat existente
+  const openExistingChat = () => {
+    if (existingChatData) {
+      const chatId = (existingChatData.chat as any).id || (existingChatData.chat as any).id_chat
+      console.log('📱 Abriendo chat existente:', chatId)
+      
+      // Seleccionar el chat existente
+      setSelectedChat(chatId.toString())
+      
+      // Cerrar modales
+      setShowExistingChatModal(false)
+      setShowContactsList(false)
+      setExistingChatData(null)
+    }
+  }
+
+  // Función para cerrar el modal de chat existente
+  const closeExistingChatModal = () => {
+    setShowExistingChatModal(false)
+    setExistingChatData(null)
+  }
+
+  // Efecto para actualizar datos del chat seleccionado
+  useEffect(() => {
+    if (selectedChat) {
+      const chatData = getSelectedChatData(selectedChat)
+      setSelectedChatData(chatData)
+      console.log('📱 Chat seleccionado:', chatData)
+      
+      // Marcar como leído cuando se abre el chat
+      markChatAsRead(selectedChat)
+    } else {
+      setSelectedChatData(null)
+    }
+  }, [selectedChat, userChats])
+
+  // Cerrar menú cuando se hace clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (newChatMenuRef.current && !newChatMenuRef.current.contains(event.target as Node)) {
+        setShowNewChatMenu(false)
+      }
+    }
+
+    if (showNewChatMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showNewChatMenu])
+
+  // Función para resolver ID de usuario y token
+  const resolveIdUsuarioAndToken = async () => {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) {
+      throw new Error('Usuario no autenticado')
+    }
+    
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      throw new Error('No se pudo obtener el token de acceso')
+    }
+    
+    // Paso 1: Obtener id_usuario desde UUID usando el endpoint correcto
+    console.log('🔍 Llamando a /api/users/uuid con UUID:', user.id)
+    
+    const userUuidResponse = await fetch(`/api/users/uuid/${user.id}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    console.log('📡 Respuesta del endpoint UUID:', userUuidResponse.status, userUuidResponse.statusText)
+    
+    if (!userUuidResponse.ok) {
+      const errorText = await userUuidResponse.text()
+      console.error('❌ Error en /api/users/uuid:', errorText)
+      throw new Error(`Error al obtener información del usuario: ${errorText}`)
+    }
+    
+    const responseText = await userUuidResponse.text()
+    console.log('📄 Respuesta raw del endpoint UUID:', responseText)
+    
+    let userData
+    try {
+      userData = JSON.parse(responseText)
+    } catch (parseError) {
+      console.error('❌ Error al parsear JSON del endpoint UUID:', parseError)
+      throw new Error(`Respuesta inválida del servidor: ${responseText}`)
+    }
+    
+    console.log('✅ Datos parseados del usuario:', userData)
+    console.log('🔍 Propiedades disponibles:', Object.keys(userData))
+    
+    // Buscar el id_usuario en diferentes propiedades posibles
+    const idUsuario = userData.id_usuario || userData.id || userData.userId || userData.user_id
+    
+    if (!idUsuario) {
+      console.error('❌ No se encontró id_usuario en ninguna propiedad:', userData)
+      throw new Error(`No se pudo obtener el id_usuario del backend. Datos recibidos: ${JSON.stringify(userData)}`)
+    }
+    
+    console.log('✅ ID de usuario encontrado:', idUsuario)
+    
+    return {
+      idUsuario: idUsuario,
+      accessToken: session.access_token
+    }
+  }
+
+  // Función para obtener información detallada de un chat
+  const getChatInfo = async (idUsuario: number, idChat: number, accessToken: string) => {
+    try {
+      const url = `/api/chats/info?id_usuario=${idUsuario}&id_chat=${idChat}`
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      const responseText = await response.text()
+      
+      if (!response.ok) {
+        console.error(`❌ Error ${response.status} al obtener info del chat ${idChat}:`, responseText)
+        return null
+      }
+
+      try {
+        const chatInfo = JSON.parse(responseText)
+        return chatInfo
+      } catch (parseError) {
+        console.error(`❌ Error al parsear respuesta del chat ${idChat}:`, parseError)
+        return null
+      }
+    } catch (err) {
+      console.error(`❌ Error de red/general al obtener info del chat ${idChat}:`, err)
+      return null
+    }
+  }
+
+  // Función para enriquecer chats con información detallada
+  const enrichChatsWithInfo = async (chats: ChatData[], idUsuario: number, accessToken: string) => {
+    console.log('🔄 Enriqueciendo chats con información detallada del backend...')
+    
+    // Procesar todos los chats en paralelo
+    const enrichedChats = await Promise.all(chats.map(async (chat) => {
+      const chatId = (chat as any).id || (chat as any).id_chat
+      
+      if (!chatId) {
+        console.log(`⚠️ Chat sin ID válido, usando datos básicos:`, chat)
+        return chat
+      }
+
+      try {
+        const chatInfo = await getChatInfo(idUsuario, chatId, accessToken)
+        if (chatInfo) {
+          // Combinar datos del chat con la información detallada
+          return {
+            ...chat,
+            fecha_creacion: chatInfo.fecha_creacion || chatInfo.fechaCreacion || chatInfo.created_at,
+            ...chatInfo
+          }
+        }
+      } catch (error) {
+        console.log(`❌ Error al obtener info para chat ${chatId}:`, error)
+      }
+
+      return chat // Si falla, devolver chat sin enriquecer
+    }))
+    
+    console.log('✨ Proceso de enriquecimiento completado')
+    return enrichedChats
+  }
+
+  // Función para cargar chats del usuario
+  const loadUserChats = async () => {
+    try {
+      setLoading(true)
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken()
+      
+      // 1. Obtener chats básicos con límite inicial
+      const response = await fetch(`/api/chats/user?id_usuario=${idUsuario}&limit=20`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Error al cargar chats (${response.status})`)
+      }
+
+      const data = await response.json()
+      const baseChats = Array.isArray(data) ? data : []
+      
+      if (baseChats.length === 0) {
+        setUserChats([])
+        return
+      }
+
+      // 2. Mostrar inmediatamente los chats básicos ordenados
+      const sortedBaseChats = sortChatsByDate(baseChats)
+      setUserChats(sortedBaseChats)
+      setLoading(false) // Quitar loading después de mostrar datos básicos
+      
+      // 3. Enriquecer chats en lotes para mejor rendimiento
+      const enrichChatsInBatches = async (chats: ChatData[]) => {
+        const BATCH_SIZE = 5 // Procesar 5 chats a la vez
+        const enrichedChats = [...chats]
+
+        for (let i = 0; i < chats.length; i += BATCH_SIZE) {
+          const batch = chats.slice(i, i + BATCH_SIZE)
+          const enrichedBatch = await Promise.all(
+            batch.map(async (chat) => {
+              const chatId = (chat as any).id || (chat as any).id_chat
+              if (!chatId) return chat
+
+              try {
+                const chatInfo = await getChatInfo(idUsuario, chatId, accessToken)
+                if (chatInfo) {
+                  return {
+                    ...chat,
+                    ...chatInfo,
+                    fecha_creacion: chatInfo.fecha_creacion || chatInfo.fechaCreacion || chatInfo.created_at
+                  }
+                }
+              } catch (error) {
+                console.error(`Error al obtener info para chat ${chatId}:`, error)
+              }
+              return chat
+            })
+          )
+
+          // Actualizar la lista con cada lote procesado
+          enrichedChats.splice(i, enrichedBatch.length, ...enrichedBatch)
+          const sortedEnrichedChats = sortChatsByDate(enrichedChats)
+          setUserChats(sortedEnrichedChats)
+
+          // Pequeña pausa entre lotes para no sobrecargar
+          if (i + BATCH_SIZE < chats.length) {
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+        }
+
+        return enrichedChats
+      }
+
+      // 4. Iniciar el enriquecimiento en segundo plano
+      setTimeout(() => {
+        enrichChatsInBatches(sortedBaseChats).catch(error => {
+          console.error('Error al enriquecer chats:', error)
+        })
+      }, 100)
+
+    } catch (err) {
+      console.error('Error en loadUserChats:', err)
+      setError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Función para crear un chat privado
+  const createPrivateChat = async (contact: any) => {
+    try {
+      console.log('🚀 Iniciando creación de chat privado...')
+      
+      // VALIDAR SI YA EXISTE EL CHAT
+      console.log('🔍 Verificando si ya existe chat privado con:', contact.nombre)
+      const existingChat = findExistingPrivateChat(contact.id_usuario_contacto)
+      
+      if (existingChat) {
+        console.log('⚠️ Chat privado ya existe:', existingChat)
+        // Mostrar modal de confirmación
+        setExistingChatData({ chat: existingChat, contact })
+        setShowExistingChatModal(true)
+        return // No crear chat nuevo
+      }
+      
+      console.log('✅ Chat privado no existe, procediendo a crear...')
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken()
+      
+      console.log('💬 Creando chat privado con contacto:', contact)
+      console.log('👤 ID Usuario creador:', idUsuario)
+      console.log('👤 ID Usuario contacto (id_usuario_contacto):', contact.id_usuario_contacto)
+      console.log('🔧 Access Token presente:', !!accessToken)
+      
+      const chatData = {
+        id_usuario: idUsuario, // Usuario que crea el chat
+        id_contacto: contact.id_usuario_contacto, // ID del contacto (viene de misContactos)
+        id_tipo_chat: 1 // 1 = chat privado
+      }
+      
+      console.log('📤 Datos del chat a crear:', chatData)
+      
+      const response = await fetch('/api/chats/create', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(chatData)
+      })
+      
+      console.log('📡 Respuesta crear chat:', response.status, response.statusText)
+      
+      if (response.ok) {
+        const responseText = await response.text()
+        console.log('📄 Respuesta raw crear chat:', responseText)
+        
+        let newChat
+        try {
+          newChat = JSON.parse(responseText)
+        } catch (parseError) {
+          console.error('❌ Error al parsear JSON de nuevo chat:', parseError)
+          throw new Error(`Respuesta inválida del servidor: ${responseText}`)
+        }
+        
+        console.log('✅ Chat creado exitosamente:', newChat)
+        
+        // Obtener información detallada del chat recién creado
+        const newChatId = (newChat as any).id || (newChat as any).id_chat || (newChat as any).chatId
+        let chatInfo = null
+        if (newChatId) {
+          console.log('🔍 Intentando obtener info detallada del chat recién creado:', newChatId)
+          try {
+            chatInfo = await getChatInfo(idUsuario, newChatId, accessToken)
+          } catch (error) {
+            console.log('⚠️ No se pudo obtener info del chat recién creado, usando fecha actual')
+          }
+        }
+        
+        // Crear objeto de chat con estructura completa
+        const chatToAdd: ChatData = {
+          id: newChatId || Date.now(),
+          nombre: (contact.nombre && contact.apellido) ? `${contact.nombre} ${contact.apellido}` : (contact.nombre || 'Chat privado'),
+          id_tipo_chat: 1, // Chat privado
+          ultimo_mensaje: undefined,
+          fecha_ultimo_mensaje: undefined,
+          fecha_creacion: chatInfo?.fecha_creacion || chatInfo?.fechaCreacion || chatInfo?.created_at || new Date().toISOString(),
+          participantes: [contact]
+        }
+        
+        console.log('📦 Chat a agregar con fecha de creación:', chatToAdd)
+        
+        // Agregar el nuevo chat al principio de la lista y reordenar
+        const updatedChats = sortChatsByDate([chatToAdd, ...userChats])
+        setUserChats(updatedChats)
+        console.log('📅 Lista actualizada con nuevo chat privado:', updatedChats)
+        
+        // Seleccionar el nuevo chat
+        if (newChatId) {
+          setSelectedChat(newChatId.toString())
+        }
+        
+        console.log('🎉 Chat privado creado exitosamente, cerrando modal...')
+        return newChat
+      } else {
+        const errorText = await response.text()
+        console.error('❌ Error del servidor al crear chat:', response.status, errorText)
+        throw new Error(`Error al crear chat (${response.status}): ${errorText}`)
+      }
+    } catch (err) {
+      console.error('❌ Error general en createPrivateChat:', err)
+      console.error('❌ Stack trace:', err instanceof Error ? err.stack : err)
+      throw err
+    }
+  }
+
+  // Función para crear un grupo
+  const createGroupChat = async () => {
+    try {
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken()
+      
+      console.log('👥 Creando chat grupal:', groupTitle)
+      console.log('👤 ID Usuario creador:', idUsuario)
+      console.log('👥 Contactos seleccionados:', selectedContacts)
+      
+      // Preparar datos según el swagger de create-group-with-chat
+      const participantes = selectedContacts.map(contact => contact.id_usuario_contacto).filter(id => id)
+      
+      const chatData = {
+        id_usuario_creador: idUsuario, // Usuario que crea el grupo
+        nombre: groupTitle, // Título del grupo
+        descripcion: "", // Descripción opcional (vacía por ahora)
+        participantes: participantes // Array de IDs de usuarios participantes
+      }
+      
+      console.log('📤 Datos del grupo a crear (nuevo formato):', chatData)
+      console.log('👥 IDs de participantes:', participantes)
+      
+      const response = await fetch('/api/chats/create-group-with-chat', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(chatData)
+      })
+      
+      console.log('📡 Respuesta crear grupo (create-group-with-chat):', response.status, response.statusText)
+      
+      if (response.ok) {
+        const responseText = await response.text()
+        console.log('📄 Respuesta raw crear grupo:', responseText)
+        
+        let newGroup
+        try {
+          newGroup = JSON.parse(responseText)
+        } catch (parseError) {
+          console.error('❌ Error al parsear JSON de nuevo grupo:', parseError)
+          throw new Error(`Respuesta inválida del servidor: ${responseText}`)
+        }
+        
+        console.log('✅ Grupo creado exitosamente:', newGroup)
+        
+        // Limpiar estados del modal
+        setShowGroupContactsModal(false)
+        setGroupTitle('')
+        setSelectedContacts([])
+        
+        // Obtener información detallada del grupo recién creado
+        const newGroupId = (newGroup as any).id || (newGroup as any).id_chat || (newGroup as any).chatId
+        let groupInfo = null
+        if (newGroupId) {
+          console.log('🔍 Intentando obtener info detallada del grupo recién creado:', newGroupId)
+          try {
+            groupInfo = await getChatInfo(idUsuario, newGroupId, accessToken)
+          } catch (error) {
+            console.log('⚠️ No se pudo obtener info del grupo recién creado, usando fecha actual')
+          }
+        }
+        
+        // Crear objeto de grupo con estructura completa
+        const groupToAdd: ChatData = {
+          id: newGroupId || Date.now(),
+          nombre: groupTitle,
+          id_tipo_chat: 2, // Chat grupal
+          ultimo_mensaje: undefined,
+          fecha_ultimo_mensaje: undefined,
+          fecha_creacion: groupInfo?.fecha_creacion || groupInfo?.fechaCreacion || groupInfo?.created_at || new Date().toISOString(),
+          participantes: selectedContacts
+        }
+        
+        console.log('📦 Grupo a agregar con fecha de creación:', groupToAdd)
+        
+        // Agregar el nuevo grupo al principio de la lista y reordenar
+        const updatedChats = sortChatsByDate([groupToAdd, ...userChats])
+        setUserChats(updatedChats)
+        console.log('📅 Lista actualizada con nuevo grupo:', updatedChats)
+        
+        // Seleccionar el nuevo grupo
+        if (newGroupId) {
+          setSelectedChat(newGroupId.toString())
+        }
+        
+        return newGroup
+      } else {
+        const errorText = await response.text()
+        console.error('❌ Error al crear grupo:', response.status, errorText)
+        throw new Error(`Error al crear grupo (${response.status}): ${errorText}`)
+      }
+    } catch (err) {
+      console.error('❌ Error general en createGroupChat:', err)
+      throw err
+    }
+  }
+
+  // Función para cargar contactos del usuario
+  const loadUserContacts = async () => {
+    setLoadingContacts(true)
+    setContactsError(null)
+    
+    try {
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken()
+      
+      console.log('📞 Cargando contactos para id_usuario:', idUsuario)
+      
+      const response = await fetch(`/api/contacts/misContactos?id_usuario=${idUsuario}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      console.log('📡 Respuesta del endpoint contactos:', response.status, response.statusText)
+      
+      if (response.ok) {
+        const responseText = await response.text()
+        console.log('📄 Respuesta raw de contactos:', responseText)
+        
+        let data
+        try {
+          data = JSON.parse(responseText)
+        } catch (parseError) {
+          console.error('❌ Error al parsear JSON de contactos:', parseError)
+          throw new Error(`Respuesta inválida del servidor de contactos: ${responseText}`)
+        }
+        
+        console.log('✅ Contactos obtenidos:', data)
+        setContacts(Array.isArray(data) ? data : [])
+      } else {
+        const errorText = await response.text()
+        console.error('❌ Error al cargar contactos:', response.status, errorText)
+        throw new Error(`Error al cargar contactos (${response.status}): ${errorText}`)
+      }
+    } catch (err) {
+      console.error('❌ Error general en loadUserContacts:', err)
+      setContactsError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setLoadingContacts(false)
+    }
+  }
+
+  // Función para ordenar chats por fecha (más reciente primero)
+  const sortChatsByDate = (chats: ChatData[]) => {
+    return [...chats].sort((a, b) => {
+      // Priorizar por fecha_ultimo_mensaje si está disponible (más importante para notificaciones)
+      if (a.fecha_ultimo_mensaje && b.fecha_ultimo_mensaje) {
+        return new Date(b.fecha_ultimo_mensaje).getTime() - new Date(a.fecha_ultimo_mensaje).getTime()
+      }
+      
+      // Si uno tiene último mensaje y el otro no, priorizar el que tiene
+      if (a.fecha_ultimo_mensaje && !b.fecha_ultimo_mensaje) return -1
+      if (!a.fecha_ultimo_mensaje && b.fecha_ultimo_mensaje) return 1
+      
+      // Luego por fecha_creacion si está disponible
+      if (a.fecha_creacion && b.fecha_creacion) {
+        return new Date(b.fecha_creacion).getTime() - new Date(a.fecha_creacion).getTime()
+      }
+      
+      // Dar prioridad a chats con fecha_creacion sobre los que no la tienen
+      if (a.fecha_creacion && !b.fecha_creacion) return -1
+      if (!a.fecha_creacion && b.fecha_creacion) return 1
+      
+      // Si ninguno tiene fecha, ordenar por ID (más alto = más reciente)
+      const idA = (a as any).id || (a as any).id_chat || 0
+      const idB = (b as any).id || (b as any).id_chat || 0
+      return idB - idA
+    })
+  }
+
+  // useEffect para cargar chats al montar el componente
+  useEffect(() => {
+    loadUserChats()
+  }, [])
+
+  // ------------------ Realtime messages (Supabase) ------------------
+  const supabase = createClient()
+  const [messages, setMessages] = useState<any[]>([])
+  const [messageText, setMessageText] = useState('')
+  const [onlyActive, setOnlyActive] = useState(true)
+  const channelRef = useRef<any>(null)
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null)
+  const currentEmisorRef = useRef<number | null>(null)
+  const globalChannelRef = useRef<any>(null) // Canal para escuchar todos los chats del usuario
+
+  const scrollToBottom = () => {
+    try {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+      }
+    } catch (e) {
+      console.warn('⚠️ Error al scrollear:', e)
+    }
+  }
+
+  const loadHistory = async (chatId: number) => {
+    try {
+      const query = supabase
+        .from('Mensaje')
+        .select(`
+          *,
+          emisor:id_emisor (
+            nombre,
+            apellido
+          )
+        `)
+        .eq('id_chat', chatId)
+        .order('fecha', { ascending: true })
+        .limit(200)
+
+      if (onlyActive) query.is('eliminado', false)
+
+      const { data: mensajes, error: mensajesError } = await query
+
+      if (onlyActive) (query as any).is('eliminado', false)
+
+      const { data, error } = await (query as any)
+      if (mensajesError) {
+        console.error('❌ Error cargando historial:', mensajesError)
+        return
+      }
+
+      console.log('📩 Mensajes cargados:', mensajes);
+      setMessages(mensajes || [])
+      // wait a tick then scroll
+      setTimeout(scrollToBottom, 50)
+    } catch (err) {
+      console.error('❌ loadHistory error:', err)
+    }
+  }
+
+  const unsubscribeChannel = async () => {
+    try {
+      if (channelRef.current) {
+        try {
+          await channelRef.current.unsubscribe()
+        } catch (e) {
+          // some versions use .unsubscribe() sync
+          try { channelRef.current.unsubscribe() } catch {}
+        }
+        channelRef.current = null
+      }
+    } catch (e) {
+      console.warn('⚠️ Error al unsubscribir canal:', e)
+    }
+  }
+
+  const joinChatRealtime = async (chatIdStr: string | null) => {
+    // chatIdStr may be null when closing the panel
+    if (!chatIdStr) {
+      await unsubscribeChannel()
+      setMessages([])
+      return
+    }
+
+    const chatId = Number(chatIdStr)
+    if (!Number.isFinite(chatId)) {
+      console.warn('ID de chat inválido para joinChatRealtime:', chatIdStr)
+      return
+    }
+
+    // get emisor id (usuario)
+    let idUsuario = null
+    try {
+      const resolved = await resolveIdUsuarioAndToken()
+      idUsuario = resolved.idUsuario
+      currentEmisorRef.current = idUsuario
+    } catch (err) {
+      console.error('❌ No se pudo resolver idUsuario para realtime:', err)
+      currentEmisorRef.current = null
+    }
+
+    // Unsubscribe previo
+    await unsubscribeChannel()
+
+    // Crear canal y suscribirse a INSERT / UPDATE
+    try {
+      const ch = supabase
+        .channel(`mensaje-chat-${chatId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'Mensaje', filter: `id_chat=eq.${chatId}` },
+          async (payload: any) => {
+            const row = payload.new
+            if (onlyActive && row.eliminado === true) return
+
+            // Obtener información del usuario emisor
+            const { data: userData } = await supabase
+              .from('Usuario')
+              .select('nombre, apellido')
+              .eq('id', row.id_emisor)
+              .single()
+
+            const messageWithUser = {
+              ...row,
+              Usuario: userData
+            }
+
+            setMessages(prev => {
+              // evitar duplicados
+              if (prev.some(m => m.id === row.id)) return prev
+              return [...prev, messageWithUser]
+            })
+            setTimeout(scrollToBottom, 30)
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'Mensaje', filter: `id_chat=eq.${chatId}` },
+          (payload: any) => {
+            const row = payload.new
+            if (onlyActive && row.eliminado === true) {
+              setMessages(prev => prev.filter(m => m.id !== row.id))
+              return
+            }
+            setMessages(prev => prev.map(m => (m.id === row.id ? row : m)))
+          }
+        )
+
+      ch.subscribe((status: any) => {
+        console.log('Realtime status:', status)
+      })
+
+      channelRef.current = ch
+    } catch (err) {
+      console.error('❌ Error creando canal realtime:', err)
+    }
+
+    // Cargar historial
+    await loadHistory(chatId)
+  }
+
+  const sendMessage = async () => {
+    const texto = messageText.trim()
+    if (!texto) return
+    if (!selectedChat) {
+      alert('Seleccioná un chat primero')
+      return
+    }
+
+    let idUsuario = null
+    try {
+      const resolved = await resolveIdUsuarioAndToken()
+      idUsuario = resolved.idUsuario
+    } catch (err) {
+      console.error('❌ No se pudo resolver usuario para enviar mensaje:', err)
+      alert('No estás autenticado')
+      return
+    }
+
+    const chatIdNum = Number(selectedChat)
+    try {
+      const { data, error } = await supabase
+        .from('Mensaje')
+        .insert({ id_chat: chatIdNum, id_emisor: idUsuario, texto })
         .select()
-        .single();
+        .single()
 
       if (error) {
-        console.error("insert Mensaje:", error);
-      } else {
-        setMessageText("");
-        setLastActivityById((prev) => ({ ...prev, [selectedId]: Date.now() }));
+        console.error('❌ Error al enviar mensaje:', error)
+        alert('Error al enviar: ' + (error.message || 'desconocido'))
+        return
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSending(false);
+
+      setMessageText('')
+      // El append lo hará el evento realtime, pero si hay lag podemos optimizar
+    } catch (err) {
+      console.error('❌ sendMessage error:', err)
     }
-  };
+  }
 
-  /* ===== Envío (acción de UI) ===== */
-  const handleSend = () => {
-    void sendMessageToDB();
-  };
+  // Suscribirse/desuscribirse cuando cambia selectedChat o onlyActive
+  useEffect(() => {
+    joinChatRealtime(selectedChat)
+    return () => { unsubscribeChannel() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedChat, onlyActive])
 
-  /* ===== Click en el nombre del grupo: abrir popup + cargar en bg ===== */
-  const onGroupNameClick = () => {
-    if (!selectedChat) return;
+  // ------------------ Canal global para notificaciones ------------------
+  const setupGlobalNotifications = async () => {
+    try {
+      // Obtener ID del usuario
+      const { idUsuario } = await resolveIdUsuarioAndToken()
+      currentEmisorRef.current = idUsuario
 
-    if (!showMembers) {
-      setShowMembers(true);
-
-      if (participants.length === 0) {
-        if (!remoteContacts) {
-          loadContactsFromBackend().catch(() => {});
-        }
-        loadParticipants(selectedChat.id).catch(() => {});
+      // Desuscribirse del canal previo si existe
+      if (globalChannelRef.current) {
+        try {
+          await globalChannelRef.current.unsubscribe()
+        } catch {}
+        globalChannelRef.current = null
       }
-    } else {
-      setShowMembers(false);
+
+      // Crear canal para todos los mensajes donde el usuario participa
+      const globalChannel = supabase
+        .channel(`user-notifications-${idUsuario}`)
+        .on(
+          'postgres_changes',
+          { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'Mensaje'
+          },
+          (payload: any) => {
+            const message = payload.new
+            const chatId = message.id_chat?.toString()
+            const emisorId = message.id_emisor
+            
+            console.log('🔔 Nuevo mensaje global:', message)
+            
+            // Solo procesar si el mensaje NO es del usuario actual
+            if (emisorId !== idUsuario && chatId) {
+              // Verificar si este chat está en la lista del usuario
+              const chatExists = userChats.some(chat => {
+                const currentChatId = ((chat as any).id || (chat as any).id_chat)?.toString()
+                return currentChatId === chatId
+              })
+
+              if (chatExists) {
+                // Si no es el chat actualmente abierto, incrementar contador
+                if (selectedChat !== chatId) {
+                  incrementUnreadCount(chatId)
+                }
+                
+                // Mover chat al principio y actualizar último mensaje
+                moveToTopAndUpdateLastMessage(
+                  chatId, 
+                  message.texto || 'Nuevo mensaje', 
+                  message.fecha || new Date().toISOString()
+                )
+              }
+            }
+          }
+        )
+
+      globalChannel.subscribe((status: any) => {
+        console.log('🔔 Estado canal global:', status)
+      })
+
+      globalChannelRef.current = globalChannel
+    } catch (err) {
+      console.error('❌ Error configurando notificaciones globales:', err)
     }
-  };
+  }
+
+  // Configurar notificaciones globales cuando se cargan los chats
+  useEffect(() => {
+    if (userChats.length > 0) {
+      setupGlobalNotifications()
+    }
+    return () => {
+      if (globalChannelRef.current) {
+        try {
+          globalChannelRef.current.unsubscribe()
+        } catch {}
+        globalChannelRef.current = null
+      }
+    }
+  }, [userChats.length])  // Solo cuando cambia la cantidad de chats
+
 
   return (
-    <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d]">
-      {/* ===== Sidebar ===== */}
-      <aside className="w-20 bg-white/20 dark:bg-white/10 backdrop-blur-md flex flex-col justify-between items-center py-4">
-        <div className="flex flex-col items-center gap-6 mt-4">
-          <Link href="/protected">
-            <i data-feather="home" className="text-black dark:text-white w-5 h-5" />
-          </Link>
+    <div className="flex min-h-screen bg-orange-50 dark:bg-[#0d0d0d] items-start justify-center">
+      <div className="flex gap-6 p-6">
+        {/* Panel Izquierdo - Lista de Chats */}
+        <aside className="bg-white/70 dark:bg-gray-800 p-6 flex flex-col gap-4 shadow-lg rounded-2xl h-[600px]">
+        {/* Header del Panel Izquierdo */}
+        <div className="mb-4">
+          <h1 className="text-lg font-bold text-gray-700 mb-2">Mis chats</h1>
 
-          <Link href="/protected/perfil">
-            <i data-feather="user" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          <i data-feather="video" className="text-black dark:text-white w-5 h-5" />
-
-          <Link href="/protected/contactos">
-            <i data-feather="users" className="text-black dark:text-white w-5 h-5" />
-          </Link>
-
-          {/* Chat (activo) */}
-          <Link href="/protected/chats" aria-label="Ir a chats">
-            <i data-feather="message-circle" className="text-orange-500 w-5 h-5" />
-          </Link>
-
-          <i data-feather="calendar" className="text-black dark:text-white w-5 h-5" />
-        </div>
-        <div className="flex flex-col items-center gap-5 mb-4">
-          <i data-feather="help-circle" className="text-black dark:text-white w-5 h-5" />
-          <i data-feather="settings" className="text-black dark:text-white w-5 h-5" />
-        </div>
-      </aside>
-
-      {/* ===== Main ===== */}
-      <main className="flex-1 px-4 py-6">
-        {/* AUMENTAMOS EL ANCHO DE LA COLUMNA IZQUIERDA: 360px */}
-        <div className="mx-auto grid max-w-[1260px] grid-cols-1 gap-6 md:grid-cols-[360px_1fr]">
-          {/* ===== Lista de chats ===== */}
-          <aside className="flex h-[72vh] min-h-[72vh] flex-col overflow-hidden rounded-2xl bg-white/70 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#f16f24]">Mis chats</h2>
-              <Link href="/protected" className="text-sm text-[#de4435] hover:underline">
-                Volver
-              </Link>
-            </div>
-
-            <div className="mb-4 relative" ref={plusMenuRef}>
-              <div className="flex items-center rounded-xl border border-[#f16f24]/30 bg-white px-3">
-                <svg width="18" height="18" viewBox="0 0 24 24" className="opacity-60">
-                  <path
-                    fill="currentColor"
-                    d="M15.5 14h-.79l-.28-.27a6.471 6.471 0 0 0 1.57-4.23C15.99 6.01 13.98 4 11.49 4S7 6.01 7 9s2.01 5 4.49 5c1.61 0 3.06-.66 4.1-1.73l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0c.41-.41.41-1.08 0-1.49L15.5 14Zm-4.01 0C9.01 14 7 11.99 7 9s2.01-5 4.49-5S16 6.01 16 9s-2.01 5-4.51 5Z"
-                  />
-                </svg>
-                <input
-                  id="chat-search"
-                  placeholder="Buscar contacto o chat..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-transparent px-2 py-2 text-sm outline-none placeholder:text-black/40"
-                />
+          {/* Barra de Búsqueda */}
+          <div className="mb-2 flex items-center gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <Search size={16} />
+              </span>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-12 py-2 rounded-full border border-orange-200 focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white text-sm"
+                placeholder="Buscar contacto o chat..."
+              />
+              {searchTerm && (
                 <button
-                  type="button"
-                  onClick={() => setPlusMenuOpen((v) => !v)}
-                  title="Nuevo chat"
-                  className="ml-2 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[#f16f24] text-white hover:opacity-95"
-                  aria-label="Nuevo chat"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+                  title="Limpiar búsqueda"
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2z" />
-                  </svg>
+                  ✕
                 </button>
-              </div>
-
+              )}
+            </div>
+            <div className="relative" ref={newChatMenuRef}>
+              <button
+                onClick={() => setShowNewChatMenu(!showNewChatMenu)}
+                className="bg-orange-500 hover:bg-orange-600 text-white rounded-full w-8 h-8 flex items-center justify-center shadow transition"
+                title="Nuevo chat"
+              >
+                <Plus size={16} />
+              </button>
               
-              <div className="mt-3 flex justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setChatFilter((f) => (f === "private" ? "all" : "private"))}
-                  className={[
-                    "rounded-lg border px-3 py-1.5 text-sm transition",
-                    chatFilter === "private"
-                      ? "border-[#f16f24] bg-[#f16f24] text-white"
-                      : "border-black/15 bg-white text-black/70 hover:bg-black/5"
-                  ].join(" ")}
-                  aria-pressed={chatFilter === "private"}
-                  title="Mostrar solo chats privados"
-                >
-                  Chats
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChatFilter((f) => (f === "group" ? "all" : "group"))}
-                  className={[
-                    "rounded-lg border px-3 py-1.5 text-sm transition",
-                    chatFilter === "group"
-                      ? "border-[#f16f24] bg-[#f16f24] text-white"
-                      : "border-black/15 bg-white text-black/70 hover:bg-black/5"
-                  ].join(" ")}
-                  aria-pressed={chatFilter === "group"}
-                  title="Mostrar solo chats grupales"
-                >
-                  Grupos
-                </button>
-            </div>
-
-{plusMenuOpen && (
-                <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-black/10 bg-white/95 shadow-xl backdrop-blur">
-                  <button onClick={startPrivateFlow} className="w-full px-3 py-2 text-sm text-left hover:bg-black/5">
-                    Chat privado
+              {/* Menú desplegable para nuevo chat */}
+              {showNewChatMenu && (
+                <div className="absolute top-10 right-0 bg-white border border-gray-200 rounded-lg shadow-lg py-2 w-48 z-10">
+                  <button
+                    onClick={() => {
+                      setShowNewChatMenu(false)
+                      setShowContactsList(true)
+                      loadUserContacts()
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition flex items-center gap-2"
+                  >
+                    <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
+                      <span className="text-blue-600 text-xs font-medium">👤</span>
+                    </div>
+                    Crear chat privado
                   </button>
-                  <button onClick={startGroupFlow} className="w-full px-3 py-2 text-sm text-left hover:bg-black/5">
-                    Chat grupal
+                  <button
+                    onClick={() => {
+                      setShowNewChatMenu(false)
+                      setShowGroupTitleModal(true)
+                      setGroupTitle('')
+                      setSelectedContacts([])
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition flex items-center gap-2"
+                  >
+                    <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
+                      <span className="text-green-600 text-xs font-medium">👥</span>
+                    </div>
+                    Crear chat grupal
                   </button>
                 </div>
               )}
             </div>
+          </div>
 
-            {/* scroll interno de la lista */}
-            <div className="min-h-0 flex-1 overflow-y-auto pr-2">
-              <ul className="space-y-2">
-                {chatsLoading && <li className="px-2 py-2 text-sm text-black/60">Cargando tus chats…</li>}
-                {!chatsLoading && chatsError && <li className="px-2 py-2 text-sm text-red-600">{chatsError}</li>}
+          {/* Pestañas Todos/Chats/Grupos */}
+          <div className="flex gap-1 mb-4">
+            <button
+              onClick={() => setActiveTab('todos')}
+              className={`flex-1 py-3 px-4 rounded-full text-sm font-medium transition ${
+                activeTab === 'todos'
+                  ? 'bg-orange-500 text-white shadow'
+                  : 'bg-orange-100 text-orange-600 hover:bg-orange-200'
+              }`}
+            >
+              Todos
+            </button>
+            <button
+              onClick={() => setActiveTab('chats')}
+              className={`flex-1 py-3 px-4 rounded-full text-sm font-medium transition ${
+                activeTab === 'chats'
+                  ? 'bg-orange-500 text-white shadow'
+                  : 'bg-orange-100 text-orange-600 hover:bg-orange-200'
+              }`}
+            >
+              Privados
+            </button>
+            <button
+              onClick={() => setActiveTab('grupos')}
+              className={`flex-1 py-3 px-4 rounded-full text-sm font-medium transition ${
+                activeTab === 'grupos'
+                  ? 'bg-orange-500 text-white shadow'
+                  : 'bg-orange-100 text-orange-600 hover:bg-orange-200'
+              }`}
+            >
+              Grupos
+            </button>
+          </div>
+        </div>
 
-                {visibleChats.map((c) => {
-                  const isActive = c.id === selectedId;
-                  const isMuted = !!muted[c.id];
-                  const isArchived = !!archived[c.id];
-                  const unread = unreadById[c.id] ?? 0;
-                  const badgeLabel = c.idTipoChat === 2 ? "Grupo" : (c.idTipoChat === 1 ? "Privado" : (isGroupLike(c) ? "Grupo" : ""));
-                  return (
-                    <li key={c.id}>
-                      <button
-                        onClick={() => handleSelect(c.id)}
-                        type="button"
-                        className={[
-                          "w-full rounded-xl p-3 text-left shadow-sm transition",
-                          isActive
-                            ? "border border-[#f16f24]/20 bg-gradient-to-tr from-[#fff7f1] to-white hover:shadow"
-                            : "border border-transparent bg-white hover:border-[#f16f24]/20 hover:shadow-md",
-                          isArchived ? "opacity-70" : "",
-                        ].join(" ")}
-                        aria-current={isActive ? "page" : undefined}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
-                            {c.initials}
-                          </div>
+        {/* Lista de Chats */}
+        <div className="flex-1 overflow-y-auto">
+          <h3 className="text-sm font-semibold text-gray-600 mb-2">
+            {activeTab === 'todos' ? 'Todas las conversaciones' : activeTab === 'chats' ? 'Privados' : 'Grupos'}
+          </h3>
+          <ul className="flex flex-col gap-2">
+            {loading ? (
+              <p className="text-sm text-gray-500 text-center py-4">Cargando conversaciones...</p>
+            ) : error ? (
+              <p className="text-sm text-red-500 text-center py-4">Error: {error}</p>
+            ) : (() => {
+              // Filtrar según la pestaña activa
+              let filteredChats = userChats
+              if (activeTab === 'chats') {
+                filteredChats = userChats.filter(chat => chat.id_tipo_chat === 1)
+              } else if (activeTab === 'grupos') {
+                filteredChats = userChats.filter(chat => chat.id_tipo_chat === 2)
+              }
+              // Si activeTab === 'todos', no filtramos por tipo (mostramos todos)
 
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between">
-                              <p className="truncate font-medium text-[#2b2b2b] flex items-center gap-1">
-                                {c.name}
-                                {badgeLabel && (
-                                  <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">
-                                    {badgeLabel}
-                                  </span>
-                                )}
-                                {isArchived && (
-                                  <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Archivado</span>
-                                )}
-                                {isMuted && (
-                                  <span title="Silenciado" className="text-black/50">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" className="inline">
-                                      <path
-                                        fill="currentColor"
-                                        d="m2 3.27l1.28-1.27l18 18l-1.27 1.27l-2.12-2.12H4v-2h1v-7a7 7 0 0 1 7-7c1.12 0 2.17.27 3.09.73l-1.5 1.5A5 5 0 0 0 12 4a5 5 0 0 0-5 5v7h9.73L2 3.27ZM20 17h2v2h-2v-2Zm-8 5a2 2 0 0 1-2-2h4a2 2 0 0 1-4 0Z"
-                                      />
-                                    </svg>
-                                  </span>
-                                )}
-                              </p>
-                              <span className="shrink-0 text-xs text-black/50">{c.time}</span>
-                            </div>
-                            <p className="truncate text-sm text-black/60">{c.preview}</p>
-                          </div>
+              // Filtrar por término de búsqueda
+              if (searchTerm.trim()) {
+                const searchLower = searchTerm.toLowerCase().trim()
+                filteredChats = filteredChats.filter(chat => {
+                  // Buscar en el nombre del chat
+                  const nombreMatch = chat.nombre?.toLowerCase().includes(searchLower)
+                  // Buscar en el último mensaje si existe
+                  const mensajeMatch = chat.ultimo_mensaje?.toLowerCase().includes(searchLower)
+                  
+                  return nombreMatch || mensajeMatch
+                })
+              }
 
-                          {unread > 0 && (
-                            <span className="ml-2 shrink-0 rounded-full bg-[#de4435] px-2 py-0.5 text-xs font-medium text-white">
-                              {unread}
+              // Aplicar ordenamiento a los chats filtrados
+              filteredChats = sortChatsByDate(filteredChats)
+
+              if (filteredChats.length === 0) {
+                let mensaje = ''
+                if (searchTerm.trim()) {
+                  mensaje = `No se encontraron resultados para "${searchTerm}"`
+                } else {
+                  mensaje = activeTab === 'todos' 
+                    ? 'No hay conversaciones.' 
+                    : activeTab === 'chats' 
+                      ? 'No hay chats privados.' 
+                      : 'No hay grupos.'
+                }
+                return <p className="text-sm text-gray-500 text-center py-4">{mensaje}</p>
+              }
+
+              return filteredChats.map((chat, index) => {
+                const initials = chat.nombre?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 
+                  (chat.id_tipo_chat === 1 ? 'CH' : 'GR')
+                const chatId = (chat as any).id || (chat as any).id_chat || (chat as any).chatId || 
+                  `${chat.id_tipo_chat === 1 ? 'chat' : 'group'}-${index}`
+                
+                // Crear key única combinando tipo, ID y posición para evitar duplicados
+                const uniqueKey = `${chat.id_tipo_chat}-${chatId}-${index}`
+                
+                return (
+                  <li key={uniqueKey}>
+                    <div
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-orange-100 bg-white hover:bg-orange-50 transition font-medium shadow-sm cursor-pointer ${
+                        selectedChat === chatId.toString()
+                          ? "bg-orange-100 text-orange-600"
+                          : "text-gray-700"
+                      }`}
+                      onClick={() => setSelectedChat(chatId.toString())}
+                    >
+                      <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
+                        <span className="text-white font-semibold text-sm">{initials}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium">{chat.nombre}</span>
+                          {activeTab === 'todos' && (
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              chat.id_tipo_chat === 1 
+                                ? 'bg-blue-100 text-blue-600' 
+                                : 'bg-green-100 text-green-600'
+                            }`}>
+                              {chat.id_tipo_chat === 1 ? 'Privado' : 'Grupo'}
+                            </span>
+                          )}
+                          {/* Contador de mensajes no leídos */}
+                          {unreadCounts[chatId.toString()] && unreadCounts[chatId.toString()] > 0 && (
+                            <span className="bg-green-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center ml-auto">
+                              {unreadCounts[chatId.toString()]}
                             </span>
                           )}
                         </div>
-                      </button>
-                    </li>
-                  );
-                })}
-                {!chatsLoading && !chatsError && !visibleChats.length && (
-                  <li className="px-2 py-2 text-sm text-black/60">Todavía no tenés chats. Creá uno con el botón “+”.</li>
-                )}
-              </ul>
-            </div>
-          </aside>
-
-          {/* ===== Conversación ===== */}
-          {selectedChat ? (
-            <section className="relative flex h-[72vh] flex-col overflow-hidden rounded-2xl bg-white/70 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
-              {/* Header */}
-              <header className="flex items-center justify-between gap-4 border-b border-black/5 px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
-                      {selectedChat.initials}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="font-medium text-[#2b2b2b] flex items-center gap-2">
-                      {isGroupLike(selectedChat) ? (
-                        <button
-                          ref={groupNameBtnRef}
-                          onClick={onGroupNameClick}
-                          className="underline decoration-transparent hover:decoration-[#f16f24] underline-offset-4 transition text-left"
-                          title="Ver participantes"
-                          type="button"
-                        >
-                          {selectedChat.name}
-                        </button>
-                      ) : (
-                        <span>{selectedChat.name}</span>
-                      )}
-                      {selectedChat.idTipoChat === 2 && (
-                        <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Grupo</span>
-                      )}
-                      {selectedChat.idTipoChat === 1 && (
-                        <span className="rounded-md border border-black/10 px-1.5 text-[10px] text-black/60">Privado</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Acciones: Participantes + Salir/Eliminar + Cerrar */}
-                <div className="flex items-center gap-2" ref={menuRef}>
-                  {isGroupLike(selectedChat) && (
-                    <button
-                      title="Participantes"
-                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
-                      type="button"
-                      onClick={onGroupNameClick}
-                    >
-                      {/* Ícono "users" */}
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5S5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05C16.38 13.74 18 14.68 18 16.5V19h6v-2.5c0-2.33-4.67-3.5-6-3.5z"/>
-                      </svg>
-                    </button>
-                  )}
-
-                  {isGroupLike(selectedChat) ? (
-                    <button
-                      onClick={leaveCurrentGroup}
-                      title="Salir del grupo"
-                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
-                      type="button"
-                    >
-                      {/* Ícono "logout / salir" */}
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d="M17 7l-1.41 1.41L17.17 10H8v2h9.17l-1.58 1.59L17 15l4-4-4-4z"></path>
-                        <path d="M3 5h8V3H3a2 2 0 00-2 2v14a2 2 0 002 2h8v-2H3V5z"></path>
-                      </svg>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={deleteCurrentChat}
-                      title="Eliminar chat privado"
-                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white text-black/70 hover:bg-black/5"
-                      type="button"
-                    >
-                      {/* Ícono tacho (solo privados) */}
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M9 3h6l1 2h5v2H3V5h5l1-2Zm1 6h2v8h-2V9Zm4 0h2v8h-2V9ZM7 9h2v8H7V9Zm-1 12h12a2 2 0 0 0 2-2V9H4v10a2 2 0 0 0 2 2Z" />
-                      </svg>
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => {
-                      setSelectedId("");
-                      setShowMembers(false);
-                      setMenuOpen(false);
-                    }}
-                    title="Cerrar chat"
-                    className="flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white text-black/60 hover:bg-black/5"
-                    type="button"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24">
-                      <path
-                        fill="currentColor"
-                        d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59L7.11 5.7a1 1 0 1 0-1.41 1.42L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.42L12 13.41l4.89 4.9a1 1 0 0 0 1.42-1.42L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </header>
-
-              {/* Popup participantes */}
-              {isGroupLike(selectedChat) && showMembers && (
-                <div
-                  ref={membersPopupRef}
-                  className="absolute left-5 top-[64px] z-30 w-72 rounded-2xl border border-black/10 bg-white/95 p-3 shadow-xl backdrop-blur"
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-sm font-semibold text-[#2b2b2b]">Participantes</p>
-                    <button
-                      onClick={() => setShowMembers(false)}
-                      className="h-7 w-7 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
-                      title="Cerrar"
-                      type="button"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24">
-                        <path
-                          fill="currentColor"
-                          d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59L7.11 5.7a1 1 0 1 0-1.41 1.42L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.42L12 13.41l4.89 4.9a1 1 0 0 0 1.42-1.42L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* Estados: cargando / error */}
-                  {participantsLoading && (
-                    <div className="px-2 py-2 text-sm text-black/60">Cargando participantes…</div>
-                  )}
-                  {participantsError && !participantsLoading && (
-                    <div className="px-2 py-2 text-sm text-red-600">{participantsError}</div>
-                  )}
-
-                  {/* Lista */}
-                  <ul className="max-h-64 overflow-y-auto">
-                    {(participants.length
-                      ? participants.map((p) => ({ id: p.id, name: p.name, initials: p.initials ?? initialsFromName(p.name) }))
-                      : (selectedChat.members ?? []).map((id) => {
-                          const ct = contactMap.get(id);
-                          const name = ct?.name ?? `Usuario ${id}`;
-                          return { id, name, initials: initialsFromName(name) };
-                        })
-                    ).map((p) => (
-                      <li key={p.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-black/5">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] text-sm font-semibold">
-                          {p.initials}
-                        </div>
-                        <span className="text-sm text-[#2b2b2b]">{p.name}</span>
-                      </li>
-                    ))}
-
-                    {!participantsLoading &&
-                      !participantsError &&
-                      participants.length === 0 &&
-                      (!selectedChat.members || selectedChat.members.length === 0) && (
-                        <li className="px-2 py-2 text-sm text-black/60">Sin miembros</li>
-                      )}
-                  </ul>
-                </div>
-              )}
-
-              {/* Historial (scroll) */}
-              <div ref={scrollRef} className="flex-1 space-y-6 overflow-y-auto px-5 py-6">
-                <div className="flex items-center gap-3">
-                  <div className="h-px flex-1 bg-black/10" />
-                  <span className="text-xs text-black/50">Hoy</span>
-                  <div className="h-px flex-1 bg-black/10" />
-                </div>
-
-                {messagesById[selectedId]?.length ? (
-                  messagesById[selectedId].map((m, i) =>
-                    m.from === "them" ? (
-                      <div key={m.id ?? i} className="flex items-end gap-3">
-                        <div className="h-9 w-9 shrink-0 rounded-full bg-[#f16f24]/10 text-center leading-9 text-[#f16f24] font-semibold">
-                          {selectedChat.initials[0]}
-                        </div>
-                        <div className="max-w-[70%] rounded-2xl rounded-tl-md bg-white p-3 shadow-sm ring-1 ring-black/5">
-                          <p className="text-sm text-[#2b2b2b]">{m.text}</p>
-                          <div className="mt-1 text-right text-[11px] text-black/45">{m.time}</div>
-                        </div>
+                        {chat.ultimo_mensaje && (
+                          <p className="text-xs text-gray-500 truncate">{chat.ultimo_mensaje}</p>
+                        )}
                       </div>
-                    ) : (
-                      <div key={m.id ?? i} className="flex items-end justify-end gap-3">
-                        <div className="max-w-[70%] rounded-2xl rounded-tr-md bg-gradient-to-br from-[#f16f24] to-[#de4435] p-3 text-white shadow-sm">
-                          <p className="text-sm">{m.text}</p>
-                          <div className="mt-1 text-right text-[11px] opacity-80">{m.time}</div>
+                    </div>
+                  </li>
+                )
+              })
+            })()}
+          </ul>
+        </div>
+      </aside>
+
+      {/* Panel Derecho - Área de Conversación */}
+      <main className="flex flex-col items-center justify-center bg-white/70 rounded-2xl shadow p-6 h-[600px] w-[800px]">
+        {selectedChat && selectedChatData ? (
+          <div className="w-full h-full flex flex-col min-h-0">
+            {/* Header del Chat */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
+                  <span className="text-white font-semibold text-sm">
+                    {(() => {
+                      if (selectedChatData.id_tipo_chat === 1) {
+                        // Chat privado - usar iniciales del nombre del contacto
+                        return selectedChatData.nombre?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'CH'
+                      } else {
+                        // Chat grupal - usar iniciales del nombre del grupo
+                        return selectedChatData.nombre?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'GR'
+                      }
+                    })()}
+                  </span>
+                </div>
+                <div 
+                  className={`flex flex-col ${selectedChatData.id_tipo_chat === 2 ? 'cursor-pointer hover:opacity-80' : ''}`}
+                  onClick={() => {
+                    if (selectedChatData.id_tipo_chat === 2) { // Solo para grupos
+                      setShowParticipantsModal(true);
+                    }
+                  }}
+                >
+                  <span className="font-bold text-lg text-gray-700 flex items-center gap-2">
+                    {selectedChatData.nombre || 'Chat sin nombre'}
+                    {selectedChatData.id_tipo_chat === 2 && (
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        className="h-4 w-4 text-gray-400" 
+                        viewBox="0 0 20 20" 
+                        fill="currentColor"
+                      >
+                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {selectedChatData.id_tipo_chat === 1 ? 'Chat privado' : 'Chat grupal'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded-full p-2 hover:bg-red-50 text-red-500 hover:text-red-600"
+                  title="Eliminar chat"
+                  onClick={async () => {
+                    if (window.confirm('¿Estás seguro de que quieres eliminar este chat?')) {
+                      try {
+                        const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
+                        
+                        // Obtener el ID correcto del chat y validar datos
+                        const chatId = Number((selectedChatData as any).id || 
+                                     (selectedChatData as any).id_chat || 
+                                     selectedChat);
+
+                        if (!chatId || isNaN(chatId)) {
+                          throw new Error('ID de chat inválido');
+                        }
+
+                        if (!idUsuario) {
+                          throw new Error('ID de usuario no disponible');
+                        }
+
+                        // 1. Primero eliminar todos los mensajes del chat usando Supabase directamente
+                        try {
+                          console.log('🗑️ Eliminando mensajes del chat:', chatId);
+                          const { error: deleteMessagesError } = await supabase
+                            .from('Mensaje')
+                            .delete()
+                            .eq('id_chat', chatId);
+
+                          if (deleteMessagesError) {
+                            console.error('❌ Error al eliminar mensajes:', deleteMessagesError);
+                            throw new Error('No se pudieron eliminar los mensajes del chat');
+                          }
+
+                          console.log('✅ Mensajes eliminados correctamente');
+                        } catch (error) {
+                          console.error('❌ Error al eliminar mensajes:', error);
+                          throw new Error('Error al eliminar los mensajes del chat');
+                        }
+
+                        // 2. Luego eliminar el chat
+                        const deleteData = {
+                          id_chat: chatId,
+                          id_emisor: idUsuario
+                        };
+                        
+                        console.log('🗑️ Intentando eliminar chat:', deleteData);
+
+                        const response = await fetch('/api/chats/delete', {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                          },
+                          body: JSON.stringify(deleteData)
+                        });
+
+                        const responseText = await response.text();
+                        console.log('📡 Respuesta del servidor:', {
+                          status: response.status,
+                          text: responseText
+                        });
+
+                        if (!response.ok) {
+                          throw new Error(`Error ${response.status}: ${responseText}`);
+                        }
+
+                        // Si llegamos aquí, la eliminación fue exitosa
+                        console.log('✅ Chat eliminado correctamente');
+                        
+                        // Actualizar la lista de chats
+                        setUserChats(prevChats => 
+                          prevChats.filter(chat => {
+                            const currentChatId = (chat as any).id || (chat as any).id_chat;
+                            return currentChatId?.toString() !== chatId?.toString();
+                          })
+                        );
+                        setSelectedChat(null);
+                        
+                        // Notificar al usuario
+                        alert('Chat eliminado correctamente');
+                      } catch (error) {
+                        console.error('❌ Error detallado al eliminar el chat:', error);
+                        alert(error instanceof Error ? error.message : 'No se pudo eliminar el chat. Por favor intenta de nuevo.');
+                      }
+                    }
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </button>
+                <button
+                  className="rounded-full p-2 hover:bg-gray-100"
+                  title="Cerrar"
+                  onClick={() => setSelectedChat(null)}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            {/* Línea superior */}
+            <div className="border-t border-gray-200 mb-2" />
+
+            {/* Área de Mensajes (realtime) */}
+            <div className="flex-1 flex flex-col gap-4 overflow-y-auto min-h-0">
+              <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-2 flex flex-col gap-3">
+                {messages.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center mt-4">Sin mensajes en este chat</p>
+                ) : (
+                  messages.map((m: any) => {
+                    const isMine = m.id_emisor === currentEmisorRef.current;
+                    const time = m.fecha ? new Date(m.fecha).toLocaleTimeString() : '';
+                    const isGroupChat = selectedChatData.id_tipo_chat === 2;
+                    
+                    // Debug detallado del mensaje
+                    console.log('📩 Datos del mensaje:', {
+                      texto: m.texto,
+                      emisor_id: m.id_emisor,
+                      emisor_data: m.emisor,
+                      isMine,
+                      isGroupChat
+                    });
+                    
+                    return (
+                      <div key={m.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                        <div className="flex flex-col">
+                          {!isMine && (
+                            <div className="text-sm text-gray-600 font-medium ml-2 mb-1">
+                              ID: {m.id_emisor}
+                            </div>
+                          )}
+                          <div className={`${isMine ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white' : 'bg-orange-100 text-orange-700'} max-w-xs px-4 py-2 rounded-xl font-medium shadow`}>
+                            <div>{m.texto}</div>
+                            <div className={`${isMine ? 'text-white/80' : 'text-orange-600'} text-xs mt-1 text-right`}>{time}</div>
+                          </div>
                         </div>
                       </div>
                     )
-                  )
-                ) : (
-                  <div className="py-12 text-center text-sm text-black/50">No hay mensajes todavía</div>
+                  })
                 )}
+                </div>
+
+              {/* Línea inferior */}
+              <div className="border-t border-gray-200 mt-2" />
+
+              {/* Input para Enviar Mensajes (realtime) */}
+              <form
+                onSubmit={e => { e.preventDefault(); sendMessage() }}
+                className="w-full flex items-center gap-2 mt-2"
+              >
+                <input
+                  type="text"
+                  value={messageText}
+                  onChange={e => setMessageText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+                  className="flex-1 rounded-full border border-orange-200 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                  placeholder={`Mensaje para ${selectedChatData.nombre || 'este chat'}...`}
+                />
+                <button
+                  type="submit"
+                  className="bg-gradient-to-r from-orange-400 to-orange-500 text-white px-6 py-2 rounded-full font-semibold shadow hover:opacity-90 transition"
+                >
+                  Enviar
+                </button>
+                <div className="relative">
+                  <select
+                    id="prefLang"
+                    className="appearance-none bg-white border border-orange-200 text-gray-700 py-2 px-4 pr-8 rounded-full focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                    defaultValue="es"
+                  >
+                    <option value="es">Español</option>
+                    <option value="en">English</option>
+                    <option value="pt">Português</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
+                    </svg>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : (
+          /* Estado Inicial - Sin Chat Seleccionado */
+          <div className="text-center text-gray-500">
+            <div className="mb-6">
+              <img 
+                src="/mascota.png" 
+                alt="Mascota Boomerang" 
+                className="w-32 h-32 mx-auto object-contain"
+              />
+            </div>
+            <h3 className="text-lg font-medium mb-2">Selecciona un chat</h3>
+            <p>Elige una conversación para comenzar a chatear</p>
+          </div>
+        )}
+      </main>
+      </div>
+
+      {/* Modal para seleccionar contacto */}
+      {showContactsList && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md max-h-96 overflow-hidden">
+            {/* Header del modal */}
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-gray-800">Seleccionar contacto</h2>
+                <button
+                  onClick={() => setShowContactsList(false)}
+                  className="text-gray-500 hover:text-gray-700 transition"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
+              <p className="text-sm text-gray-600 mt-1">Elige un contacto para iniciar un chat privado</p>
+            </div>
 
-              {/* Composer */}
-              <footer className="border-t border-black/5 p-4">
-                <div className="flex items-end gap-2 rounded-2xl border border-[#f16f24]/25 bg-white px-3 py-2 shadow-sm">
+            {/* Lista de contactos */}
+            <div className="overflow-y-auto max-h-80 relative">
+              {creatingChat && (
+                <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-10">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto"></div>
+                    <p className="text-sm text-gray-600 mt-2">Creando chat...</p>
+                  </div>
+                </div>
+              )}
+              {loadingContacts ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto"></div>
+                    <p className="text-sm text-gray-500 mt-2">Cargando contactos...</p>
+                  </div>
+                </div>
+              ) : contactsError ? (
+                <div className="p-6 text-center">
+                  <p className="text-sm text-red-500">Error: {contactsError}</p>
                   <button
-                    type="button"
-                    className="rounded-xl px-2 py-2 text-black/60 hover:bg-black/5"
-                    aria-label="Adjuntar"
-                    title="Adjuntar"
+                    onClick={loadUserContacts}
+                    className="mt-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 transition"
                   >
-                    <svg width="20" height="20" viewBox="0 0 24 24">
-                      <path
-                        fill="currentColor"
-                        d="M7 17a5 5 0 0 0 5 5h1a5 5 0 0 0 5-5V7a3 3 0 0 0-6 0v9a1 1 0 0 0 2 0V7a1 1 0 0 1 2 0v10a3 3 0 0 1-3 3h-1a3 3 0 0 1-3-3V7a5 5 0 0 1 10 0v9a7 7 0 0 1-7 7h-1a7 7 0 0 1-7-7V7a1 1 0 1 1 2 0v10Z"
-                      />
-                    </svg>
-                  </button>
-
-                  <textarea
-                    ref={textareaRef}
-                    rows={1}
-                    onInput={autoResize}
-                    placeholder={`Mensaje para ${selectedChat?.name ?? "…"}…`}
-                    className="min-h-[44px] max-h-[120px] w-full resize-none bg-transparent px-2 py-2 outline-none placeholder:text-black/40"
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend();
-                      }
-                    }}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={!messageText.trim() || sending}
-                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#f16f24] to-[#de4435] px-4 py-2 text-sm font-medium text-white shadow hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed"
-                    title="Enviar"
-                  >
-                    Enviar
-                    <svg width="18" height="18" viewBox="0 0 24 24">
-                      <path fill="currentColor" d="M3.4 20.4L22 12L3.4 3.6L3 10l12 2l-12 2z" />
-                    </svg>
+                    Reintentar
                   </button>
                 </div>
-              </footer>
-            </section>
-          ) : (
-            <section className="flex h-[72vh] items-center justify-center rounded-2xl bg-white/70 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
-              <div className="text-center">
-                <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-[#f16f24]/10" />
-                <p className="text-sm text-black/60">Selecciona un chat para comenzar</p>
-              </div>
-            </section>
-          )}
-        </div>
-      </main>
-
-      {/* ===== MODALES ===== */}
-      {/* PRIVADO */}
-      {pickerMode === "private" && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
-              <h3 className="textbase font-semibold text-[#2b2b2b]">Nuevo chat privado</h3>
-              <button
-                onClick={closeAllPickers}
-                className="h-8 w-8 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
-                aria-label="Cerrar"
-                title="Cerrar"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24">
-                  <path
-                    fill="currentColor"
-                    d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59L7.11 5.7a1 1 0 1 0-1.41 1.42L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.42L12 13.41l4.89 4.9a1 1 0 0 0 1.42-1.42L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            <div className="px-4 pt-3">
-              <div className="flex items-center rounded-xl border border-black/10 bg-white px-3">
-                <svg width="18" height="18" viewBox="0 0 24 24" className="opacity-60">
-                  <path
-                    fill="currentColor"
-                    d="M15.5 14h-.79l-.28-.27a6.471 6.471 0 0 0 1.57-4.23C15.99 6.01 13.98 4 11.49 4S7 6.01 7 9s2.01 5 4.49 5c1.61 0 3.06-.66 4.1-1.73l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0c.41-.41.41-1.08 0-1.49L15.5 14Zm-4.01 0C9.01 14 7 11.99 7 9s2.01-5 4.49-5S16 6.01 16 9s-2.01 5-4.51 5Z"
-                  />
-                </svg>
-                <input
-                  autoFocus
-                  placeholder="Buscar contacto…"
-                  className="w-full bg-transparent px-2 py-2 text-sm outline-none placeholder:text-black/40"
-                  value={contactQuery}
-                  onChange={(e) => setContactQuery(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="px-2">
-              {contactsLoading && <p className="px-2 py-2 text-sm text-black/60">Cargando contactos…</p>}
-              {contactsError && !contactsLoading && <p className="px-2 py-2 text-sm text-red-600">{contactsError}</p>}
-            </div>
-
-            <ul className="max-h-[50vh] overflow-y-auto px-2 py-3">
-              {filteredContacts.map((ct) => {
-                const initials = ct.initials ?? initialsFromName(ct.name);
-                return (
-                  <li key={ct.id}>
-                    <button
-                      onClick={() => createOrOpenPrivateChat(ct)}
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-black/5"
-                    >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
-                        {initials}
+              ) : contacts.length === 0 ? (
+                <div className="p-6 text-center">
+                  <p className="text-sm text-gray-500">No tienes contactos disponibles</p>
+                </div>
+              ) : (
+                <div className="p-4">
+                  {contacts.map((contact, index) => {
+                    const initials = ((contact.nombre && contact.apellido) 
+                      ? `${contact.nombre[0]}${contact.apellido[0]}` 
+                      : contact.nombre?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'CO'
+                    ).toUpperCase()
+                    return (
+                      <div
+                        key={contact.id || index}
+                        onClick={async () => {
+                          try {
+                            console.log('🎯 Contacto seleccionado para crear chat:', contact)
+                            console.log('📄 Propiedades del contacto:', Object.keys(contact))
+                            setCreatingChat(true)
+                            await createPrivateChat(contact)
+                            setShowContactsList(false)
+                          } catch (error) {
+                            console.error('❌ Error al crear chat privado:', error)
+                            // Mostrar error al usuario
+                            alert(`Error al crear chat: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+                          } finally {
+                            setCreatingChat(false)
+                          }
+                        }}
+                        className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 cursor-pointer transition"
+                      >
+                        <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
+                          <span className="text-white font-semibold text-sm">{initials}</span>
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-800">{(contact.nombre && contact.apellido) ? `${contact.nombre} ${contact.apellido}` : contact.nombre || 'Sin nombre'}</p>
+                          {contact.email && (
+                            <p className="text-xs text-gray-500">{contact.email}</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-[#2b2b2b]">{ct.name}</p>
-                        <p className="text-xs text-black/50">Crear / abrir chat</p>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-              {!contactsLoading && !contactsError && filteredContacts.length === 0 && (
-                <li className="px-3 py-2 text-sm text-black/60">Sin resultados</li>
+                    )
+                  })}
+                </div>
               )}
-            </ul>
+            </div>
           </div>
         </div>
       )}
 
-      {/* GRUPO: paso 1 */}
-      {pickerMode === "groupName" && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
-              <h3 className="text-base font-semibold text-[#2b2b2b]">Nuevo chat grupal</h3>
-              <button
-                onClick={closeAllPickers}
-                className="h-8 w-8 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
-                aria-label="Cerrar"
-                title="Cerrar"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24">
-                  <path
-                    fill="currentColor"
-                    d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59L7.11 5.7a1 1 0 1 0-1.41 1.42L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.42L12 13.41l4.89 4.9a1 1 0 0 0 1.42-1.42L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"
-                  />
-                </svg>
-              </button>
+      {/* Modal para título del grupo */}
+      {showGroupTitleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md p-6">
+            {/* Header del modal */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-lg font-bold text-gray-800">Crear grupo</h2>
+                <button
+                  onClick={() => setShowGroupTitleModal(false)}
+                  className="text-gray-500 hover:text-gray-700 transition"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-gray-600">Escribe un nombre para tu grupo</p>
             </div>
 
-            <div className="px-4 py-4">
-              <label className="text-sm text-black/70">Nombre del grupo</label>
+            {/* Input para título */}
+            <div className="mb-6">
               <input
+                type="text"
+                value={groupTitle}
+                onChange={(e) => setGroupTitle(e.target.value)}
+                placeholder="Nombre del grupo..."
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                maxLength={50}
                 autoFocus
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-                placeholder="Ej: Proyecto Boomerang"
-                className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2 outline-none focus:ring-2 focus:ring-[#f16f24]/30"
               />
-              <div className="mt-4 flex justify-end gap-2">
-                <button onClick={closeAllPickers} className="rounded-lg border border-black/10 px-3 py-2 text-sm hover:bg-black/5">
+              <p className="text-xs text-gray-500 mt-2">{groupTitle.length}/50 caracteres</p>
+            </div>
+
+            {/* Botones */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowGroupTitleModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (groupTitle.trim()) {
+                    setShowGroupTitleModal(false)
+                    setShowGroupContactsModal(true)
+                    loadUserContacts()
+                  }
+                }}
+                disabled={!groupTitle.trim()}
+                className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para seleccionar contactos del grupo */}
+      {showGroupContactsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md max-h-96 overflow-hidden">
+            {/* Header del modal */}
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800">Agregar miembros</h2>
+                  <p className="text-sm text-gray-600">Grupo: "{groupTitle}"</p>
+                </div>
+                <button
+                  onClick={() => setShowGroupContactsModal(false)}
+                  className="text-gray-500 hover:text-gray-700 transition"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {selectedContacts.length > 0 && (
+                <p className="text-sm text-orange-600 mt-1">{selectedContacts.length} contacto(s) seleccionado(s)</p>
+              )}
+            </div>
+
+            {/* Lista de contactos con checkboxes */}
+            <div className="overflow-y-auto max-h-64 relative">
+              {creatingChat && (
+                <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-10">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto"></div>
+                    <p className="text-sm text-gray-600 mt-2">Creando grupo...</p>
+                  </div>
+                </div>
+              )}
+              {loadingContacts ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto"></div>
+                    <p className="text-sm text-gray-500 mt-2">Cargando contactos...</p>
+                  </div>
+                </div>
+              ) : contactsError ? (
+                <div className="p-6 text-center">
+                  <p className="text-sm text-red-500">Error: {contactsError}</p>
+                  <button
+                    onClick={loadUserContacts}
+                    className="mt-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 transition"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              ) : contacts.length === 0 ? (
+                <div className="p-6 text-center">
+                  <p className="text-sm text-gray-500">No tienes contactos disponibles</p>
+                </div>
+              ) : (
+                <div className="p-4">
+                  {contacts.map((contact, index) => {
+                    const isSelected = selectedContacts.some(sc => sc.id_usuario_contacto === contact.id_usuario_contacto)
+                    const initials = ((contact.nombre && contact.apellido) 
+                      ? `${contact.nombre[0]}${contact.apellido[0]}` 
+                      : contact.nombre?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'CO'
+                    ).toUpperCase()
+                    return (
+                      <div
+                        key={contact.id || index}
+                        onClick={() => {
+                          if (isSelected) {
+                            // Deseleccionar contacto
+                            setSelectedContacts(selectedContacts.filter(sc => sc.id_usuario_contacto !== contact.id_usuario_contacto))
+                          } else {
+                            // Seleccionar contacto
+                            setSelectedContacts([...selectedContacts, contact])
+                          }
+                        }}
+                        className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 cursor-pointer transition"
+                      >
+                        {/* Checkbox */}
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition ${
+                          isSelected 
+                            ? 'bg-orange-500 border-orange-500' 
+                            : 'border-gray-300 hover:border-orange-300'
+                        }`}>
+                          {isSelected && (
+                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        
+                        {/* Avatar */}
+                        <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
+                          <span className="text-white font-semibold text-sm">{initials}</span>
+                        </div>
+                        
+                        {/* Info */}
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-800">{(contact.nombre && contact.apellido) ? `${contact.nombre} ${contact.apellido}` : contact.nombre || 'Sin nombre'}</p>
+                          {contact.email && (
+                            <p className="text-xs text-gray-500">{contact.email}</p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer con botones */}
+            <div className="px-6 py-4 border-t border-gray-200">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowGroupContactsModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                >
                   Cancelar
                 </button>
                 <button
-                  onClick={() => setPickerMode("groupMembers")}
-                  disabled={!groupName.trim()}
-                  className="rounded-lg bg-[#f16f24] px-3 py-2 text-sm text-white disabled:opacity-60"
+                  onClick={async () => {
+                    if (selectedContacts.length > 0) {
+                      try {
+                        setCreatingChat(true)
+                        await createGroupChat()
+                        // El modal se cierra automáticamente en createGroupChat()
+                      } catch (error) {
+                        console.error('Error al crear grupo:', error)
+                        alert(`Error al crear grupo: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+                      } finally {
+                        setCreatingChat(false)
+                      }
+                    }
+                  }}
+                  disabled={selectedContacts.length === 0 || creatingChat}
+                  className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
                 >
-                  Siguiente
+                  Crear Grupo ({selectedContacts.length})
                 </button>
               </div>
             </div>
@@ -1855,98 +1743,140 @@ export default function ChatsPage() {
         </div>
       )}
 
-      {/* GRUPO: paso 2 */}
-      {pickerMode === "groupMembers" && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
-              <h3 className="text-base font-semibold text-[#2b2b2b]">
-                Agregar miembros • <span className="text-black/60">{groupName}</span>
-              </h3>
+      {/* Modal para chat existente */}
+      {showExistingChatModal && existingChatData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md p-6">
+            {/* Header del modal */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-lg font-bold text-gray-800">Chat ya existe</h2>
+                <button
+                  onClick={closeExistingChatModal}
+                  className="text-gray-500 hover:text-gray-700 transition"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-gray-600">
+                Ya tienes un chat privado con <span className="font-medium">{existingChatData.contact.nombre}</span>
+              </p>
+            </div>
+
+            {/* Información del chat existente */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
+                  <span className="text-white font-semibold text-sm">
+                    {existingChatData.contact.nombre?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) || 'CH'}
+                  </span>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-800">{existingChatData.contact.nombre}</p>
+                  <p className="text-xs text-gray-500">Chat privado</p>
+                </div>
+              </div>
+              {existingChatData.chat.ultimo_mensaje && (
+                <div className="mt-3 pt-3 border-t border-gray-200">
+                  <p className="text-xs text-gray-500">Último mensaje:</p>
+                  <p className="text-sm text-gray-700 truncate">{existingChatData.chat.ultimo_mensaje}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Botones */}
+            <div className="flex gap-3">
               <button
-                onClick={closeAllPickers}
-                className="h-8 w-8 rounded-full border border-black/10 text-black/60 hover:bg-black/5"
-                aria-label="Cerrar"
-                title="Cerrar"
+                onClick={closeExistingChatModal}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24">
-                  <path
-                    fill="currentColor"
-                    d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59L7.11 5.7a1 1 0 1 0-1.41 1.42L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.42L12 13.41l4.89 4.9a1 1 0 0 0 1.42-1.42L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"
-                  />
-                </svg>
+                Cancelar
+              </button>
+              <button
+                onClick={openExistingChat}
+                className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition"
+              >
+                Abrir Chat
               </button>
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="px-4 pt-3">
-              <div className="flex items-center rounded-xl border border-black/10 bg-white px-3">
-                <svg width="18" height="18" viewBox="0 0 24 24" className="opacity-60">
-                  <path
-                    fill="currentColor"
-                    d="M15.5 14h-.79l-.28-.27a6.471 6.471 0 0 0 1.57-4.23C15.99 6.01 13.98 4 11.49 4S7 6.01 7 9s2.01 5 4.49 5c1.61 0 3.06-.66 4.1-1.73l.27.28v.79l4.25 4.25c.41.41 1.08.41 1.49 0c.41-.41.41-1.08 0-1.49L15.5 14Zm-4.01 0C9.01 14 7 11.99 7 9s2.01-5 4.49-5S16 6.01 16 9s-2.01 5-4.51 5Z"
-                  />
-                </svg>
-                <input
-                  placeholder="Buscar contacto…"
-                  className="w-full bg-transparent px-2 py-2 text-sm outline-none placeholder:text-black/40"
-                  value={contactQuery}
-                  onChange={(e) => setContactQuery(e.target.value)}
-                />
+      {/* Modal de Participantes */}
+      {showParticipantsModal && selectedChatData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md max-h-[80vh] overflow-hidden">
+            {/* Header del modal */}
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800">Participantes del Grupo</h2>
+                  <p className="text-sm text-gray-600">{selectedChatData.nombre}</p>
+                </div>
+                <button
+                  onClick={() => setShowParticipantsModal(false)}
+                  className="text-gray-500 hover:text-gray-700 transition"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-orange-600 mt-1">
+                {selectedChatData.participantes?.length || 0} participantes
+              </p>
+            </div>
+
+            {/* Lista de participantes */}
+            <div className="overflow-y-auto max-h-[60vh]">
+              <div className="p-4 space-y-2">
+                {selectedChatData.participantes?.map((participante: any, index: number) => {
+                  const nombreCompleto = participante.nombre 
+                    ? `${participante.nombre} ${participante.apellido || ''}`
+                    : 'Usuario';
+                  
+                  const initials = nombreCompleto
+                    .split(' ')
+                    .map(n => n[0])
+                    .join('')
+                    .toUpperCase()
+                    .slice(0, 2);
+
+                  return (
+                    <div 
+                      key={participante.id_usuario_contacto || index}
+                      className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50"
+                    >
+                      <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
+                        <span className="text-white font-semibold text-sm">{initials}</span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-800">{nombreCompleto}</p>
+                        {participante.email && (
+                          <p className="text-xs text-gray-500">{participante.email}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            <ul className="max-h-[45vh] overflow-y-auto px-2 py-3">
-              {filteredContacts.map((ct) => {
-                const initials = ct.initials ?? initialsFromName(ct.name);
-                const checked = groupMembers.has(ct.id);
-                return (
-                  <li key={ct.id}>
-                    <label className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-black/5">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={checked}
-                        onChange={() => {
-                          setGroupMembers((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(ct.id)) next.delete(ct.id);
-                            else next.add(ct.id);
-                            return next;
-                          });
-                        }}
-                      />
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#f16f24]/10 text-[#f16f24] font-semibold">
-                        {initials}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-[#2b2b2b]">{ct.name}</p>
-                      </div>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-
-            <div className="flex items-center justify-between border-t border-black/10 px-4 py-3">
-              <span className="text-sm text-black/60">
-                {groupMembers.size} seleccionado{groupMembers.size === 1 ? "" : "s"}
-              </span>
-              <div className="flex gap-2">
-                <button onClick={() => setPickerMode("groupName")} className="rounded-lg border border-black/10 px-3 py-2 text-sm hover:bg-black/5">
-                  Atrás
-                </button>
-                <button
-                  onClick={createGroupChat}
-                  disabled={!groupName.trim() || groupMembers.size === 0}
-                  className="rounded-lg bg-[#f16f24] px-3 py-2 text-sm text-white disabled:opacity-60"
-                >
-                  Crear grupo
-                </button>
-              </div>
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-200">
+              <button
+                onClick={() => setShowParticipantsModal(false)}
+                className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
       )}
     </div>
-  );
+  )
 }

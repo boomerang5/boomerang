@@ -17,7 +17,7 @@ export default function ProtectedSidebar() {
   return (
     //SIDEBAR
     <aside className="w-16 bg-orange-50 dark:bg-gray-700 flex flex-col justify-between items-center py-4">
-        <div className="flex flex-col items-center gap-6 mt-4">
+  <div className="flex flex-col items-center gap-6 mt-4">
           {/* Inicio */}
           <Link href="/protected" aria-label="Inicio">
             <i data-feather="home" className={cls('/protected')} />
@@ -56,6 +56,21 @@ export default function ProtectedSidebar() {
           {/* Reportes */}
           <Link href="/protected/reportes" aria-label="Reportes">
             <i data-feather="bar-chart-2" className={cls('/protected/reportes')} />
+          </Link>
+
+          {/* Chatbot (mascota como botón) */}
+          <Link href="/protected/chatbot" aria-label="Chatbot">
+            <img
+              src="/mascota.png"
+              alt="Mascota Boomerang"
+              className={`w-8 h-8 rounded-full shadow ${isActive('/protected/chatbot') ? 'ring-2 ring-orange-500' : ''} hover:ring-2 hover:ring-orange-500 transition`} 
+              style={{ objectFit: 'cover' }}
+            />
+          </Link>
+
+          {/* Pizarra */}
+          <Link href="/protected/pizarra" aria-label="Pizarra">
+            <i data-feather="edit-3" className={cls('/protected/pizarra')} />
           </Link>
         </div>
 

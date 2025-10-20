@@ -352,43 +352,57 @@ export default function DashboardPage() {
           className="lg:row-span-2"
           title="Notificaciones"
           content={
-            <div className="flex flex-col gap-3 min-h-0">
+            <div className="flex flex-col h-80">
               {notiLoading ? (
                 <p className="text-muted-foreground text-sm">Cargando…</p>
               ) : notifications.length === 0 ? (
                 <p className="text-muted-foreground text-sm">No hay notificaciones nuevas.</p>
               ) : (
-                <ul className="divide-y divide-white/20 overflow-y-auto pr-2 min-h-0">
-                  {localNotifs.map((n) => (
-                    <li key={n.id} className="py-3 flex items-start gap-3">
-                      <div className="flex-shrink-0 mt-1">
-                        <i data-feather={iconFor(n.type)} className="w-4 h-4 text-orange-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm">{n.title}</div>
-                        {n.message && <div className="text-xs text-muted-foreground mt-1">{n.message}</div>}
-                        {n.when && <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>}
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        {n.type === 'friend_request' && (
-                          <>
-                            <button onClick={() => handleNotifAccept(n)} className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600" title="Aceptar">
-                              <i data-feather="check" className="w-3 h-3" />
+                <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-orange-300 scrollbar-track-orange-100 dark:scrollbar-thumb-orange-600 dark:scrollbar-track-gray-800">
+                  <ul className="divide-y divide-white/20 pr-2">
+                    {localNotifs.map((n) => (
+                      <li key={n.id} className="py-3 flex items-start gap-3">
+                        <div className="flex-shrink-0 mt-1">
+                          <i data-feather={iconFor(n.type)} className="w-4 h-4 text-orange-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm">{n.title}</div>
+                          {n.message && <div className="text-xs text-muted-foreground mt-1">{n.message}</div>}
+                          {n.when && <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>}
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          {n.type === 'friend_request' && (
+                            <>
+                              <button 
+                                onClick={() => handleNotifAccept(n)} 
+                                className="w-6 h-6 rounded-md bg-green-500/20 hover:bg-green-500/30 text-green-600 flex items-center justify-center font-bold text-sm transition-all hover:scale-105" 
+                                title="Aceptar"
+                              >
+                                ✓
+                              </button>
+                              <button 
+                                onClick={() => handleNotifReject(n)} 
+                                className="w-6 h-6 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-600 flex items-center justify-center font-bold text-sm transition-all hover:scale-105" 
+                                title="Rechazar"
+                              >
+                                ✕
+                              </button>
+                            </>
+                          )}
+                          {n.type === 'meeting_invite' && (
+                            <button 
+                              onClick={() => handleNotifAccept(n)} 
+                              className="w-6 h-6 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-600 flex items-center justify-center transition-all hover:scale-105" 
+                              title="Ver en calendario"
+                            >
+                              <i data-feather="calendar" className="w-3 h-3" />
                             </button>
-                            <button onClick={() => handleNotifReject(n)} className="p-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-600" title="Rechazar">
-                              <i data-feather="x" className="w-3 h-3" />
-                            </button>
-                          </>
-                        )}
-                        {n.type === 'meeting_invite' && (
-                          <button onClick={() => handleNotifAccept(n)} className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-600" title="Ver en calendario">
-                            <i data-feather="calendar" className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           }
