@@ -1,6 +1,12 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Image from "next/image";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { createClient } from "../../../utils/supabase/client";
 
 const supabase = createClient();
@@ -37,6 +43,14 @@ const XIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="18" y1="6" x2="6" y2="18"/>
     <line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+);
+
+const MoreIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="5" cy="12" r="2" />
+    <circle cx="12" cy="12" r="2" />
+    <circle cx="19" cy="12" r="2" />
   </svg>
 );
 
@@ -127,7 +141,8 @@ export default function ChatBotPage() {
       setSessions([]);
       return;
     }
-    setSessions(data || []);
+    const filtered = (data || []).filter((s: any) => s.eliminado !== true);
+    setSessions(filtered);
   }
 
   async function loadTranscripts(uid: number) {
@@ -334,6 +349,35 @@ export default function ChatBotPage() {
     }
   }
 
+  // ---------- Eliminar conversación ----------
+  async function handleDeleteSession(session: SessionRow) {
+    if (!userId) return;
+    const ok = confirm(`¿Eliminar la conversación "${session.titulo}"?`);
+    if (!ok) return;
+    try {
+      const { error } = await supabase
+        .from("ChatbotSession")
+        .update({ eliminado: true, deleted_at: new Date().toISOString() })
+        .eq("id", session.id)
+        .eq("id_usuario", userId);
+      if (error) {
+        console.error("Error al eliminar conversación:", error);
+        alert("No se pudo eliminar: " + error.message);
+        return;
+      }
+      // quitar de la lista local
+      setSessions((prev) => prev.filter((s) => s.id !== session.id));
+      // si era la seleccionada, limpiar
+      if (selectedSession?.id === session.id) {
+        setSelectedSession(null);
+        setMessages([]);
+      }
+    } catch (e: any) {
+      console.error("Eliminar conversación ex:", e);
+      alert("No se pudo eliminar: " + (e?.message || e));
+    }
+  }
+
   // ---------- Enviar mensaje ----------
   async function send() {
     const text = input.trim();
@@ -365,7 +409,7 @@ export default function ChatBotPage() {
         sessionId: selectedSession.id
       });
       
-      const res = await fetch("/api/chatBot", {
+      const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -583,16 +627,38 @@ export default function ChatBotPage() {
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startEditing(session);
-                          }}
-                          className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-orange-600"
-                          title="Editar título"
-                        >
-                          <EditIcon />
-                        </button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              aria-label="Opciones"
+                              onClick={(e) => e.stopPropagation()}
+                              className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-orange-600"
+                              title="Opciones"
+                            >
+                              <MoreIcon />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="bg-white">
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                startEditing(session);
+                              }}
+                              className="cursor-pointer"
+                            >
+                              Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                handleDeleteSession(session);
+                              }}
+                              className="cursor-pointer text-red-600 focus:text-red-700"
+                            >
+                              Eliminar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
                     </div>
                   </li>

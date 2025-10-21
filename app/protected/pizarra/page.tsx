@@ -100,20 +100,19 @@ export default function PizarraPage() {
 
     sctx.clearRect(0, 0, stage.width, stage.height);
 
-    // Dibujar imagen de fondo
-    if (bgImageRef.current) {
+    // Fondo: si whiteboard está ON, siempre blanco; si no, usar imagen si existe
+    if (whiteboardOn) {
       sctx.fillStyle = '#fff';
       sctx.fillRect(0, 0, stage.width, stage.height);
-      
+    } else if (bgImageRef.current) {
+      sctx.fillStyle = '#fff';
+      sctx.fillRect(0, 0, stage.width, stage.height);
       const cw = stage.width, ch = stage.height;
       const iw = bgImageRef.current.naturalWidth, ih = bgImageRef.current.naturalHeight;
       const scale = Math.min(cw / iw, ch / ih);
       const dw = iw * scale, dh = ih * scale;
       const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
       sctx.drawImage(bgImageRef.current, dx, dy, dw, dh);
-    } else if (whiteboardOn) {
-      sctx.fillStyle = '#fff';
-      sctx.fillRect(0, 0, stage.width, stage.height);
     }
 
     // Dibujar todos los trazos
@@ -603,15 +602,16 @@ export default function PizarraPage() {
 
   // Alternar pizarra
   const toggleWhiteboard = useCallback(() => {
-    const newState = !whiteboardOn;
-    setWhiteboardOn(newState);
-    
-    if (newState) {
+    setWhiteboardOn((prev) => !prev);
+  }, []);
+
+  // Redibujar y actualizar clase del body cuando cambia whiteboard
+  useEffect(() => {
+    if (whiteboardOn) {
       document.body.classList.add('whiteboard-on');
     } else {
       document.body.classList.remove('whiteboard-on');
     }
-    
     redrawAll();
   }, [whiteboardOn, redrawAll]);
 
@@ -952,12 +952,13 @@ export default function PizarraPage() {
                     Cámara: {cameraOn ? 'ON' : 'OFF'}
                   </button>
                   <button 
-                    className={`tbtn ${drawingEnabled ? 'on' : ''}`}
-                    onClick={() => setDrawingEnabled(!drawingEnabled)}
+                    id="whiteboardBtn"
+                    className={`tbtn ${whiteboardOn ? 'on' : ''}`}
+                    onClick={toggleWhiteboard}
                     style={{
-                      background: drawingEnabled ? '#374151' : '#F9FAFB',
-                      color: drawingEnabled ? 'white' : '#6B7280',
-                      border: drawingEnabled ? 'none' : '1px solid #E5E7EB',
+                      background: whiteboardOn ? '#374151' : '#F9FAFB',
+                      color: whiteboardOn ? 'white' : '#6B7280',
+                      border: whiteboardOn ? 'none' : '1px solid #E5E7EB',
                       borderRadius: '12px',
                       padding: '12px 20px',
                       fontWeight: '500',
@@ -966,7 +967,7 @@ export default function PizarraPage() {
                       cursor: 'pointer'
                     }}
                   >
-                    Pizarra: {drawingEnabled ? 'ON' : 'OFF'}
+                    Pizarra: {whiteboardOn ? 'ON' : 'OFF'}
                   </button>
                 </div>
               </div>
@@ -1290,9 +1291,9 @@ export default function PizarraPage() {
           </button>
 
           <video ref={videoRef} className="video" playsInline />
-          <canvas ref={stageRef} className="canvas" />
+          <canvas id="stage" ref={stageRef} className="canvas" />
           <canvas ref={overlayRef} className="overlay-canvas" />
-          <div ref={cursorRef} className="cursor" />
+          <div id="cursor" ref={cursorRef} className="cursor" />
         </main>
       </div>
     </div>
