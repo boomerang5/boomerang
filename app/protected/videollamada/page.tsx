@@ -852,7 +852,15 @@ useEffect(() => {
         markHandled(payload.callId)
         log(`← reject (via user:${key})`)
         setIncoming(null) // cerrar banner
-        resetCall()
+        
+        // Si soy el caller (Usuario A), redirigir a pantalla principal
+        if (roleRef.current === 'caller') {
+          console.log('📞 [REJECT] Llamada rechazada por el peer, redirigiendo...')
+          resetCall()
+          redirectToMainPage()
+        } else {
+          resetCall()
+        }
       })
 
       ch.on('broadcast', { event: 'cancel' }, ({ payload }) => {
@@ -860,7 +868,15 @@ useEffect(() => {
         markHandled(payload.callId)
         log(`← cancel (via user:${key})`)
         setIncoming(null) // cerrar banner
-        resetCall()
+        
+        // Si soy el callee (Usuario B), redirigir a pantalla principal
+        if (roleRef.current === 'callee') {
+          console.log('📞 [CANCEL] Llamada cancelada por el caller, redirigiendo...')
+          resetCall()
+          redirectToMainPage()
+        } else {
+          resetCall()
+        }
       })
 
       await ensureSubscribed(ch)
@@ -1362,6 +1378,12 @@ useEffect(() => {
     setCallCh(null)
     callChRef.current = null
     setInCall(false)
+  }
+
+  // Función para redirigir a la pantalla principal cuando se rechaza la llamada
+  const redirectToMainPage = () => {
+    console.log('🔄 [REDIRECT] Redirigiendo a pantalla principal...')
+    router.push('/protected')
   }
 
   // Ocultar toast si volvemos a idle o perdemos callId
