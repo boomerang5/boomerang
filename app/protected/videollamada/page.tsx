@@ -135,6 +135,10 @@ export default function VideoCallPage() {
   const [sourceLang, setSourceLang] = useState('es-ES')
   const [showOriginalText, setShowOriginalText] = useState(true)
   const [translationError, setTranslationError] = useState<string | null>(null)
+  
+  // Cola de traducciones para TTS no bloqueante
+  const translationQueueRef = useRef<string[]>([])
+  const isPlayingTTSRef = useRef<boolean>(false)
 
   // === DEBUG helpers (exposed to window) ===
   function startSenderDebug(sender: RTCRtpSender, tag = 'TTS') {
@@ -307,6 +311,11 @@ useEffect(() => {
       setTranslationLatency(null);
       setTranslationError(null);
       
+      // Limpiar cola de traducciones cuando se desactiva
+      translationQueueRef.current = [];
+      isPlayingTTSRef.current = false;
+      console.log('🧹 [COLA] Cola limpiada al desactivar traducción');
+      
       // Restaurar audio del peer cuando se desactiva la traducción
       if (remoteVideoRef.current) {
         remoteVideoRef.current.muted = false;
@@ -416,6 +425,8 @@ useEffect(() => {
             // Calcular latencia
             const latency = Date.now() - startTime;
             setTranslationLatency(latency);
+            
+            console.log('🔄 [RECONOCIMIENTO] Reconociendo continuamente...', { translated: translated.substring(0, 50) });
           }
         };
 
@@ -425,9 +436,14 @@ useEffect(() => {
             const translated = e.result.translations.get(targetLang) || '';
             const original = e.result.text || '';
             
+            console.log('✅ [RECONOCIMIENTO] Reconocido (no bloqueante):', { 
+              original: original.substring(0, 50), 
+              translated: translated.substring(0, 50) 
+            });
+            
             setTranslationText(translated);
             setOriginalText(original);
-            setFinalText(translated); // disparar TTS solo con texto final
+            setFinalText(translated); // disparar TTS solo con texto final (no bloqueante)
             
             // Calcular latencia total
             const latency = Date.now() - startTime;
@@ -485,60 +501,82 @@ useEffect(() => {
     };
   }, [translateOn, targetLang, sourceLang]);
 
-  // === TTS: sintetizar texto final y reproducir SOLO localmente ===
-useEffect(() => {
-  if (!translateOn) return;
-  if (!finalText || finalText.startsWith('Error')) return;
-  if (translationError) return; // No hacer TTS si hay error
+  // === TTS: cola de traducciones no bloqueante ===
+  useEffect(() => {
+    if (!translateOn) return;
+    if (!finalText || finalText.startsWith('Error')) return;
+    if (translationError) return; // No hacer TTS si hay error
 
-  (async () => {
+    // Agregar a la cola de traducciones
+    translationQueueRef.current.push(finalText);
+    console.log(`📝 [COLA] Agregado a cola: "${finalText}" (cola: ${translationQueueRef.current.length})`);
+    
+    // Procesar cola si no está reproduciendo
+    if (!isPlayingTTSRef.current) {
+      processTranslationQueue();
+    }
+    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finalText, translateOn, voice])
+
+  // Función para procesar la cola de traducciones
+  const processTranslationQueue = async () => {
+    if (translationQueueRef.current.length === 0) return;
+    if (isPlayingTTSRef.current) return;
+
+    isPlayingTTSRef.current = true;
+    const textToPlay = translationQueueRef.current.shift();
+    
+    if (!textToPlay) {
+      isPlayingTTSRef.current = false;
+      return;
+    }
+
+    console.log(`🎤 [COLA] Procesando: "${textToPlay}" (restantes: ${translationQueueRef.current.length})`);
+
     try {
-      // Cerrar sintetizador previo
-      if (synthesizerRef.current) {
-        try { synthesizerRef.current.close() } catch {}
-        synthesizerRef.current = null
-      }
-
       const tokenData = lastTokenRef.current || await fetchSpeechToken();
       const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(tokenData.token, tokenData.region);
       speechConfig.speechSynthesisVoiceName = voice;
 
-        // Crear AudioContext para reproducir localmente
-        if (!audioCtxRef.current) {
-          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-        }
+      // Crear AudioContext para reproducir localmente
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      }
 
       const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
-      synthesizerRef.current = synthesizer;
-
       const ttsStartTime = Date.now();
-      console.log(`🎤 TTS: Starting synthesis for "${finalText}"`);
 
       synthesizer.speakTextAsync(
-        finalText,
+        textToPlay,
         async (result: SpeechSDK.SpeechSynthesisResult) => {
           try {
             const ttsLatency = Date.now() - ttsStartTime;
-            console.log(`✅ TTS: Completed in ${ttsLatency}ms`);
+            console.log(`✅ [COLA] Completado en ${ttsLatency}ms: "${textToPlay}"`);
             
             synthesizer.close();
-            synthesizerRef.current = null;
 
             if (result.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
               console.error('TTS failed:', (result as any).errorDetails)
               setTranslationError('Error en síntesis de voz: ' + ((result as any).errorDetails || 'Desconocido'));
+              isPlayingTTSRef.current = false;
+              processTranslationQueue(); // Continuar con la siguiente
               return
             }
 
             const audioData = (result as any).audioData
-            if (!audioData) return
+            if (!audioData) {
+              isPlayingTTSRef.current = false;
+              processTranslationQueue(); // Continuar con la siguiente
+              return;
+            }
 
             const arrayBuf = audioData instanceof ArrayBuffer ? audioData : new Uint8Array(audioData).buffer
 
-              // Decodificar el audio
+            // Decodificar el audio
             let audioBuffer: AudioBuffer | null = null
             try {
-                audioBuffer = await audioCtxRef.current!.decodeAudioData(arrayBuf.slice(0) as ArrayBuffer)
+              audioBuffer = await audioCtxRef.current!.decodeAudioData(arrayBuf.slice(0) as ArrayBuffer)
             } catch (e) {
               // Fallback a callback API
               audioBuffer = await new Promise((res, rej) => {
@@ -546,36 +584,48 @@ useEffect(() => {
               })
             }
 
-            if (!audioBuffer) return
+            if (!audioBuffer) {
+              isPlayingTTSRef.current = false;
+              processTranslationQueue(); // Continuar con la siguiente
+              return;
+            }
 
-              // Reproducir el audio LOCALMENTE (conectar al destino de audio del navegador)
-              const src = audioCtxRef.current!.createBufferSource()
+            // Reproducir el audio LOCALMENTE
+            const src = audioCtxRef.current!.createBufferSource()
             src.buffer = audioBuffer
-              // Conectar al destino de audio del navegador para reproducción local
-              src.connect(audioCtxRef.current!.destination)
+            src.connect(audioCtxRef.current!.destination)
             src.start()
 
-              console.log('✅ TTS: Audio reproducido localmente')
+            console.log('✅ [COLA] Audio reproducido localmente');
+
+            // Cuando termine la reproducción, procesar la siguiente
+            src.onended = () => {
+              isPlayingTTSRef.current = false;
+              processTranslationQueue(); // Continuar con la siguiente en la cola
+            };
 
           } catch (err) {
             console.error('TTS speak handler error', err)
             setTranslationError('Error procesando audio TTS: ' + (err as Error).message);
+            isPlayingTTSRef.current = false;
+            processTranslationQueue(); // Continuar con la siguiente
           }
         },
         (error: string) => {
           console.error('TTS error:', error)
           setTranslationError('Error en TTS: ' + error);
           try { synthesizer.close() } catch {}
-          synthesizerRef.current = null
+          isPlayingTTSRef.current = false;
+          processTranslationQueue(); // Continuar con la siguiente
         }
       )
     } catch (err) {
       console.error('TTS exception:', err)
       setTranslationError('Error iniciando TTS: ' + (err as Error).message);
+      isPlayingTTSRef.current = false;
+      processTranslationQueue(); // Continuar con la siguiente
     }
-  })()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalText, translateOn, voice])
+  }
 
   const toggleCaptions = () => setCaptionsOn(v => !v)
   const toggleShare = () => { setShareOn(v => !v) }
