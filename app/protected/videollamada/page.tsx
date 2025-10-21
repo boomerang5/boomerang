@@ -247,7 +247,6 @@ export default function VideoCallPage() {
   const [camOn, setCamOn] = useState(true)
 
   // ---- Controles extra
-  const [captionsOn, setCaptionsOn] = useState(false)
   const [shareOn, setShareOn] = useState(false)
   const [translateOn, setTranslateOn] = useState(false)
 
@@ -627,12 +626,9 @@ useEffect(() => {
     }
   }
 
-  const toggleCaptions = () => setCaptionsOn(v => !v)
   const toggleShare = () => { setShareOn(v => !v) }
   const toggleTranslate = () => { setTranslateOn(v => !v) }
   const openChat = () => setPanel(p => (p === 'chat' ? 'none' : 'chat'))
-  const openPeople = () => setPanel(p => (p === 'people' ? 'none' : 'people'))
-  const openSettings = () => setPanel(p => (p === 'settings' ? 'none' : 'settings'))
 
   // ---- Log
   const logRef = useRef<HTMLPreElement | null>(null)
@@ -653,7 +649,7 @@ useEffect(() => {
   // Feather icons
   useEffect(() => {
     feather.replace()
-  }, [micOn, camOn, shareOn, captionsOn, translateOn, panel])
+  }, [micOn, camOn, shareOn, translateOn, panel])
 
   // ========= 1) Supabase client
   useEffect(() => {
@@ -1189,7 +1185,10 @@ useEffect(() => {
         try { await pcRef.current!.addIceCandidate(m.candidate) } catch (e) { log('! addIceCandidate: ' + (e as Error).message) }
       } else if (m.type === 'hangup') {
         log('← hangup')
+        console.log('📞 [HANGUP] Peer colgó la llamada, redirigiendo...')
         await endLocalCall('remote_hangup')
+        // Redirigir a pantalla principal
+        redirectToMainPage()
       }
     })
 
@@ -1320,10 +1319,13 @@ useEffect(() => {
   }
 
   const hangup = async () => {
+    console.log('📞 [HANGUP] Usuario colgando la llamada...')
     if (callChRef.current && callIdRef.current) {
       try { await sendSignal({ type: 'hangup', from: meId }) } catch {}
     }
     await endLocalCall('local_hangup')
+    // Redirigir a pantalla principal
+    redirectToMainPage()
   }
 
   const endLocalCall = async (reason: string = 'normal') => {
@@ -1548,15 +1550,6 @@ useEffect(() => {
                   />
                   <span className="text-gray-600 dark:text-gray-400">Mostrar original</span>
                 </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={captionsOn}
-                    onChange={toggleCaptions}
-                    className="rounded"
-                  />
-                  <span className="text-gray-600 dark:text-gray-400">Subtítulos</span>
-                </label>
               </div>
             </div>
           </div>
@@ -1597,18 +1590,14 @@ useEffect(() => {
         <CallControls
           micOn={micOn}
           camOn={camOn}
-          captionsOn={captionsOn}
           shareOn={shareOn}
           translateOn={translateOn}
           translationError={translationError}
           onToggleMic={toggleLocalMic}
           onToggleCam={toggleLocalCam}
-          onToggleCaptions={toggleCaptions}
           onToggleShare={toggleShare}
           onToggleTranslate={toggleTranslate}
           onOpenChat={openChat}
-          onOpenPeople={openPeople}
-          onOpenSettings={openSettings}
           onHangup={hangup}
         />
 
@@ -1710,13 +1699,13 @@ function VideoTile({
 /* =================== Barra de controles flotante =================== */
 
 function CallControls({
-  micOn, camOn, captionsOn, shareOn, translateOn, translationError,
-  onToggleMic, onToggleCam, onToggleCaptions, onToggleShare, onToggleTranslate,
-  onOpenChat, onOpenPeople, onOpenSettings, onHangup,
+  micOn, camOn, shareOn, translateOn, translationError,
+  onToggleMic, onToggleCam, onToggleShare, onToggleTranslate,
+  onOpenChat, onHangup,
 }: {
-  micOn: boolean; camOn: boolean; captionsOn: boolean; shareOn: boolean; translateOn: boolean; translationError: string | null;
-  onToggleMic: () => void; onToggleCam: () => void; onToggleCaptions: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
-  onOpenChat: () => void; onOpenPeople: () => void; onOpenSettings: () => void; onHangup: () => void;
+  micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; translationError: string | null;
+  onToggleMic: () => void; onToggleCam: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
+  onOpenChat: () => void; onHangup: () => void;
 }) {
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
@@ -1732,10 +1721,7 @@ function CallControls({
         <RoundBtn active={micOn} onClick={onToggleMic} title={micOn ? 'Silenciar micrófono' : 'Activar micrófono'} icon="mic" />
         <RoundBtn active={camOn} onClick={onToggleCam} title={camOn ? 'Apagar cámara' : 'Encender cámara'} icon="video" />
         <RoundBtn active={shareOn} onClick={onToggleShare} title="Compartir pantalla" icon="monitor" />
-        <RoundBtn active={captionsOn} onClick={onToggleCaptions} title="Subtítulos" icon="type" />
         <RoundBtn onClick={onOpenChat} title="Chat" icon="message-square" />
-        <RoundBtn onClick={onOpenPeople} title="Personas" icon="users" />
-        <RoundBtn onClick={onOpenSettings} title="Ajustes" icon="settings" />
 
         <span className="mx-3 hidden h-6 w-px bg-black/10 dark:bg-white/15 sm:inline" />
 
