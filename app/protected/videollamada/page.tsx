@@ -128,11 +128,8 @@ export default function VideoCallPage() {
   const recognizerRef = useRef<SpeechSDK.TranslationRecognizer | null>(null)
   const synthesizerRef = useRef<SpeechSDK.SpeechSynthesizer | null>(null)
   const lastTokenRef = useRef<{ token: string, region: string } | null>(null)
-  // Refs para enrutar TTS al peer
+  // Refs para TTS local
   const audioCtxRef = useRef<AudioContext | null>(null)
-  const ttsDestRef = useRef<MediaStreamAudioDestinationNode | null>(null)
-  const ttsSenderRef = useRef<RTCRtpSender | null>(null)
-  const micSenderRef = useRef<RTCRtpSender | null>(null)
   const [finalText, setFinalText] = useState('')
   const [autoDetectLang, setAutoDetectLang] = useState(false)
   const [sourceLang, setSourceLang] = useState('es-ES')
@@ -475,8 +472,7 @@ useEffect(() => {
     };
   }, [translateOn, targetLang, sourceLang]);
 
-  // === TTS: hablar traducción cada vez que cambia translationText ===
-// ==== TTS: sintetizar SOLO texto final y enviar al peer vía MediaStreamDestination ====
+  // === TTS: sintetizar texto final y reproducir SOLO localmente ===
 useEffect(() => {
   if (!translateOn) return;
   if (!finalText || finalText.startsWith('Error')) return;
@@ -494,7 +490,11 @@ useEffect(() => {
       const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(tokenData.token, tokenData.region);
       speechConfig.speechSynthesisVoiceName = voice;
 
-      // No provemos audioConfig: evitamos reproducir localmente
+        // Crear AudioContext para reproducir localmente
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+        }
+
       const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
       synthesizerRef.current = synthesizer;
 
@@ -517,19 +517,15 @@ useEffect(() => {
               return
             }
 
-            // Preparar AudioContext / destino
-            if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-            if (!ttsDestRef.current) ttsDestRef.current = audioCtxRef.current.createMediaStreamDestination()
-
             const audioData = (result as any).audioData
             if (!audioData) return
 
             const arrayBuf = audioData instanceof ArrayBuffer ? audioData : new Uint8Array(audioData).buffer
 
-            // decodeAudioData puede devolver Promise en algunos navegadores
+              // Decodificar el audio
             let audioBuffer: AudioBuffer | null = null
             try {
-              audioBuffer = await audioCtxRef.current.decodeAudioData(arrayBuf.slice(0) as ArrayBuffer)
+                audioBuffer = await audioCtxRef.current!.decodeAudioData(arrayBuf.slice(0) as ArrayBuffer)
             } catch (e) {
               // Fallback a callback API
               audioBuffer = await new Promise((res, rej) => {
@@ -539,47 +535,14 @@ useEffect(() => {
 
             if (!audioBuffer) return
 
-            const src = audioCtxRef.current.createBufferSource()
+              // Reproducir el audio LOCALMENTE (conectar al destino de audio del navegador)
+              const src = audioCtxRef.current!.createBufferSource()
             src.buffer = audioBuffer
-            // Conectar SOLO al destino (no a los parlantes)
-            src.connect(ttsDestRef.current)
+              // Conectar al destino de audio del navegador para reproducción local
+              src.connect(audioCtxRef.current!.destination)
             src.start()
 
-            // Asegurarnos de que la pista del destino se envíe por WebRTC
-            try {
-              if (pcRef.current && ttsDestRef.current) {
-                const ttsTrack = ttsDestRef.current.stream.getAudioTracks()[0]
-                if (ttsTrack) {
-                  if (!ttsSenderRef.current) {
-                    ttsSenderRef.current = pcRef.current.addTrack(ttsTrack, ttsDestRef.current.stream)
-                    console.log('TTS: added sender', { trackId: ttsTrack.id })
-                  } else {
-                    try { await ttsSenderRef.current.replaceTrack(ttsTrack); console.log('TTS: replaced sender', { trackId: ttsTrack.id }) } catch {}
-                  }
-                }
-              }
-            } catch (e) {
-              console.error('Error al agregar TTS track al PC', e)
-            }
-
-            // Opcional: dejar de enviar micrófono al peer mientras TTS activo
-            try {
-              if (translateOn && micSenderRef.current) {
-                console.log('TTS: replacing mic sender with null')
-                try { await micSenderRef.current.replaceTrack(null); console.log('TTS: mic sender replaced with null') } catch (err) { console.error('TTS: mic replaceTrack(null) error', err) }
-              }
-            } catch (e) { /* noop */ }
-
-            // Limpiar cuando termine la reproducción
-            src.onended = () => {
-              try {
-                if (ttsSenderRef.current && pcRef.current) {
-                  try { pcRef.current.removeTrack(ttsSenderRef.current) } catch {}
-                  ttsSenderRef.current = null
-                }
-                try { if (ttsDestRef.current) { ttsDestRef.current.stream.getTracks().forEach(t=>t.stop()) } } catch {}
-              } catch (e) {}
-            }
+              console.log('✅ TTS: Audio reproducido localmente')
 
           } catch (err) {
             console.error('TTS speak handler error', err)
@@ -599,7 +562,7 @@ useEffect(() => {
     }
   })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [finalText, translateOn])
+  }, [finalText, translateOn, voice])
 
   const toggleCaptions = () => setCaptionsOn(v => !v)
   const toggleShare = () => { setShareOn(v => !v) }
@@ -1087,11 +1050,6 @@ useEffect(() => {
       }
     }
     pcRef.current = pc
-    // Inicializar AudioContext/MediaStreamDestination para TTS cuando se cree el PC
-    try {
-      if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-      if (!ttsDestRef.current && audioCtxRef.current) ttsDestRef.current = audioCtxRef.current.createMediaStreamDestination()
-    } catch (e) { /* noop */ }
   }
 
   const joinCallChannel = async (id: string | null) => {
@@ -1128,14 +1086,10 @@ useEffect(() => {
         log('← offer')
         if (!localStreamRef.current) await enableCam()
         await pcRef.current!.setRemoteDescription(m.sdp)
-        // Agregar tracks y guardar el sender del mic para poder mutearlo sin cortar
+        // Agregar tracks
         localStreamRef.current!.getTracks().forEach(t => {
           try {
-            const sender = pcRef.current!.addTrack(t, localStreamRef.current!)
-            if (t.kind === 'audio') {
-              micSenderRef.current = sender
-              console.log('offer: mic sender created', { trackId: sender?.track?.id ?? null })
-            }
+            pcRef.current!.addTrack(t, localStreamRef.current!)
           } catch (e) { /* noop */ }
         })
         const answer = await pcRef.current!.createAnswer()
@@ -1186,14 +1140,10 @@ useEffect(() => {
     if (!localStreamRef.current) { log('Start call: primero Enable camera'); return }
 
     if (!pcRef.current) mkPC()
-    // Agregar tracks y guardar el sender del mic
+    // Agregar tracks
     localStreamRef.current.getTracks().forEach(t => {
       try {
-        const sender = pcRef.current!.addTrack(t, localStreamRef.current!)
-        if (t.kind === 'audio') {
-          micSenderRef.current = sender
-          console.log('startCall: mic sender created', { trackId: sender?.track?.id ?? null })
-        }
+        pcRef.current!.addTrack(t, localStreamRef.current!)
       } catch (e) { /* noop */ }
     })
     const offer = await pcRef.current!.createOffer()
@@ -1329,37 +1279,12 @@ useEffect(() => {
     try { localStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
     if (localVideoRef.current?.srcObject) localVideoRef.current.srcObject = null
     if (remoteVideoRef.current?.srcObject) remoteVideoRef.current.srcObject = null
-    // Limpiar TTS y mic sender (si quedó alguna pista/sender)
-    try {
-      const pc = pcRef.current
-      if (ttsSenderRef.current && pc) {
-        try { pc.removeTrack(ttsSenderRef.current) } catch {}
-        ttsSenderRef.current = null
-      }
-      if (micSenderRef.current && pc) {
-        try { pc.removeTrack(micSenderRef.current) } catch {}
-        micSenderRef.current = null
-      }
-    } catch {}
-    try { if (ttsDestRef.current) { try { ttsDestRef.current.stream.getTracks().forEach(t=>t.stop()) } catch {} ttsDestRef.current = null } } catch {}
+    // Limpiar AudioContext
     try { if (audioCtxRef.current) { try { audioCtxRef.current.close() } catch {} audioCtxRef.current = null } } catch {}
     try { pcRef.current?.close() } catch {}
     pcRef.current = null
     localStreamRef.current = null
   }
-
-  // Restaurar mic al peer cuando se apaga la traducción
-  useEffect(() => {
-    if (translateOn) return
-    ;(async () => {
-      try {
-        const micTrack = localStreamRef.current?.getAudioTracks()[0] || null
-        if (micSenderRef.current && micTrack) {
-          try { await micSenderRef.current.replaceTrack(micTrack) } catch {}
-        }
-      } catch (e) { /* noop */ }
-    })()
-  }, [translateOn])
 
   const resetCall = () => {
     // No marcamos acá porque reject/cancel ya marcaron; si cae por otro camino:
@@ -1374,15 +1299,6 @@ useEffect(() => {
     setCallCh(null)
     callChRef.current = null
     setInCall(false)
-    // Restaurar mic en caso de que se haya reemplazado
-    ;(async () => {
-      try {
-        const micTrack = localStreamRef.current?.getAudioTracks()[0] || null
-        if (micSenderRef.current && micTrack) {
-          try { await micSenderRef.current.replaceTrack(micTrack) } catch {}
-        }
-      } catch (e) { /* noop */ }
-    })()
   }
 
   // Ocultar toast si volvemos a idle o perdemos callId
