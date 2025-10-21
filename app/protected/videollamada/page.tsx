@@ -306,7 +306,17 @@ useEffect(() => {
       setOriginalText('');
       setTranslationLatency(null);
       setTranslationError(null);
+      
+      // Restaurar audio del peer cuando se desactiva la traducción
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.muted = false;
+      }
       return;
+    }
+
+    // Silenciar audio del peer cuando se activa la traducción
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = true;
     }
 
     let cancelled = false;
@@ -337,15 +347,18 @@ useEffect(() => {
           return;
         }
 
-        // 2) Crear AudioContext para capturar el audio del peer
+        // 2) Crear AudioContext para capturar SOLO el audio del peer
         remoteAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        remoteAudioSource = remoteAudioContext.createMediaStreamSource(remoteStream);
+        
+        // Crear un stream que contenga SOLO el audio del peer
+        const peerOnlyStream = new MediaStream([remoteAudioTrack]);
+        remoteAudioSource = remoteAudioContext.createMediaStreamSource(peerOnlyStream);
         remoteAudioDestination = remoteAudioContext.createMediaStreamDestination();
 
-        // Conectar el audio del peer al destino
+        // Conectar SOLO el audio del peer al destino
         remoteAudioSource.connect(remoteAudioDestination);
 
-        // 3) Crear audioConfig usando el audio del peer
+        // 3) Crear audioConfig usando SOLO el audio del peer
         const audioConfig = SpeechSDK.AudioConfig.fromStreamInput(remoteAudioDestination.stream);
 
         // 4) Configurar SpeechTranslationConfig
