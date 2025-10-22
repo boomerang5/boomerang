@@ -1430,19 +1430,6 @@ useEffect(() => {
 
             <div className="flex items-center gap-3">
               <TimeBadge />
-              <button
-                className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/20 px-3 py-1.5 text-sm backdrop-blur-md hover:brightness-105"
-                title="Copiar enlace de reunión"
-                onClick={() => {
-                  const url = new URL(window.location.href)
-                  url.searchParams.set('peer', meId || '')
-                  navigator.clipboard.writeText(url.toString())
-                  log('→ enlace copiado con ?peer=' + (meId || ''))
-                }}
-              >
-                <i data-feather="link" className="w-4 h-4" />
-                Copiar enlace
-              </button>
             </div>
           </div>
 
@@ -1676,21 +1663,6 @@ function VideoTile({
           <div className="text-sm text-black/50 dark:text-white/70">{camOn && inCall ? 'Conectando…' : 'Cámara apagada'}</div>
         </div>
       </div>
-      <div className="absolute inset-x-0 bottom-0 p-2">
-        <div className="flex items-center justify-between rounded-xl bg-black/30 backdrop-blur-md px-2 py-1 text-white">
-          <span className="truncate text-xs font-medium">
-            {name} {isYou && <em className="opacity-75">(tú)</em>}
-          </span>
-          <div className="flex items-center gap-1">
-            <span className="rounded-md bg-white/20 p-1" title={micOn ? 'Micrófono encendido' : 'Micrófono silenciado'}>
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M12 1v11a4 4 0 004-4V5a4 4 0 00-8 0v3a4 4 0 004 4" stroke="currentColor" strokeWidth="2"/></svg>
-            </span>
-            <span className="rounded-md bg-white/20 p-1" title={camOn ? 'Cámara encendida' : 'Cámara apagada'}>
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M23 7l-7 5 7 5V7zM1 5h14a2 2 0 012 2v10a2 2 0 01-2 2H1a1 1 0 01-1-1V6a1 1 0 011-1z" stroke="currentColor" strokeWidth="2"/></svg>
-            </span>
-          </div>
-        </div>
-      </div>
       <div className={clsx('absolute inset-0 rounded-2xl pointer-events-none', inCall ? 'ring-1 ring-green-400/30' : 'ring-1 ring-orange-400/30')} />
     </div>
   )
@@ -1711,12 +1683,12 @@ function CallControls({
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
       <div
         className={clsx(
-          "pointer-events-auto flex items-center gap-2 rounded-[28px] px-3 py-2 sm:px-4",
+          "pointer-events-auto flex items-center gap-1.5 rounded-[20px] px-2 py-1.5",
           "bg-white/80 text-gray-800 shadow-xl ring-1 ring-black/5",
           "dark:bg-neutral-900/80 dark:text-neutral-100 dark:ring-white/10",
           "backdrop-blur-xl"
         )}
-        style={{ maxWidth: 980, width: "100%", justifyContent: "center" }}
+        style={{ maxWidth: 600, width: "auto", justifyContent: "center" }}
       >
         <RoundBtn active={micOn} onClick={onToggleMic} title={micOn ? 'Silenciar micrófono' : 'Activar micrófono'} icon="mic" />
         <RoundBtn active={camOn} onClick={onToggleCam} title={camOn ? 'Apagar cámara' : 'Encender cámara'} icon="video" />
