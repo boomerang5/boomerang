@@ -8,6 +8,8 @@ import { changeStateUser } from '../services/user/changeStateUserService';
 import { getStateUser } from '../services/user/getStateUserService';
 import { updateUserProfilePhoto } from '../services/user/updateUserProfilePhotoService';
 import { getUserLanguageService } from '../services/user/getUserLanguageService';
+import { getAllIdiomasService } from '../services/user/getAllIdiomasService';
+import { getAllGenerosService } from '../services/user/getAllGenerosService';
 
 
 // GET_ALL_CONTACTS
@@ -37,11 +39,12 @@ export const create_usuario_profile = async (req: Request, res: Response) => {
     idioma,
     apodo,
     user_id,
+    email,
     genero,
     fecha_nacimiento,
   } = req.body;
 
-  if (!nombre || !apellido || !idioma || !apodo || !user_id) {
+  if (!nombre || !apellido || !idioma || !apodo || !user_id || !email) {
     return res.status(400).json({ error: "Faltan campos requeridos." });
   }
 
@@ -52,6 +55,7 @@ export const create_usuario_profile = async (req: Request, res: Response) => {
       idioma,
       apodo,
       user_id,
+      email,
       genero,
       fecha_nacimiento,
     });
@@ -193,6 +197,28 @@ export const get_user_language = async (req: Request, res: Response) => {
     return res.status(200).json(data);
   } catch (error: any) {
     console.error("❌ Error en get_user_language:", error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// GET_ALL_IDIOMAS
+export const get_all_idiomas = async (req: Request, res: Response) => {
+  try {
+    const data = await getAllIdiomasService();
+    return res.status(200).json(data);
+  } catch (error: any) {
+    console.error("❌ Error en get_all_idiomas:", error);
+    return res.status(500).json({ error: error.message });
+  }
+}
+
+// GET_ALL_GENEROS
+export const get_all_generos = async (req: Request, res: Response) => {
+  try {
+    const data = await getAllGenerosService();
+    return res.status(200).json(data);
+  } catch (error: any) {
+    console.error("❌ Error en get_all_generos:", error);
     return res.status(500).json({ error: error.message });
   }
 }
