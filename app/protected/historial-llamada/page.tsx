@@ -125,7 +125,7 @@ export default function CallHistoryPage() {
     if (filters.dateFrom) params.set('from', filters.dateFrom)
     if (filters.dateTo) params.set('to', filters.dateTo)
 
-    fetch(`/api/calls/history?${params.toString()}`, { headers: { 'cache-control': 'no-store' } })
+    fetch(`/api/llamadas/historial?${params.toString()}`, { headers: { 'cache-control': 'no-store' } })
       .then(async (r) => {
         if (!r.ok) throw new Error(await r.text())
         return r.json()
@@ -376,11 +376,11 @@ export default function CallHistoryPage() {
                   <div className="text-xs opacity-60 mb-2">Grabación</div>
                   <div className="flex gap-2">
                     <a className="px-3 py-2 rounded-xl border border-black/10 hover:bg-black/5 text-sm"
-                        href={`/api/calls/recording?id_archivo=${selected.id_archivo_grabacion}`} target="_blank">
+                        href={`/api/llamadas/recording?id_archivo=${selected.id_archivo_grabacion}`} target="_blank">
                       Descargar
                     </a>
                     <a className="px-3 py-2 rounded-xl border border-black/10 hover:bg-black/5 text-sm"
-                        href={`/api/calls/transcript?id_llamada=${selected.id_llamada}`} target="_blank">
+                        href={`/api/llamadas/transcript?id_llamada=${selected.id_llamada}`} target="_blank">
                       Ver transcripción
                     </a>
                   </div>

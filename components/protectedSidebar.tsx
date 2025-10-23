@@ -28,11 +28,6 @@ export default function ProtectedSidebar() {
             <i data-feather="user" className={cls('/protected/perfil')} />
           </Link>
 
-          {/* Video (placeholder) */}
-          <div className="cursor-pointer">
-            <i data-feather="video" className="w-5 h-5 text-black dark:text-white hover:text-orange-500 transition" />
-          </div>
-
           {/* Historial de llamadas */}
           <Link href="/protected/historial-llamada" aria-label="Historial de llamadas">
             <i data-feather="clock" className={cls('/protected/historial-llamada')} />

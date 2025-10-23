@@ -65,7 +65,7 @@ router.get("/info/:idUsuario/:idLlamada", get_call_info);
 
 /**
  * @swagger
- * /api/llamadas/history:
+ * /api/llamadas/historial:
  *   get:
  *     summary: Obtiene el historial de llamadas de un usuario
  *     tags: [Llamadas]
@@ -107,7 +107,7 @@ router.get("/info/:idUsuario/:idLlamada", get_call_info);
  *       500:
  *         description: Error interno al obtener historial de llamadas
  */
-router.get("/history", get_user_call_history);
+router.get("/historial", get_user_call_history);
 
 
-export default router;
+export default router;
