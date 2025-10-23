@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import * as SpeechSDK from 'microsoft-cognitiveservices-speech-sdk'
 // Utilidad para obtener el token de Azure Speech Translation
 async function fetchSpeechToken() {
-  const res = await fetch('/api/token');
+  const res = await fetch('http://localhost:4000/token');
   if (!res.ok) throw new Error('No se pudo obtener el token de traducción');
   return await res.json(); // { token, region }
 }
@@ -123,75 +123,9 @@ export default function VideoCallPage() {
   const router = useRouter()
   // Traducción de voz
   const [translationText, setTranslationText] = useState('')
-  const [originalText, setOriginalText] = useState('') // Texto original del peer
-  const [translationLatency, setTranslationLatency] = useState<number | null>(null)
-  const recognizerRef = useRef<SpeechSDK.TranslationRecognizer | null>(null)
-  const synthesizerRef = useRef<SpeechSDK.SpeechSynthesizer | null>(null)
-  const lastTokenRef = useRef<{ token: string, region: string } | null>(null)
-  // Refs para TTS local
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const [finalText, setFinalText] = useState('')
-  const [autoDetectLang, setAutoDetectLang] = useState(false)
-  const [sourceLang, setSourceLang] = useState('es-ES')
-  const [showOriginalText, setShowOriginalText] = useState(true)
-  const [translationError, setTranslationError] = useState<string | null>(null)
-  
-  // Cola de traducciones para TTS no bloqueante
-  const translationQueueRef = useRef<string[]>([])
-  const isPlayingTTSRef = useRef<boolean>(false)
-
-  // === DEBUG helpers (exposed to window) ===
-  function startSenderDebug(sender: RTCRtpSender, tag = 'TTS') {
-    let lastBytes = 0, lastTs = 0;
-    const id = setInterval(async () => {
-      try {
-        const stats = await sender.getStats();
-        stats.forEach((r:any) => {
-          if (r.type === 'outbound-rtp' && r.kind === 'audio') {
-            if (lastTs) {
-              const dt = (r.timestamp - lastTs) / 1000;
-              const db = r.bytesSent - lastBytes;
-              const kbps = (db * 8) / 1000 / dt;
-              console.log(`${tag}: outbound audio ~${kbps.toFixed(1)} kbps, packets=${r.packetsSent}`);
-            }
-            lastBytes = r.bytesSent; lastTs = r.timestamp;
-          }
-        });
-      } catch {}
-    }, 1000);
-    return () => clearInterval(id);
-  }
-
-  function startInboundAudioDebug(pc: RTCPeerConnection, tag='PEER') {
-    const rx = pc.getReceivers().find(r => r.track && r.track.kind === 'audio');
-    if (!rx) { console.warn(tag+': no audio receiver'); return () => {}; }
-    let lastBytes = 0, lastTs = 0;
-    const id = setInterval(async () => {
-      try {
-        const stats = await rx.getStats();
-        stats.forEach((r:any) => {
-          if (r.type === 'inbound-rtp' && r.kind === 'audio') {
-            if (lastTs) {
-              const dt = (r.timestamp - lastTs) / 1000;
-              const db = r.bytesReceived - lastBytes;
-              const kbps = (db * 8) / 1000 / dt;
-              console.log(`${tag}: inbound audio ~${kbps.toFixed(1)} kbps, packets=${r.packetsReceived}`);
-            }
-            lastBytes = r.bytesReceived; lastTs = r.timestamp;
-          }
-        });
-      } catch {}
-    }, 1000);
-    return () => clearInterval(id);
-  }
-
-  useEffect(() => {
-    // Exponer helpers para debug desde consola
-    ;(window as any).startSenderDebug = startSenderDebug;
-    ;(window as any).startInboundAudioDebug = startInboundAudioDebug;
-  }, [])
-
-  // ...existing code...
+    const recognizerRef = useRef<SpeechSDK.TranslationRecognizer | null>(null)
+    const synthesizerRef = useRef<SpeechSDK.SpeechSynthesizer | null>(null)
+    const lastTokenRef = useRef<{ token: string, region: string } | null>(null)
 
   // ---- UI base
   const [inCall, setInCall] = useState(false)
@@ -247,21 +181,12 @@ export default function VideoCallPage() {
   const [camOn, setCamOn] = useState(true)
 
   // ---- Controles extra
+  const [captionsOn, setCaptionsOn] = useState(false)
   const [shareOn, setShareOn] = useState(false)
   const [translateOn, setTranslateOn] = useState(false)
 
   // === Opciones de idiomas y voces ===
-const SOURCE_LANGUAGE_OPTIONS = [
-  { value: 'es-ES', label: 'Español' },
-  { value: 'en-US', label: 'Inglés' },
-  { value: 'pt-BR', label: 'Portugués' },
-  { value: 'fr-FR', label: 'Francés' },
-  { value: 'it-IT', label: 'Italiano' },
-  { value: 'de-DE', label: 'Alemán' },
-  { value: 'auto', label: 'Detección automática' },
-];
-
-const TARGET_LANGUAGE_OPTIONS = [
+const LANGUAGE_OPTIONS = [
   { value: 'en', label: 'Inglés', voices: [
     { value: 'en-US-AriaNeural', label: 'Femenina (Inglés)' },
     { value: 'en-US-GuyNeural', label: 'Masculina (Inglés)' },
@@ -278,17 +203,13 @@ const TARGET_LANGUAGE_OPTIONS = [
     { value: 'it-IT-ElsaNeural', label: 'Femenina (Italiano)' },
     { value: 'it-IT-DiegoNeural', label: 'Masculina (Italiano)' },
   ] },
-  { value: 'es', label: 'Español', voices: [
-    { value: 'es-ES-ElviraNeural', label: 'Femenina (Español)' },
-    { value: 'es-ES-AlvaroNeural', label: 'Masculina (Español)' },
-  ] },
 ];
 const [targetLang, setTargetLang] = useState('en');
-const [voice, setVoice] = useState(TARGET_LANGUAGE_OPTIONS[0].voices[0].value);
+const [voice, setVoice] = useState(LANGUAGE_OPTIONS[0].voices[0].value);
 
 // Actualizar voz cuando cambia idioma
 useEffect(() => {
-  const lang = TARGET_LANGUAGE_OPTIONS.find(l => l.value === targetLang);
+  const lang = LANGUAGE_OPTIONS.find(l => l.value === targetLang);
   if (lang) setVoice(lang.voices[0].value);
 }, [targetLang]);
 
@@ -299,336 +220,111 @@ useEffect(() => {
       if (recognizerRef.current) {
         recognizerRef.current.stopContinuousRecognitionAsync(() => {
           recognizerRef.current?.close();
+              // Apagar recognizer y synthesizer si están encendidos
         });
       }
-      if (synthesizerRef.current) {
-        synthesizerRef.current.close();
-        synthesizerRef.current = null;
-      }
       setTranslationText('');
-      setOriginalText('');
-      setTranslationLatency(null);
-      setTranslationError(null);
-      
-      // Limpiar cola de traducciones cuando se desactiva
-      translationQueueRef.current = [];
-      isPlayingTTSRef.current = false;
-      console.log('🧹 [COLA] Cola limpiada al desactivar traducción');
-      
-      // Restaurar audio del peer cuando se desactiva la traducción
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.muted = false;
-      }
       return;
     }
 
-    // Silenciar audio del peer cuando se activa la traducción
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.muted = true;
-    }
-
+              if (synthesizerRef.current) {
+                synthesizerRef.current.close();
+                synthesizerRef.current = null;
+              }
     let cancelled = false;
-    let remoteAudioContext: AudioContext | null = null;
-    let remoteAudioSource: MediaStreamAudioSourceNode | null = null;
-    let remoteAudioDestination: MediaStreamAudioDestinationNode | null = null;
-
     (async () => {
       try {
-        setTranslationError(null);
         const { token, region } = await fetchSpeechToken();
-        lastTokenRef.current = { token, region };
+        const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+        const speechConfig = SpeechSDK.SpeechTranslationConfig.fromAuthorizationToken(token, region);
+        // Configura idioma de origen y destino (ajusta según tu app)
+        speechConfig.speechRecognitionLanguage = 'es-ES';
+        speechConfig.addTargetLanguage(targetLang);
 
-        // 1) Capturar audio del peer (remoteVideoRef) en lugar del micrófono local
-        const remoteVideo = remoteVideoRef.current;
-        if (!remoteVideo || !remoteVideo.srcObject) {
-          setTranslationError('No hay audio del peer disponible. Asegúrate de estar en una llamada.');
-          console.warn('No remote video/audio available');
-          return;
-        }
-
-        const remoteStream = remoteVideo.srcObject as MediaStream;
-        const remoteAudioTrack = remoteStream.getAudioTracks()[0];
-        
-        if (!remoteAudioTrack) {
-          setTranslationError('El peer no está enviando audio.');
-          console.warn('No remote audio track');
-          return;
-        }
-
-        // 2) Crear AudioContext para capturar SOLO el audio del peer
-        remoteAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        
-        // Crear un stream que contenga SOLO el audio del peer
-        const peerOnlyStream = new MediaStream([remoteAudioTrack]);
-        remoteAudioSource = remoteAudioContext.createMediaStreamSource(peerOnlyStream);
-        remoteAudioDestination = remoteAudioContext.createMediaStreamDestination();
-
-        // Conectar SOLO el audio del peer al destino
-        remoteAudioSource.connect(remoteAudioDestination);
-
-        // 3) Crear audioConfig usando SOLO el audio del peer
-        const audioConfig = SpeechSDK.AudioConfig.fromStreamInput(remoteAudioDestination.stream);
-
-        // 4) Configurar SpeechTranslationConfig
-        const stConfig = SpeechSDK.SpeechTranslationConfig.fromAuthorizationToken(token, region);
-        
-        // Detección automática o idioma específico
-        if (sourceLang === 'auto') {
-          try {
-            stConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceConnection_AutoDetectSourceLanguages, JSON.stringify({
-              mode: 'Single'
-            }));
-            stConfig.addTargetLanguage(targetLang);
-          } catch (e) {
-            console.warn('Auto-detect not supported, falling back to es-ES');
-            stConfig.speechRecognitionLanguage = 'es-ES';
-            stConfig.addTargetLanguage(targetLang);
-          }
-        } else {
-          stConfig.speechRecognitionLanguage = sourceLang;
-          stConfig.addTargetLanguage(targetLang);
-        }
-
-        // Post-processing y configuraciones
-        try {
-          stConfig.setProperty(
-            SpeechSDK.PropertyId.SpeechServiceResponse_PostProcessingOption,
-            'TrueText'
-          );
-        } catch (e) {}
-        try {
-          stConfig.setProperty(
-            SpeechSDK.PropertyId.Speech_SegmentationSilenceTimeoutMs,
-            String(800)
-          );
-        } catch (e) {}
-        try { 
-          stConfig.setProfanity(SpeechSDK.ProfanityOption.Raw);
-        } catch (e) {}
-
-        const recognizer = new SpeechSDK.TranslationRecognizer(stConfig, audioConfig);
+        const recognizer = new SpeechSDK.TranslationRecognizer(speechConfig, audioConfig);
         recognizerRef.current = recognizer;
 
-        // Phrase list para nombres/tecnicismos
-        try {
-          const pl = SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer);
-          ['Boomerang', 'Supabase', 'WebRTC', 'Azure', 'Aria', 'Vercel'].forEach(p => pl.addPhrase(p));
-        } catch (e) {}
-
-        recognizer.recognizing = (s: any, e: any) => {
-          if (!cancelled) {
-            const startTime = Date.now();
-            const translated = e.result.translations.get(targetLang) || '';
-            setTranslationText(translated);
-            
-            // Calcular latencia
-            const latency = Date.now() - startTime;
-            setTranslationLatency(latency);
-            
-            console.log('🔄 [RECONOCIMIENTO] Reconociendo continuamente...', { translated: translated.substring(0, 50) });
-          }
+        recognizer.recognizing = (s, e) => {
+          if (!cancelled) setTranslationText(e.result.translations.get(targetLang) || '');
         };
-
-        recognizer.recognized = (s: any, e: any) => {
+        recognizer.recognized = (s, e) => {
           if (!cancelled && e.result.reason === SpeechSDK.ResultReason.TranslatedSpeech) {
-            const startTime = Date.now();
-            const translated = e.result.translations.get(targetLang) || '';
-            const original = e.result.text || '';
-            
-            console.log('✅ [RECONOCIMIENTO] Reconocido (no bloqueante):', { 
-              original: original.substring(0, 50), 
-              translated: translated.substring(0, 50) 
-            });
-            
-            setTranslationText(translated);
-            setOriginalText(original);
-            setFinalText(translated); // disparar TTS solo con texto final (no bloqueante)
-            
-            // Calcular latencia total
-            const latency = Date.now() - startTime;
-            setTranslationLatency(latency);
+            setTranslationText(e.result.translations.get(targetLang) || '');
           }
         };
-
-        recognizer.canceled = (s: any, e: any) => {
-          if (!cancelled) {
-            console.warn('Translation canceled:', e.errorDetails);
-            setTranslationError(e.errorDetails || 'Traducción cancelada');
-            setTranslationText('');
-            setOriginalText('');
-          }
+        recognizer.canceled = (s, e) => {
+          if (!cancelled) setTranslationText('');
         };
-
         recognizer.sessionStopped = () => {
-          if (!cancelled) {
-            setTranslationText('');
-            setOriginalText('');
-          }
+          if (!cancelled) setTranslationText('');
         };
 
-        await recognizer.startContinuousRecognitionAsync();
-        console.log('✓ Translation started - listening to peer audio');
+        recognizer.startContinuousRecognitionAsync();
       } catch (err: any) {
-        console.error('Translation error:', err);
-        setTranslationError('Error al iniciar traducción: ' + (err?.message || err));
-        setTranslationText('');
+        setTranslationText('Error al iniciar traducción: ' + (err?.message || err));
       }
     })();
-
     return () => {
       cancelled = true;
-      
-      // Limpiar AudioContext del peer
-      try {
-        if (remoteAudioSource) remoteAudioSource.disconnect();
-        if (remoteAudioDestination) remoteAudioDestination.stream.getTracks().forEach(t => t.stop());
-        if (remoteAudioContext) remoteAudioContext.close();
-      } catch (e) {
-        console.warn('Error cleaning up remote audio:', e);
-      }
-
       if (recognizerRef.current) {
         recognizerRef.current.stopContinuousRecognitionAsync(() => {
           recognizerRef.current?.close();
           recognizerRef.current = null;
         });
       }
-      
       setTranslationText('');
-      setOriginalText('');
-      setTranslationLatency(null);
     };
-  }, [translateOn, targetLang, sourceLang]);
+  }, [translateOn, targetLang]);
 
-  // === TTS: cola de traducciones no bloqueante ===
-  useEffect(() => {
-    if (!translateOn) return;
-    if (!finalText || finalText.startsWith('Error')) return;
-    if (translationError) return; // No hacer TTS si hay error
-
-    // Agregar a la cola de traducciones
-    translationQueueRef.current.push(finalText);
-    console.log(`📝 [COLA] Agregado a cola: "${finalText}" (cola: ${translationQueueRef.current.length})`);
-    
-    // Procesar cola si no está reproduciendo
-    if (!isPlayingTTSRef.current) {
-      processTranslationQueue();
-    }
-    
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalText, translateOn, voice])
-
-  // Función para procesar la cola de traducciones
-  const processTranslationQueue = async () => {
-    if (translationQueueRef.current.length === 0) return;
-    if (isPlayingTTSRef.current) return;
-
-    isPlayingTTSRef.current = true;
-    const textToPlay = translationQueueRef.current.shift();
-    
-    if (!textToPlay) {
-      isPlayingTTSRef.current = false;
-      return;
-    }
-
-    console.log(`🎤 [COLA] Procesando: "${textToPlay}" (restantes: ${translationQueueRef.current.length})`);
-
+  // === TTS: hablar traducción cada vez que cambia translationText ===
+useEffect(() => {
+  if (!translateOn) return;
+  if (!translationText || translationText.startsWith('Error')) return;
+  (async () => {
     try {
-      const tokenData = lastTokenRef.current || await fetchSpeechToken();
-      const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(tokenData.token, tokenData.region);
-      speechConfig.speechSynthesisVoiceName = voice;
-
-      // Crear AudioContext para reproducir localmente
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      // Cerrar cualquier sintetizador anterior
+      if (synthesizerRef.current) {
+        synthesizerRef.current.close();
+        synthesizerRef.current = null;
       }
-
-      const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
-      const ttsStartTime = Date.now();
-
+      // Obtener token y región
+      const { token, region } = await fetchSpeechToken();
+      const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(token, region);
+      // Usar una voz muy común para pruebas
+      speechConfig.speechSynthesisVoiceName = voice;
+      const audioConfig = SpeechSDK.AudioConfig.fromDefaultSpeakerOutput();
+      const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig, audioConfig);
+      synthesizerRef.current = synthesizer;
       synthesizer.speakTextAsync(
-        textToPlay,
-        async (result: SpeechSDK.SpeechSynthesisResult) => {
-          try {
-            const ttsLatency = Date.now() - ttsStartTime;
-            console.log(`✅ [COLA] Completado en ${ttsLatency}ms: "${textToPlay}"`);
-            
-            synthesizer.close();
-
-            if (result.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
-              console.error('TTS failed:', (result as any).errorDetails)
-              setTranslationError('Error en síntesis de voz: ' + ((result as any).errorDetails || 'Desconocido'));
-              isPlayingTTSRef.current = false;
-              processTranslationQueue(); // Continuar con la siguiente
-              return
-            }
-
-            const audioData = (result as any).audioData
-            if (!audioData) {
-              isPlayingTTSRef.current = false;
-              processTranslationQueue(); // Continuar con la siguiente
-              return;
-            }
-
-            const arrayBuf = audioData instanceof ArrayBuffer ? audioData : new Uint8Array(audioData).buffer
-
-            // Decodificar el audio
-            let audioBuffer: AudioBuffer | null = null
-            try {
-              audioBuffer = await audioCtxRef.current!.decodeAudioData(arrayBuf.slice(0) as ArrayBuffer)
-            } catch (e) {
-              // Fallback a callback API
-              audioBuffer = await new Promise((res, rej) => {
-                audioCtxRef.current!.decodeAudioData(arrayBuf.slice(0) as ArrayBuffer, res, rej)
-              })
-            }
-
-            if (!audioBuffer) {
-              isPlayingTTSRef.current = false;
-              processTranslationQueue(); // Continuar con la siguiente
-              return;
-            }
-
-            // Reproducir el audio LOCALMENTE
-            const src = audioCtxRef.current!.createBufferSource()
-            src.buffer = audioBuffer
-            src.connect(audioCtxRef.current!.destination)
-            src.start()
-
-            console.log('✅ [COLA] Audio reproducido localmente');
-
-            // Cuando termine la reproducción, procesar la siguiente
-            src.onended = () => {
-              isPlayingTTSRef.current = false;
-              processTranslationQueue(); // Continuar con la siguiente en la cola
-            };
-
-          } catch (err) {
-            console.error('TTS speak handler error', err)
-            setTranslationError('Error procesando audio TTS: ' + (err as Error).message);
-            isPlayingTTSRef.current = false;
-            processTranslationQueue(); // Continuar con la siguiente
+        translationText,
+        (result: SpeechSDK.SpeechSynthesisResult) => {
+          if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+        console.log('TTS succeeded');
+          } else {
+        console.error('TTS failed:', result.errorDetails);
           }
+          synthesizer.close();
+          synthesizerRef.current = null;
         },
         (error: string) => {
-          console.error('TTS error:', error)
-          setTranslationError('Error en TTS: ' + error);
-          try { synthesizer.close() } catch {}
-          isPlayingTTSRef.current = false;
-          processTranslationQueue(); // Continuar con la siguiente
+          console.error('TTS error:', error);
+          synthesizer.close();
+          synthesizerRef.current = null;
         }
-      )
+      );
     } catch (err) {
-      console.error('TTS exception:', err)
-      setTranslationError('Error iniciando TTS: ' + (err as Error).message);
-      isPlayingTTSRef.current = false;
-      processTranslationQueue(); // Continuar con la siguiente
+      console.error('TTS exception:', err);
     }
-  }
+  })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [translationText]);
 
+  const toggleCaptions = () => setCaptionsOn(v => !v)
   const toggleShare = () => { setShareOn(v => !v) }
   const toggleTranslate = () => { setTranslateOn(v => !v) }
   const openChat = () => setPanel(p => (p === 'chat' ? 'none' : 'chat'))
+  const openPeople = () => setPanel(p => (p === 'people' ? 'none' : 'people'))
+  const openSettings = () => setPanel(p => (p === 'settings' ? 'none' : 'settings'))
 
   // ---- Log
   const logRef = useRef<HTMLPreElement | null>(null)
@@ -649,7 +345,7 @@ useEffect(() => {
   // Feather icons
   useEffect(() => {
     feather.replace()
-  }, [micOn, camOn, shareOn, translateOn, panel])
+  }, [micOn, camOn, shareOn, captionsOn, translateOn, panel])
 
   // ========= 1) Supabase client
   useEffect(() => {
@@ -848,15 +544,7 @@ useEffect(() => {
         markHandled(payload.callId)
         log(`← reject (via user:${key})`)
         setIncoming(null) // cerrar banner
-        
-        // Si soy el caller (Usuario A), redirigir a pantalla principal
-        if (roleRef.current === 'caller') {
-          console.log('📞 [REJECT] Llamada rechazada por el peer, redirigiendo...')
-          resetCall()
-          redirectToMainPage()
-        } else {
-          resetCall()
-        }
+        resetCall()
       })
 
       ch.on('broadcast', { event: 'cancel' }, ({ payload }) => {
@@ -864,15 +552,7 @@ useEffect(() => {
         markHandled(payload.callId)
         log(`← cancel (via user:${key})`)
         setIncoming(null) // cerrar banner
-        
-        // Si soy el callee (Usuario B), redirigir a pantalla principal
-        if (roleRef.current === 'callee') {
-          console.log('📞 [CANCEL] Llamada cancelada por el caller, redirigiendo...')
-          resetCall()
-          redirectToMainPage()
-        } else {
-          resetCall()
-        }
+        resetCall()
       })
 
       await ensureSubscribed(ch)
@@ -1161,12 +841,7 @@ useEffect(() => {
         log('← offer')
         if (!localStreamRef.current) await enableCam()
         await pcRef.current!.setRemoteDescription(m.sdp)
-        // Agregar tracks
-        localStreamRef.current!.getTracks().forEach(t => {
-          try {
-            pcRef.current!.addTrack(t, localStreamRef.current!)
-          } catch (e) { /* noop */ }
-        })
+        localStreamRef.current!.getTracks().forEach(t => pcRef.current!.addTrack(t, localStreamRef.current!))
         const answer = await pcRef.current!.createAnswer()
         await pcRef.current!.setLocalDescription(answer)
         await sendSignal({ type: 'answer', sdp: pcRef.current!.localDescription!, from: meId })
@@ -1185,10 +860,7 @@ useEffect(() => {
         try { await pcRef.current!.addIceCandidate(m.candidate) } catch (e) { log('! addIceCandidate: ' + (e as Error).message) }
       } else if (m.type === 'hangup') {
         log('← hangup')
-        console.log('📞 [HANGUP] Peer colgó la llamada, redirigiendo...')
         await endLocalCall('remote_hangup')
-        // Redirigir a pantalla principal
-        redirectToMainPage()
       }
     })
 
@@ -1218,12 +890,7 @@ useEffect(() => {
     if (!localStreamRef.current) { log('Start call: primero Enable camera'); return }
 
     if (!pcRef.current) mkPC()
-    // Agregar tracks
-    localStreamRef.current.getTracks().forEach(t => {
-      try {
-        pcRef.current!.addTrack(t, localStreamRef.current!)
-      } catch (e) { /* noop */ }
-    })
+    localStreamRef.current.getTracks().forEach(t => pcRef.current!.addTrack(t, localStreamRef.current!))
     const offer = await pcRef.current!.createOffer()
     await pcRef.current!.setLocalDescription(offer)
     await sendSignal({ type: 'offer', sdp: pcRef.current!.localDescription!, from: meId })
@@ -1319,13 +986,10 @@ useEffect(() => {
   }
 
   const hangup = async () => {
-    console.log('📞 [HANGUP] Usuario colgando la llamada...')
     if (callChRef.current && callIdRef.current) {
       try { await sendSignal({ type: 'hangup', from: meId }) } catch {}
     }
     await endLocalCall('local_hangup')
-    // Redirigir a pantalla principal
-    redirectToMainPage()
   }
 
   const endLocalCall = async (reason: string = 'normal') => {
@@ -1360,8 +1024,6 @@ useEffect(() => {
     try { localStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
     if (localVideoRef.current?.srcObject) localVideoRef.current.srcObject = null
     if (remoteVideoRef.current?.srcObject) remoteVideoRef.current.srcObject = null
-    // Limpiar AudioContext
-    try { if (audioCtxRef.current) { try { audioCtxRef.current.close() } catch {} audioCtxRef.current = null } } catch {}
     try { pcRef.current?.close() } catch {}
     pcRef.current = null
     localStreamRef.current = null
@@ -1380,12 +1042,6 @@ useEffect(() => {
     setCallCh(null)
     callChRef.current = null
     setInCall(false)
-  }
-
-  // Función para redirigir a la pantalla principal cuando se rechaza la llamada
-  const redirectToMainPage = () => {
-    console.log('🔄 [REDIRECT] Redirigiendo a pantalla principal...')
-    router.push('/protected')
   }
 
   // Ocultar toast si volvemos a idle o perdemos callId
@@ -1430,6 +1086,19 @@ useEffect(() => {
 
             <div className="flex items-center gap-3">
               <TimeBadge />
+              <button
+                className="hidden sm:inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/20 px-3 py-1.5 text-sm backdrop-blur-md hover:brightness-105"
+                title="Copiar enlace de reunión"
+                onClick={() => {
+                  const url = new URL(window.location.href)
+                  url.searchParams.set('peer', meId || '')
+                  navigator.clipboard.writeText(url.toString())
+                  log('→ enlace copiado con ?peer=' + (meId || ''))
+                }}
+              >
+                <i data-feather="link" className="w-4 h-4" />
+                Copiar enlace
+              </button>
             </div>
           </div>
 
@@ -1440,104 +1109,33 @@ useEffect(() => {
       <main className="relative flex-1 overflow-visible">
         {/* Traducción en tiempo real */}
         {translateOn && (
-          <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/95 dark:bg-black/90 px-6 py-4 shadow-2xl border border-orange-400/40 max-w-3xl w-[95vw] text-center">
-            {/* Mensaje de error */}
-            {translationError && (
-              <div className="mb-3 p-2 rounded-lg bg-red-100 dark:bg-red-900/30 border border-red-400 text-red-700 dark:text-red-300 text-sm">
-                ⚠️ {translationError}
-              </div>
-            )}
-
-            {/* Indicador de estado */}
-            <div className="flex items-center justify-center gap-2 mb-3">
-              <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
-              </span>
-              <span className="text-sm font-medium text-orange-600 dark:text-orange-400">
-                {translationText ? 'Traduciendo...' : 'Escuchando audio del peer...'}
-              </span>
-              {translationLatency && (
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  ({translationLatency}ms)
-                </span>
-              )}
-            </div>
-
-            {/* Texto original */}
-            {showOriginalText && originalText && (
-              <div className="mb-2 p-3 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600">
-                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Original:</div>
-                <div className="text-base text-gray-700 dark:text-gray-300 italic">{originalText}</div>
-              </div>
-            )}
-
-            {/* Texto traducido */}
-            <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700">
-              <div className="text-xs text-orange-600 dark:text-orange-400 mb-1">Traducción:</div>
-              <div className="text-lg font-semibold text-orange-700 dark:text-orange-200">
-                {translationText || 'Esperando...'}
-              </div>
-            </div>
-
-            {/* Controles de configuración */}
-            <div className="mt-4 pt-3 border-t border-gray-300 dark:border-gray-600">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                {/* Idioma origen */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-gray-600 dark:text-gray-400">Idioma origen:</label>
-                  <select
-                    className="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
-                    value={sourceLang}
-                    onChange={e => setSourceLang(e.target.value)}
-                  >
-                    {SOURCE_LANGUAGE_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Idioma destino */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-gray-600 dark:text-gray-400">Idioma destino:</label>
-                  <select
-                    className="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
-                    value={targetLang}
-                    onChange={e => setTargetLang(e.target.value)}
-                  >
-                    {TARGET_LANGUAGE_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Voz */}
-                <div className="flex flex-col gap-1 sm:col-span-2">
-                  <label className="text-xs text-gray-600 dark:text-gray-400">Voz TTS:</label>
-                  <select
-                    className="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
-                    value={voice}
-                    onChange={e => setVoice(e.target.value)}
-                  >
-                    {(TARGET_LANGUAGE_OPTIONS.find(l => l.value === targetLang)?.voices || []).map(v => (
-                      <option key={v.value} value={v.value}>{v.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Toggles adicionales */}
-              <div className="mt-3 flex items-center justify-center gap-4 text-xs">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showOriginalText}
-                    onChange={e => setShowOriginalText(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="text-gray-600 dark:text-gray-400">Mostrar original</span>
-                </label>
-              </div>
+          <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/90 dark:bg-black/80 px-6 py-3 shadow-lg border border-orange-400/40 text-lg font-semibold text-orange-700 dark:text-orange-200 max-w-xl w-full text-center flex flex-col items-center gap-2">
+            <div>{translationText || 'Escuchando…'}</div>
+            <div className="flex flex-wrap gap-2 items-center justify-center text-base font-normal mt-1">
+              <label>
+                Idioma:
+                <select
+                  className="ml-1 px-2 py-1 rounded border"
+                  value={targetLang}
+                  onChange={e => setTargetLang(e.target.value)}
+                >
+                  {LANGUAGE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Voz:
+                <select
+                  className="ml-1 px-2 py-1 rounded border"
+                  value={voice}
+                  onChange={e => setVoice(e.target.value)}
+                >
+                  {(LANGUAGE_OPTIONS.find(l => l.value === targetLang)?.voices || []).map(v => (
+                    <option key={v.value} value={v.value}>{v.label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
         )}
@@ -1577,14 +1175,17 @@ useEffect(() => {
         <CallControls
           micOn={micOn}
           camOn={camOn}
+          captionsOn={captionsOn}
           shareOn={shareOn}
           translateOn={translateOn}
-          translationError={translationError}
           onToggleMic={toggleLocalMic}
           onToggleCam={toggleLocalCam}
+          onToggleCaptions={toggleCaptions}
           onToggleShare={toggleShare}
           onToggleTranslate={toggleTranslate}
           onOpenChat={openChat}
+          onOpenPeople={openPeople}
+          onOpenSettings={openSettings}
           onHangup={hangup}
         />
 
@@ -1663,6 +1264,21 @@ function VideoTile({
           <div className="text-sm text-black/50 dark:text-white/70">{camOn && inCall ? 'Conectando…' : 'Cámara apagada'}</div>
         </div>
       </div>
+      <div className="absolute inset-x-0 bottom-0 p-2">
+        <div className="flex items-center justify-between rounded-xl bg-black/30 backdrop-blur-md px-2 py-1 text-white">
+          <span className="truncate text-xs font-medium">
+            {name} {isYou && <em className="opacity-75">(tú)</em>}
+          </span>
+          <div className="flex items-center gap-1">
+            <span className="rounded-md bg-white/20 p-1" title={micOn ? 'Micrófono encendido' : 'Micrófono silenciado'}>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M12 1v11a4 4 0 004-4V5a4 4 0 00-8 0v3a4 4 0 004 4" stroke="currentColor" strokeWidth="2"/></svg>
+            </span>
+            <span className="rounded-md bg-white/20 p-1" title={camOn ? 'Cámara encendida' : 'Cámara apagada'}>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><path d="M23 7l-7 5 7 5V7zM1 5h14a2 2 0 012 2v10a2 2 0 01-2 2H1a1 1 0 01-1-1V6a1 1 0 011-1z" stroke="currentColor" strokeWidth="2"/></svg>
+            </span>
+          </div>
+        </div>
+      </div>
       <div className={clsx('absolute inset-0 rounded-2xl pointer-events-none', inCall ? 'ring-1 ring-green-400/30' : 'ring-1 ring-orange-400/30')} />
     </div>
   )
@@ -1671,47 +1287,47 @@ function VideoTile({
 /* =================== Barra de controles flotante =================== */
 
 function CallControls({
-  micOn, camOn, shareOn, translateOn, translationError,
-  onToggleMic, onToggleCam, onToggleShare, onToggleTranslate,
-  onOpenChat, onHangup,
+  micOn, camOn, captionsOn, shareOn, translateOn,
+  onToggleMic, onToggleCam, onToggleCaptions, onToggleShare, onToggleTranslate,
+  onOpenChat, onOpenPeople, onOpenSettings, onHangup,
 }: {
-  micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; translationError: string | null;
-  onToggleMic: () => void; onToggleCam: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
-  onOpenChat: () => void; onHangup: () => void;
+  micOn: boolean; camOn: boolean; captionsOn: boolean; shareOn: boolean; translateOn: boolean;
+  onToggleMic: () => void; onToggleCam: () => void; onToggleCaptions: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
+  onOpenChat: () => void; onOpenPeople: () => void; onOpenSettings: () => void; onHangup: () => void;
 }) {
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
       <div
         className={clsx(
-          "pointer-events-auto flex items-center gap-1.5 rounded-[20px] px-2 py-1.5",
+          "pointer-events-auto flex items-center gap-2 rounded-[28px] px-3 py-2 sm:px-4",
           "bg-white/80 text-gray-800 shadow-xl ring-1 ring-black/5",
           "dark:bg-neutral-900/80 dark:text-neutral-100 dark:ring-white/10",
           "backdrop-blur-xl"
         )}
-        style={{ maxWidth: 600, width: "auto", justifyContent: "center" }}
+        style={{ maxWidth: 980, width: "100%", justifyContent: "center" }}
       >
         <RoundBtn active={micOn} onClick={onToggleMic} title={micOn ? 'Silenciar micrófono' : 'Activar micrófono'} icon="mic" />
         <RoundBtn active={camOn} onClick={onToggleCam} title={camOn ? 'Apagar cámara' : 'Encender cámara'} icon="video" />
         <RoundBtn active={shareOn} onClick={onToggleShare} title="Compartir pantalla" icon="monitor" />
+        <RoundBtn active={captionsOn} onClick={onToggleCaptions} title="Subtítulos" icon="type" />
         <RoundBtn onClick={onOpenChat} title="Chat" icon="message-square" />
+        <RoundBtn onClick={onOpenPeople} title="Personas" icon="users" />
+        <RoundBtn onClick={onOpenSettings} title="Ajustes" icon="settings" />
 
         <span className="mx-3 hidden h-6 w-px bg-black/10 dark:bg-white/15 sm:inline" />
 
         <button
           onClick={onToggleTranslate}
           className={clsx(
-            "hidden sm:inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all",
+            "hidden sm:inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition",
             translateOn
-              ? "bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow-lg ring-2 ring-orange-300"
-              : "bg-gradient-to-r from-orange-300 to-orange-500 text-white/95 hover:text-white hover:shadow-md"
+              ? "bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow"
+              : "bg-gradient-to-r from-orange-300 to-orange-500 text-white/95 hover:text-white"
           )}
-          title={translateOn ? "Desactivar traducción en tiempo real" : "Activar traducción en tiempo real"}
+          title="Traducción en tiempo real"
         >
-          <i data-feather="globe" className={clsx("w-5 h-5", translateOn && "animate-pulse")} />
+          <i data-feather="globe" className="w-5 h-5" />
           {translateOn ? "Traducción ON" : "Traducción"}
-          {translateOn && translationError && (
-            <span className="ml-1 text-xs">⚠️</span>
-          )}
         </button>
 
         <button
