@@ -48,11 +48,15 @@ function titleFor(type: NotifType) {
  */
 export function useNotifications(
   supabase: SupabaseClient<any, 'public', any>,
-  idUsuario: number | null
+  idUsuario: number | null,
+  options?: { pageSize?: number }
 ) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const pageSize = options?.pageSize ?? 8; // tamaño de página por defecto
 
   const mapRow = (n: any): NotificationItem => {
     const t = (n.tipo as NotifType) ?? 'system';
@@ -100,11 +104,12 @@ const title =
     try {
       // Con RLS igual sólo vuelven las del usuario autenticado,
       // pero filtramos por las dudas para mejorar el plan de consulta.
-      const { data, error } = await supabase
-    .from('Notificacion')
-    .select('id,id_usuario,tipo,mensaje,meta,leida,fecha_envio')
-    .eq('id_usuario', idUsuario)
-    .order('fecha_envio', { ascending: false });
+      const { data, error, count } = await supabase
+        .from('Notificacion')
+        .select('id,id_usuario,tipo,mensaje,meta,leida,fecha_envio', { count: 'exact' })
+        .eq('id_usuario', idUsuario)
+        .order('fecha_envio', { ascending: false })
+        .range(0, pageSize - 1);
 
     if (error) throw error;
 
@@ -113,6 +118,7 @@ const title =
 
       // mantener TODO (incluidas friend_request leídas) para dejar evidencia
       setNotifications(mapped);
+      setHasMore((count ?? 0) > mapped.length);
 
     } catch (e) {
       setError('Error al cargar notificaciones.');
@@ -166,6 +172,33 @@ const title =
     return () => { supabase.removeChannel(ch); };
   }, [supabase, idUsuario]);
 
+  // ---- Cargar más (paginación incremental)
+  const loadMore = async () => {
+    if (!idUsuario || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const offset = notifications.length;
+      const { data, error, count } = await supabase
+        .from('Notificacion')
+        .select('id,id_usuario,tipo,mensaje,meta,leida,fecha_envio', { count: 'exact' })
+        .eq('id_usuario', idUsuario)
+        .order('fecha_envio', { ascending: false })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      const mapped = (data ?? []).map(mapRow);
+      setNotifications(prev => {
+        // de-dupe por si llega algo repetido
+        const ids = new Set(prev.map(x => x.id));
+        const merged = [...prev, ...mapped.filter(x => !ids.has(x.id))];
+        return merged;
+      });
+      const total = count ?? offset + mapped.length;
+      setHasMore(total > (offset + mapped.length));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   // ---- Acciones
   async function markAsRead(id: number) {
     try {
@@ -191,5 +224,5 @@ const title =
     [notifications]
   );
 
-  return { notifications, loading, error, unreadCount, refresh, markAsRead, markAllAsRead };
+  return { notifications, loading, error, unreadCount, refresh, markAsRead, markAllAsRead, hasMore, loadMore, loadingMore };
 }

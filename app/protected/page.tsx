@@ -52,6 +52,50 @@ function useFeatherIcons(deps: any[] = []) {
   }, deps);
 }
 
+// ===== Avatar con iniciales (como en chats) =====
+function getInitials(nombre?: string | null, apellido?: string | null, mail?: string | null) {
+  const n = (nombre ?? "").trim();
+  const a = (apellido ?? "").trim();
+  if (n || a) {
+    const i1 = n ? n[0] : "";
+    const i2 = a ? a[0] : (n.split(" ")[1]?.[0] ?? "");
+    return (i1 + i2).toUpperCase() || "?";
+  }
+  // fallback por mail
+  const local = (mail ?? "").split("@")[0] ?? "";
+  if (local) {
+    const parts = local.replace(/[^a-zA-Z]/g, " ").trim().split(/\s+/);
+    const i1 = parts[0]?.[0] ?? "";
+    const i2 = parts[1]?.[0] ?? "";
+    return (i1 + i2).toUpperCase() || "?";
+  }
+  return "?";
+}
+
+function InitialsAvatar({
+  nombre,
+  apellido,
+ mail,
+ className = "",
+}: {
+  nombre?: string | null;
+  apellido?: string | null;
+  mail?: string | null;
+  className?: string;
+}) {
+  const initials = getInitials(nombre, apellido, mail);
+  return (
+    <div
+     className={`flex items-center justify-center rounded-full ${className} 
+                  bg-gradient-to-br from-[#f68b1f] to-[#f16f24] text-white 
+                  font-semibold border border-white/30 shadow-sm`}
+      aria-label={`Avatar de ${nombre ?? ""} ${apellido ?? ""}`.trim()}
+    >
+      <span className="select-none">{initials}</span>
+   </div>
+  );
+}
+
 export default function DashboardPage() {
 
   const CARD_HEIGHT = 420; //para ajustar la altura de las cards
@@ -98,8 +142,8 @@ export default function DashboardPage() {
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
 
   // ---- Notificaciones (tabla Notificacion + Realtime)
-  const { notifications, loading: notiLoading, markAsRead } =
-    useNotifications(supabase, idUsuario);
+  const { notifications, loading: notiLoading, markAsRead, hasMore, loadMore, loadingMore } =
+  useNotifications(supabase, idUsuario, { pageSize: 8 });
 
   // Lista que realmente renderiza la card (para poder quitar optimista)
  const [localNotifs, setLocalNotifs] = useState<NotificationItem[]>([]);
@@ -403,14 +447,19 @@ export default function DashboardPage() {
       </section>
 
 
-      {/* ====== Cards (reordenadas y con row-span) ====== */}
+      {/* ====== Cards ====== */}
       <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch lg:auto-rows-fr mt-6">
         {/* Col 1 / Fila 1 */}
         <Card
+          className="flex flex-col items-start"
           style={{ height: `${LEFT_TOP}px` }}
           title="Iniciar reunión"
           description="Crea una sala e invita a otros."
-          buttonText="Crear reunión"
+          buttonText={
+            <button className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold mt-3 hover:brightness-105 transition">
+              Crear reunión
+            </button>
+          }
         />
 
         {/* Col 2 (alto: 2 filas) */}
@@ -425,75 +474,123 @@ export default function DashboardPage() {
               ) : localNotifs.length === 0 ? (
                 <p className="text-muted-foreground text-sm">No hay notificaciones nuevas.</p>
               ) : (
+                // cuerpo flexible con altura real y scroll visible
+                <div className="flex-1 min-h-0">
                   <ul
-                    className="divide-y divide-white/20 pr-2 overflow-y-auto scroll-thin overscroll-contain"
-                    style={{ maxHeight: `calc(${CARD_HEIGHT}px - 140px)` }} // header+padding aprox.
+                    className="h-full divide-y divide-white/20 pr-2 overflow-y-auto scroll-thin overscroll-contain mr-[-15px] pb-3"
+                    style={{
+                      // mantiene tu cálculo, pero ahora la UL ocupa todo y scrollea
+                      maxHeight: `calc(${CARD_HEIGHT}px - 140px)`,
+                      minHeight: `calc(${CARD_HEIGHT}px - 140px)`,
+                    }}
                   >
-                  {localNotifs.map((n) => (
-                    <li
-                      key={n.id}
-                      className={
-                        "py-3 flex items-start gap-3 transition-all duration-300 " +
-                        (isLeaving(n) ? "opacity-0 -translate-y-2" : "")
-                      }
-                    >
-                      <div className="flex-shrink-0 mt-1">
-                        <i data-feather={iconFor(n.type)} className="w-4 h-4 text-orange-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm">{n.title}</div>
-                          {n.message && <div className="text-xs text-muted-foreground mt-1">{n.message}</div>}
-                        {/* {n.when && <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>} */}
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        {n.type === 'friend_request' && !isResolved(n) && (
-                          <>
-                            <button onClick={() => handleNotifAccept(n)} className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600" title="Aceptar">
-                              <i data-feather="check" className="w-3 h-3" />
+                    {localNotifs.map((n) => (
+                      <li
+                        key={n.id}
+                        className={
+                          "py-3 flex items-start gap-3 transition-all duration-300 " +
+                          (isLeaving(n) ? "opacity-0 -translate-y-2" : "")
+                        }
+                      >
+                        <div className="flex-shrink-0 mt-1">
+                          <i data-feather={iconFor(n.type)} className="w-4 h-4 text-orange-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm">{n.title}</div>
+                          {n.message && (
+                            <div className="text-xs text-muted-foreground mt-1">{n.message}</div>
+                          )}
+                          {/* {n.when && <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>} */}
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          {n.type === "friend_request" && !isResolved(n) && (
+                            <>
+                              <button
+                                onClick={() => handleNotifAccept(n)}
+                                className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600"
+                                title="Aceptar"
+                              >
+                                <i data-feather="check" className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => handleNotifReject(n)}
+                                className="p-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-600"
+                                title="Rechazar"
+                              >
+                                <i data-feather="x" className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                          {n.type === "friend_request" && isResolved(n) && (
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs font-semibold ${resolvedClass(n)}`}
+                            >
+                              {resolvedLabel(n)}
+                            </span>
+                          )}
+                          {n.type === "meeting_invite" && (
+                            <button
+                              onClick={() => handleNotifAccept(n)}
+                              className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-600"
+                              title="Ver en calendario"
+                            >
+                              <i data-feather="calendar" className="w-3 h-3" />
                             </button>
-                            <button onClick={() => handleNotifReject(n)} className="p-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-600" title="Rechazar">
-                              <i data-feather="x" className="w-3 h-3" />
-                            </button>
-                          </>
-                        )}
-                         {n.type === 'friend_request' && isResolved(n) && (
-                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${resolvedClass(n)}`}>
-                            {resolvedLabel(n)}
-                          </span>
-                        )}
-                        {n.type === 'meeting_invite' && (
-                          <button onClick={() => handleNotifAccept(n)} className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-600" title="Ver en calendario">
-                            <i data-feather="calendar" className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+
+                    {/* Botón "Ver más" para cargar notificaciones reales adicionales */}
+                    {hasMore && (
+                      <li className="py-3 flex items-center justify-center">
+                        <button
+                          onClick={loadMore}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-full bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 transition"
+                          disabled={loadingMore}
+                        >
+                          {loadingMore ? "Cargando…" : "Ver más"}
+                        </button>
+                      </li>
+                    )}
+
+                    {/* pequeño espacio para que el último item no quede tapado por el scrollbar */}
+                    <li className="h-1 list-none" aria-hidden />
+                  </ul>
+                </div>
               )}
             </div>
           }
         />
 
-        {/* Col 3 (alto: 2 filas) */}
-       <Card
-          className="lg:row-span-2"
-          style={{ height: `${CARD_HEIGHT}px` }}
+
+        {/* Col 3 / Fila 1 — Perfil (solo arriba) */}
+        <Card
+          className="lg:col-start-3 lg:row-start-1"
+          style={{ height: `${LEFT_TOP}px` }}
           title="Perfil"
           content={
-            <div className="h-full flex flex-col justify-between">
+            <div className="h-full flex flex-col">
               {/* --- Contenido principal --- */}
               {cargando ? (
                 <p className="text-sm text-muted-foreground">Cargando perfil...</p>
               ) : perfil ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Nombre: {perfil.nombre ?? "—"} {perfil.apellido ?? ""}
-                  </p>
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Correo: {perfil.mail ?? "—"}
-                  </p>
-                </>
+                <div className="flex items-center gap-3">
+                  <InitialsAvatar
+                    nombre={perfil.nombre}
+                    apellido={perfil.apellido}
+                    mail={perfil.mail}
+                    className="w-12 h-12 text-base"
+                  />
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">
+                     {perfil.nombre ?? "—"} {perfil.apellido ?? ""}
+                    </p>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {perfil.mail ?? "—"}
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   No se encontró el perfil.
@@ -501,16 +598,16 @@ export default function DashboardPage() {
               )}
 
               {/* --- Botones al final --- */}
-              <div className="flex gap-2 mt-6">
+                <div className="flex gap-2 mt-5 justify-start">
                 <Link
                   href="/protected/perfil"
-                  className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold hover:brightness-105 transition"
+                  className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-3 py-1.5 rounded-full text-xs font-semibold hover:brightness-105 transition"
                 >
                   Ver perfil
                 </Link>
                 <Link
                   href="/protected/perfil/editar"
-                  className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold hover:brightness-105 transition"
+                  className="bg-orange-500/10 text-orange-600 px-3 py-1.5 rounded-full text-xs font-semibold hover:bg-orange-500/20 transition"
                 >
                   Editar perfil
                 </Link>
@@ -520,17 +617,44 @@ export default function DashboardPage() {
         />
 
 
-       {/* Col 1 / Fila 2 (debajo de "Iniciar reunión") */}
+       {/* Col 1 / Fila 2 (debajo de "perfil??") */}
        <div
-          className="h-full flex-shrink-0"
+          className="h-full flex-shrink-0 lg:col-start-1 lg:row-start-2"
           style={{
             height: `calc(${LEFT_BOTTOM}px + ${FIX}px)`,
             marginBottom: `-${FIX}px`,
-            marginTop: '-14px', // 🔥 sube toda la card un poquito
+            marginTop: '-14px', // sube toda la card un poquito
           }}
         >
           <StreakCard />
         </div>
+
+        {/* Col 3 / Fila 2 — Próximamente */}
+        <Card
+          className="lg:col-start-3 lg:row-start-2"
+          style={{
+            height: `calc(${LEFT_BOTTOM}px + ${FIX}px)`,
+            marginBottom: `-${FIX}px`,
+            marginTop: '-14px', // alineado con la racha
+          }}
+          title="Próximamente en Boomerang 🚀"
+          content={
+            <div className="h-full flex flex-col justify-center px-0">
+              <p className="text-sm font-medium text-foreground mb-1">  
+                Videollamadas grupales
+              </p>
+              <p className="text-sm text-muted-foreground mb-3">
+                Reunite con tu equipo y amigos, ¡todos juntos!
+              </p>
+              <p className="text-sm font-medium text-foreground mb-1">
+                Traducción de la página
+              </p>
+              <p className="text-sm text-muted-foreground">
+                ¡En muchos más idiomas!
+              </p>
+            </div>
+          }
+        />
       </section>
 
       {/* Scrollbar fino y naranja (global) */}
@@ -542,14 +666,17 @@ export default function DashboardPage() {
         }
         /* WebKit (Chrome, Edge, Safari) */
         .scroll-thin::-webkit-scrollbar {
-          width: 6px;
+          width: 5px;
+          margin-right: -2px;
         }
         .scroll-thin::-webkit-scrollbar-track {
           background: transparent;
+          border-radius: 9999px;
         }
         .scroll-thin::-webkit-scrollbar-thumb {
-          background: rgba(241, 111, 36, 0.35);
+          background: rgba(241, 111, 36, 0.4);
           border-radius: 9999px;
+          margin-right: 3px;
         }
         .scroll-thin::-webkit-scrollbar-thumb:hover {
           background: rgba(241, 111, 36, 0.55);
