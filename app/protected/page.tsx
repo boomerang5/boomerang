@@ -54,7 +54,11 @@ function useFeatherIcons(deps: any[] = []) {
 
 export default function DashboardPage() {
 
-  const CARD_HEIGHT = 520; //para ajustar la altura de las cards
+  const CARD_HEIGHT = 420; //para ajustar la altura de las cards
+  const GAP = 42;            // gap-6 = 1.5rem = 24px
+  const LEFT_TOP = 180;      // alto para "Iniciar reunión" (ajustá a gusto)
+  const LEFT_BOTTOM = CARD_HEIGHT - LEFT_TOP - GAP; // racha = resto
+  const FIX = 14;
 
   const supabase = useSupabaseClient<any>();
   const router = useRouter();
@@ -403,6 +407,7 @@ export default function DashboardPage() {
       <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch lg:auto-rows-fr mt-6">
         {/* Col 1 / Fila 1 */}
         <Card
+          style={{ height: `${LEFT_TOP}px` }}
           title="Iniciar reunión"
           description="Crea una sala e invita a otros."
           buttonText="Crear reunión"
@@ -515,8 +520,17 @@ export default function DashboardPage() {
         />
 
 
-        {/* Col 1 / Fila 2 (debajo de "Iniciar reunión") */}
-        <StreakCard />
+       {/* Col 1 / Fila 2 (debajo de "Iniciar reunión") */}
+       <div
+          className="h-full flex-shrink-0"
+          style={{
+            height: `calc(${LEFT_BOTTOM}px + ${FIX}px)`,
+            marginBottom: `-${FIX}px`,
+            marginTop: '-14px', // 🔥 sube toda la card un poquito
+          }}
+        >
+          <StreakCard />
+        </div>
       </section>
 
       {/* Scrollbar fino y naranja (global) */}
