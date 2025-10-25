@@ -9,7 +9,6 @@ import { hasEnvVars } from "@/utils/supabase/check-env-vars";
 import { ThemeProvider } from "next-themes";
 import Image from "next/image";
 
-// ⬇️ NUEVO: importá el provider
 import SupabaseProvider from "./SupabaseProvider";
 
 const defaultUrl = process.env.VERCEL_URL

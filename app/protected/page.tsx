@@ -8,7 +8,8 @@ import { Check, X, Calendar, UserPlus, Info } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useNotifications, type NotificationItem, type NotifType } from './hooks/useNotifications';
-import StreakCard from "@/components/dashboard/StreakCard";
+import StreakCardWrapper from "@/components/dashboard/StreakCardWrapper";
+
 
 type Perfil = { nombre: string | null; apellido: string | null; mail: string | null };
 
@@ -626,7 +627,7 @@ export default function DashboardPage() {
             marginTop: '-14px', // sube toda la card un poquito
           }}
         >
-          <StreakCard />
+          {cargando ? <div>Cargando racha...</div> : <StreakCardWrapper />}
         </div>
 
         {/* Col 3 / Fila 2 — Próximamente */}

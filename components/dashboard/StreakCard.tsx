@@ -46,77 +46,173 @@ function StreakSkeleton() {
 }
 
 export default function StreakCard() {
-  const supabase = createClientComponentClient();
+  const supabase = createClientComponentClient<any>();
   const [data, setData] = useState<StreakRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    let resolved = false; // evita doble fetch
+  // Función para obtener y actualizar la racha
+  const fetchStreak = async (uid: string) => {
+    try {
+      const { data: userData, error: userError } = await supabase
+        .from('Usuario')
+        .select('id')
+        .eq('User_id', uid)
+        .single();
 
-    const fetchStreak = async (uid: string) => {
-      const { data: rpcData, error } = await supabase.rpc(
-        "get_user_streak_by_auth",
-        { p_auth: uid }
+      if (userError || !userData?.id) {
+        console.warn('User not found, using fallback data:', userError);
+        // Fallback a datos por defecto si no se encuentra el usuario
+        const fallbackData: StreakRow = {
+          current_streak: 0,
+          longest_streak: 0,
+          last_active_at: null,
+        };
+        setData(fallbackData);
+        setLoading(false);
+        return;
+      }
+
+      // Intentar usar la función RPC real
+      const { data: rpcData, error: rpcError } = await supabase.rpc(
+        "get_user_streak",
+        { p_user_id: userData.id }
       );
-      if (cancelled) return;
-      if (error) setErr(error.message);
-      else {
-        const row =
-          (rpcData?.[0] as StreakRow | undefined) ?? {
-            current_streak: 0,
-            longest_streak: 0,
-            last_active_at: null,
-          };
+
+      if (rpcError) {
+        console.warn('RPC function not found, using fallback data:', rpcError);
+        // Fallback a datos por defecto si la función RPC no existe
+        const fallbackData: StreakRow = {
+          current_streak: 0,
+          longest_streak: 0,
+          last_active_at: null,
+        };
+        setData(fallbackData);
+      } else {
+        const row = (rpcData?.[0] as StreakRow | undefined) ?? {
+          current_streak: 0,
+          longest_streak: 0,
+          last_active_at: null,
+        };
         setData(row);
       }
       setLoading(false);
+    } catch (error: any) {
+      console.warn('Error fetching streak (non-critical):', error);
+      // No mostrar error al usuario, usar datos por defecto
+      setData({
+        current_streak: 0,
+        longest_streak: 0,
+        last_active_at: null,
+      });
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    let timeoutId: NodeJS.Timeout;
+
+    const getSession = async () => {
+      try {
+        if (!isMounted) return;
+        
+        // Esperar un poco para que la sesión se inicialice completamente
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        if (!isMounted) return;
+        setLoading(true);
+        setErr(null);
+        
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.warn('Session error (non-critical):', sessionError);
+          // No lanzar error, solo mostrar datos por defecto
+          setData({
+            current_streak: 0,
+            longest_streak: 0,
+            last_active_at: null,
+          });
+          setLoading(false);
+          return;
+        }
+        
+        if (!session?.user?.id) {
+          // No hay sesión activa, mostrar datos por defecto
+          setData({
+            current_streak: 0,
+            longest_streak: 0,
+            last_active_at: null,
+          });
+          setLoading(false);
+          return;
+        }
+        
+        if (!isMounted) return;
+        await fetchStreak(session.user.id);
+      } catch (error: any) {
+        if (!isMounted) return;
+        console.warn('Session error (non-critical):', error);
+        // No mostrar error al usuario, usar datos por defecto
+        setData({
+          current_streak: 0,
+          longest_streak: 0,
+          last_active_at: null,
+        });
+        setLoading(false);
+      }
     };
 
-    setLoading(true);
-    setErr(null);
-
-    // 1) Intento inmediato con getUser (consulta a Auth)
-    (async () => {
-      const { data, error } = await supabase.auth.getUser();
-      const uid = data?.user?.id;
-      if (!error && uid && !resolved) {
-        resolved = true;
-        await fetchStreak(uid);
+    // Intentar obtener datos con un pequeño delay
+    timeoutId = setTimeout(() => {
+      if (isMounted) {
+        getSession();
       }
-    })();
+    }, 200);
 
-    // 2) Suscripción a eventos de auth (INITIAL_SESSION / SIGNED_IN / TOKEN_REFRESHED)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (cancelled || resolved) return;
-      const uid = session?.user?.id;
-      if (uid) {
-        resolved = true;
-        fetchStreak(uid);
+    // También escuchar cambios de sesión
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!isMounted) return;
+      
+      try {
+        if (!session?.user?.id) {
+          setData({
+            current_streak: 0,
+            longest_streak: 0,
+            last_active_at: null,
+          });
+          setLoading(false);
+          return;
+        }
+        
+        await fetchStreak(session.user.id);
+      } catch (error: any) {
+        if (!isMounted) return;
+        console.warn('Auth change error (non-critical):', error);
+        setData({
+          current_streak: 0,
+          longest_streak: 0,
+          last_active_at: null,
+        });
+        setLoading(false);
       }
     });
 
-    // 3) Timeout para no quedar en skeleton infinito
-    const timeout = setTimeout(() => {
-      if (!cancelled && !resolved) {
-        setLoading(false);
-        setErr("Iniciá sesión para ver tu racha.");
-      }
-    }, 8000);
-
     return () => {
-      cancelled = true;
-      clearTimeout(timeout);
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
       subscription?.unsubscribe();
     };
-  }, [supabase]);
-
-  if (loading) return <StreakSkeleton />;
+  }, []); // Removemos supabase de las dependencias para evitar re-renders infinitos
 
   const current = data?.current_streak ?? 0;
   const longest = data?.longest_streak ?? 0;
   const lastActive = data?.last_active_at ? new Date(data.last_active_at) : null;
+
+  if (loading || err) {
+    return <StreakSkeleton />;
+  }
 
   const isActive = (() => {
     if (!lastActive) return false;
@@ -180,35 +276,33 @@ export default function StreakCard() {
 
 
           {/* --- Progreso hacia batir récord --- */}
-          {!(current === 0 && longest === 0) && (
-            <div className="mt-auto pt-4">
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span>{progressLabel}</span>
-                <span className="tabular-nums">{`${pct}%`}</span>
-              </div>
-
-              <div className="h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-orange-500 transition-all"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-
-              <div className="mt-2 text-xs text-gray-500">
-                {current > longest ? (
-                  <span>¡Nuevo récord! 🎉</span>
-                ) : longest === 0 ? (
-                  <span>Sumá días para establecer tu primer récord.</span>
-                ) : remaining === 0 ? (
-                  <span>¡Estás a la par de tu récord, un día más y lo superás! 🔥</span>
-                ) : (
-                  <span>
-                    Te faltan <b>{remaining}</b> {remaining === 1 ? "día" : "días"} para batir tu récord.
-                  </span>
-                )}
-              </div>
+          <div className="mt-auto pt-4">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span>{progressLabel}</span>
+              <span className="tabular-nums">{`${pct}%`}</span>
             </div>
-          )}
+
+            <div className="h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-orange-500 transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+
+            <div className="mt-2 text-xs text-gray-500">
+              {current > longest ? (
+                <span>¡Nuevo récord! 🎉</span>
+              ) : longest === 0 ? (
+                <span>Sumá días para establecer tu primer récord.</span>
+              ) : remaining === 0 ? (
+                <span>¡Estás a la par de tu récord, un día más y lo superás! 🔥</span>
+              ) : (
+                <span>
+                  Te faltan <b>{remaining}</b> {remaining === 1 ? "día" : "días"} para batir tu récord.
+                </span>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>

@@ -68,14 +68,14 @@ export const create_usuario_profile = async (req: Request, res: Response) => {
 
 //UPDATE_USUARIO_PROFILE
 export const update_usuario_profile = async (req: Request, res: Response) => {
-  const { id, nombre, apellido, idioma, apodo } = req.body;
+  const { id, nombre, apellido, idioma, apodo, pais } = req.body;
 
   if (!id || !nombre || !apellido || !idioma || !apodo) {
     return res.status(400).json({ error: 'Faltan campos requeridos.' });
   }
 
   try {
-    await updateUsuarioProfileService(id, nombre, apellido, idioma, apodo);
+    await updateUsuarioProfileService(id, nombre, apellido, idioma, apodo, pais);
     return res.status(200).json({ message: "Perfil actualizado correctamente" });
   } catch (err) {
     console.error('❌ Error en updateUsuarioProfile:', err);

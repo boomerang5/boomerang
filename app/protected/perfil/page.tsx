@@ -14,6 +14,7 @@ type Usuario = {
   apellido?: string | null;
   apodo?: string | null;
   mail?: string | null;
+  pais?: string | null;
 
   // Idioma
   id_idioma?: number | null;
@@ -80,6 +81,7 @@ export default function VerPerfilPage() {
           apellido: raw?.apellido ?? null,
           apodo: raw?.apodo ?? null,
           mail: raw?.mail ?? raw?.email ?? null,
+          pais: raw?.pais ?? null,
 
           id_idioma: typeof raw?.id_idioma === 'number' ? raw.id_idioma : null,
           nombre_idioma: raw?.nombre_idioma ?? null,
@@ -104,98 +106,203 @@ export default function VerPerfilPage() {
       : '/avatar-placeholder.png';
 
   return (
-    <main className="flex-1 mx-auto max-w-4xl p-6">
-      <div className="mb-6 flex items-center justify-between">
+    <main className="flex-1 mx-auto max-w-6xl p-6">
+      {/* Header mejorado */}
+      <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-3xl font-bold text-transparent">
+          <h1 className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-4xl font-bold text-transparent">
             Mi perfil
           </h1>
-          <p className="text-sm opacity-75">Información de tu cuenta</p>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">Información de tu cuenta</p>
         </div>
         <Link
           href="/protected/perfil/editar"
-          className="rounded-xl px-3 py-2 text-sm font-semibold text-white shadow bg-gradient-to-r from-orange-500 to-amber-500 hover:opacity-95"
+          className="rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-lg bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all duration-200 flex items-center gap-2"
         >
-          Editar
+          <i data-feather="edit-3" className="w-4 h-4" />
+          Editar perfil
         </Link>
       </div>
 
       {loading ? (
-        <p>Cargando…</p>
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+          <span className="ml-3 text-gray-600">Cargando perfil...</span>
+        </div>
       ) : err ? (
-        <div className="text-red-500 text-sm space-y-1">
-          <p>Ocurrió un error al cargar tu perfil.</p>
-          <details className="opacity-80">
-            <summary>Detalles técnicos</summary>
-            <pre className="whitespace-pre-wrap text-xs">{err}</pre>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-3">
+            <i data-feather="alert-circle" className="w-5 h-5 text-red-500" />
+            <h3 className="font-semibold text-red-800 dark:text-red-200">Error al cargar el perfil</h3>
+          </div>
+          <p className="text-red-700 dark:text-red-300 text-sm mb-3">
+            Ocurrió un error al cargar tu información.
+          </p>
+          <details className="text-xs text-red-600 dark:text-red-400">
+            <summary className="cursor-pointer hover:underline">Detalles técnicos</summary>
+            <pre className="whitespace-pre-wrap mt-2 p-3 bg-red-100 dark:bg-red-900/30 rounded">{err}</pre>
           </details>
         </div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          <Card title="Información básica">
-            <GridField label="Nombre" value={user?.nombre} />
-            <GridField label="Apellido" value={user?.apellido} />
-            <GridField label="Apodo" value={user?.apodo} />
-            <GridField label="Email" value={user?.mail} />
-            <GridField label="Idioma" value={user?.nombre_idioma} />
-            <GridField
-              label="Género"
-              value={user?.nombre_genero ?? mapGenero(user?.id_genero)}
-            />
-            <GridField
-              label="Nacimiento"
-              value={fmtDate(user?.fecha_nacimiento)}
-            />
-          </Card>
+        <div className="grid gap-8 lg:grid-cols-3">
+          {/* Avatar y info principal */}
+          <div className="lg:col-span-1">
+            <ProfileAvatarCard user={user} />
+          </div>
 
-          <Card title="Foto">
-            <div className="flex items-center gap-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={avatarSrc}
-                alt="Avatar"
-                className="h-24 w-24 rounded-full border border-white/10 object-cover"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src =
-                    '/avatar-placeholder.png';
-                }}
-              />
-              <div className="text-sm opacity-70">
-                Podés actualizarla desde “Editar”.
-              </div>
-            </div>
-          </Card>
+          {/* Información detallada */}
+          <div className="lg:col-span-2">
+            <ProfileInfoCard user={user} />
+          </div>
         </div>
       )}
 
-      <div className="mt-6">
-        <Link
-          href="/protected"
-          className="rounded-xl px-3 py-2 text-sm border border-white/10 bg-white/10 hover:bg-white/20"
-        >
-          Volver al dashboard
-        </Link>
-      </div>
     </main>
   );
 }
 
-/* UI helpers */
-function Card({ title, children }: { title: string; children: ReactNode }) {
+/* Componentes mejorados */
+function ProfileAvatarCard({ user }: { user: Usuario | null }) {
+  const getInitials = (nombre?: string | null, apellido?: string | null) => {
+    const n = (nombre ?? "").trim();
+    const a = (apellido ?? "").trim();
+    if (n || a) {
+      const i1 = n ? n[0] : "";
+      const i2 = a ? a[0] : "";
+      return (i1 + i2).toUpperCase() || "?";
+    }
+    return "?";
+  };
+
+  const initials = getInitials(user?.nombre, user?.apellido);
+
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/5 dark:bg-neutral-900/30 backdrop-blur p-5 shadow-md">
-      <header className="mb-4">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-      </header>
-      <div className="grid grid-cols-2 gap-3">{children}</div>
-    </section>
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-lg">
+      <div className="text-center">
+        {/* Avatar con iniciales */}
+        <div className="relative inline-block mb-4">
+          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white text-4xl font-bold shadow-lg border-4 border-white dark:border-gray-800">
+            {initials}
+          </div>
+          <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-green-500 rounded-full border-4 border-white dark:border-gray-800 flex items-center justify-center">
+            <i data-feather="check" className="w-4 h-4 text-white" />
+          </div>
+        </div>
+
+        {/* Nombre completo */}
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+          {user?.nombre} {user?.apellido}
+        </h2>
+        
+        {/* Apodo si existe */}
+        {user?.apodo && (
+          <p className="text-orange-600 dark:text-orange-400 font-medium mb-2">
+            @{user.apodo}
+          </p>
+        )}
+
+        {/* Email completo */}
+        <p className="text-gray-600 dark:text-gray-400 text-sm break-all">
+          {user?.mail || 'Sin email'}
+        </p>
+
+        {/* Estado de cuenta */}
+        <div className="mt-4 flex items-center justify-center gap-2 px-4 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-full text-sm font-medium">
+          <i data-feather="shield-check" className="w-3 h-3" />
+          Cuenta verificada
+        </div>
+      </div>
+    </div>
   );
 }
-function GridField({ label, value }: { label: string; value?: string | null }) {
+
+function ProfileInfoCard({ user }: { user: Usuario | null }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/10 dark:bg-neutral-900/40 p-3">
-      <div className="text-xs opacity-60">{label}</div>
-      <div className="truncate font-medium">{value ?? '—'}</div>
+    <div className="space-y-6">
+      {/* Información personal */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-lg">
+        <div className="mb-6">
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Información personal</h3>
+        </div>
+        
+        <div className="grid gap-4 md:grid-cols-2">
+          <InfoField 
+            icon="user" 
+            label="Nombre" 
+            value={user?.nombre} 
+          />
+          <InfoField 
+            icon="user" 
+            label="Apellido" 
+            value={user?.apellido} 
+          />
+          <InfoField 
+            icon="at-sign" 
+            label="Apodo" 
+            value={user?.apodo} 
+          />
+          <InfoField 
+            icon="globe" 
+            label="País" 
+            value={user?.pais} 
+          />
+          <InfoField 
+            icon="mail" 
+            label="Email" 
+            value={user?.mail} 
+            fullWidth 
+          />
+        </div>
+      </div>
+
+      {/* Información adicional */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 shadow-lg">
+        <div className="mb-6">
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Información adicional</h3>
+        </div>
+        
+        <div className="grid gap-4 md:grid-cols-2">
+          <InfoField 
+            icon="globe" 
+            label="Idioma" 
+            value={user?.nombre_idioma} 
+          />
+          <InfoField 
+            icon="users" 
+            label="Género" 
+            value={user?.nombre_genero ?? mapGenero(user?.id_genero)} 
+          />
+          <InfoField 
+            icon="calendar" 
+            label="Fecha de nacimiento" 
+            value={fmtDate(user?.fecha_nacimiento)} 
+            fullWidth 
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoField({ 
+  icon, 
+  label, 
+  value, 
+  fullWidth = false 
+}: { 
+  icon: string; 
+  label: string; 
+  value?: string | null; 
+  fullWidth?: boolean;
+}) {
+  return (
+    <div className={`${fullWidth ? 'md:col-span-2' : ''}`}>
+      <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600">
+        <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</p>
+        <p className={`text-gray-900 dark:text-white font-semibold ${fullWidth ? 'break-all' : 'truncate'}`}>
+          {value || '—'}
+        </p>
+      </div>
     </div>
   );
 }
