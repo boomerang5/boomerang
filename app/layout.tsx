@@ -18,6 +18,9 @@ export const metadata = {
   metadataBase: new URL(defaultUrl),
   title: "Boomerang",
   description: "Videollamadas con traducción en tiempo real",
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 const geistSans = Geist({
