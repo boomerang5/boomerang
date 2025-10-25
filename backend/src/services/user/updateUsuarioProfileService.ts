@@ -6,29 +6,46 @@ export async function updateUsuarioProfileService(
   apellido: string, 
   idioma: number, 
   apodo: string, 
-  pais?: string, 
+  pais?: string | null, 
   genero?: number, 
-  fecha_nacimiento?: string) {
+  fecha_nacimiento?: string | null) {
   
   try {
-    console.log("🔄 Iniciando actualización de usuario:", { idUsuario, nombre, apellido, idioma, apodo, pais, genero, fecha_nacimiento });
+    console.log("Iniciando actualización de usuario:", { idUsuario, nombre, apellido, idioma, apodo, pais, genero, fecha_nacimiento });
 
-    const updateFields: Record<string, any> = {
-      nombre,
-      apellido,
+    // Construir objeto de actualización con campos requeridos
+    const updateFields = {
+      nombre: nombre,
+      apellido: apellido,
       id_idioma: idioma,
-      apodo,
-      pais: pais ?? null,
+      apodo: apodo,
+      pais: pais,
+      id_genero: genero,
+      fecha_nacimiento: fecha_nacimiento
     };
-
-    if (genero !== undefined) updateFields.id_genero = genero;         // <--- NUEVO
-    if (fecha_nacimiento !== undefined) updateFields.fecha_nacimiento = fecha_nacimiento; // <--- opcional
+    
+    console.log('Campos a actualizar:', updateFields);
     
     const { data, error } = await supabaseAdmin
       .from('Usuario')
-      .update({updateFields})
+      .update(updateFields)
       .eq('id', idUsuario)
-      .select();
+      .select(`
+        id,
+        nombre,
+        apellido,
+        mail,
+        fecha_registro,
+        apodo,
+        id_idioma,
+        nombre_idioma:id_idioma(nombre),
+        fecha_nacimiento,
+        id_genero,
+        nombre_genero:id_genero(nombre_genero),
+        pais,
+        id_foto_perfil,
+        path_foto_perfil
+      `);
 
     if (error) {
       console.error("Supabase error:", error);
