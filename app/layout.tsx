@@ -7,8 +7,9 @@ import HeaderAuth from "@/components/header-auth";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { hasEnvVars } from "@/utils/supabase/check-env-vars";
 import { ThemeProvider } from "next-themes";
-import ClientProviders from "@/app/ClientProviders";
 import Image from "next/image";
+
+import SupabaseProvider from "./SupabaseProvider";
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -32,7 +33,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" className={geistSans.className} suppressHydrationWarning>
       <body className="bg-orange-50 dark:bg-gray-700 text-foreground overflow-x-hidden">
-        <ClientProviders>
+        {/* 👇 Toda la app envuelta con el SessionContextProvider */}
+        <SupabaseProvider>
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
@@ -63,17 +65,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 {children}
               </div>
 
-              {/* Footer (sticky, finito) */}
+              {/* Footer */}
               <footer className="w-full h-13 md:h-16 
-             border-t border-t-orange-200 dark:border-t-orange-800 
-             bg-orange-50 dark:bg-gray-600
-             flex items-center justify-center gap-4 px-5">
+                border-t border-t-orange-200 dark:border-t-orange-800 
+                bg-orange-50 dark:bg-gray-600
+                flex items-center justify-center gap-4 px-5">
                 <p className="text-orange-600 dark:text-orange-400 text-sm">2025 Boomerang.</p>
                 <ThemeSwitcher />
               </footer>
             </main>
           </ThemeProvider>
-        </ClientProviders>
+        </SupabaseProvider>
       </body>
     </html>
   );

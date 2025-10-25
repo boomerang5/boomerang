@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 // @ts-ignore - feather no trae tipos
 import feather from 'feather-icons';
 
@@ -22,6 +23,7 @@ type Perfil = {
 
 export default function EditarPerfilPage() {
   const supabase = useSupabaseClient();
+  const router = useRouter();
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -89,13 +91,14 @@ export default function EditarPerfilPage() {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
 
-      // 🔴 PUT /api/users/update SOLO acepta estas 5 claves:
+      // 🔴 PUT /api/users/update acepta estas 6 claves:
       const payload = {
         id: Number(perfil.id),                                  // requerido
         nombre: (perfil.nombre ?? '').trim(),                   // requerido
         apellido: (perfil.apellido ?? '').trim(),               // requerido
         idioma: Number(perfil.idioma ?? 1),                     // requerido (número)
         apodo: (perfil.apodo ?? '').trim(),                     // requerido
+        pais: (perfil.pais ?? '').trim(),                       // opcional
       };
 
       // Validación rápida antes de enviar
@@ -115,6 +118,11 @@ export default function EditarPerfilPage() {
       const text = await res.text();
       if (!res.ok) throw new Error(text || `Error ${res.status}`);
       setMsg('¡Guardado!');
+      
+      // Redirigir a la página de perfil después de 1.5 segundos
+      setTimeout(() => {
+        router.push('/protected/perfil');
+      }, 1500);
     } catch (e: any) {
       setMsg(e?.message ?? 'Error al guardar');
     } finally {
@@ -127,76 +135,126 @@ export default function EditarPerfilPage() {
   );
 
   return (
-    <main className="flex-1 mx-auto max-w-3xl p-6">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-3xl font-bold text-transparent">
-              Editar perfil
-            </h1>
-            <p className="text-sm opacity-75">Actualizá tus datos personales</p>
-          </div>
-          <Link
-            href="/protected/perfil"
-            className="rounded-xl px-3 py-2 border border-white/10 bg-white/10 hover:bg-white/20"
-          >
-            Volver
-          </Link>
-        </div>
+    <main className="flex-1 mx-auto max-w-4xl p-6">
+      {/* Header mejorado */}
+      <div className="mb-8">
+        <h1 className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-4xl font-bold text-transparent mb-2">
+          Editar perfil
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400">Actualizá tus datos personales</p>
+      </div>
 
-        {!perfil ? (
-          <p className="text-red-500 text-sm">{msg ?? 'No se pudo cargar el perfil.'}</p>
-        ) : (
-          <form
-            onSubmit={onSave}
-            className="space-y-6 rounded-2xl border border-white/10 bg-white/5 dark:bg-neutral-900/30 backdrop-blur p-5 shadow-md"
-          >
-            <div className="grid gap-4 md:grid-cols-2">
-              <Input label="Nombre" value={perfil.nombre ?? ''} onChange={(v) => setPerfil(p => p ? { ...p, nombre: v } : p)} />
-              <Input label="Apellido" value={perfil.apellido ?? ''} onChange={(v) => setPerfil(p => p ? { ...p, apellido: v } : p)} />
-              <Input label="Apodo" value={perfil.apodo ?? ''} onChange={(v) => setPerfil(p => p ? { ...p, apodo: v } : p)} />
-              <Input label="Email" type="email" value={perfil.mail ?? ''} onChange={(v) => setPerfil(p => p ? { ...p, mail: v } : p)} />
-              <Input label="País" value={perfil.pais ?? ''} onChange={(v) => setPerfil(p => p ? { ...p, pais: v } : p)} />
+      {!perfil ? (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6">
+          <div className="flex items-center gap-3">
+            <i data-feather="alert-circle" className="w-5 h-5 text-red-500" />
+            <p className="text-red-700 dark:text-red-300">{msg ?? 'No se pudo cargar el perfil.'}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-lg overflow-hidden">
+          <form onSubmit={onSave} className="p-8">
+            {/* Grid de campos */}
+            <div className="grid gap-6 md:grid-cols-2">
+              <Input 
+                label="Nombre" 
+                value={perfil.nombre ?? ''} 
+                onChange={(v) => setPerfil(p => p ? { ...p, nombre: v } : p)} 
+              />
+              <Input 
+                label="Apellido" 
+                value={perfil.apellido ?? ''} 
+                onChange={(v) => setPerfil(p => p ? { ...p, apellido: v } : p)} 
+              />
+              <Input 
+                label="Apodo" 
+                value={perfil.apodo ?? ''} 
+                onChange={(v) => setPerfil(p => p ? { ...p, apodo: v } : p)} 
+              />
+              <Input 
+                label="Email" 
+                type="email" 
+                value={perfil.mail ?? ''} 
+                onChange={(v) => setPerfil(p => p ? { ...p, mail: v } : p)} 
+              />
+              <Input 
+                label="País" 
+                value={perfil.pais ?? ''} 
+                onChange={(v) => setPerfil(p => p ? { ...p, pais: v } : p)} 
+              />
               <Select
-                label="Género (solo visual)"
+                label="Género"
                 value={String(perfil.id_genero ?? '')}
                 onChange={(v) => setPerfil(p => p ? { ...p, id_genero: v ? Number(v) : null } : p)}
                 options={[
                   { label: 'Seleccionar…', value: '' },
                   { label: 'Masculino', value: '1' },
                   { label: 'Femenino', value: '2' },
-                  { label: 'Otro', value: '3' },
+                  { label: 'Prefiero no decir', value: '3' },
                 ]}
               />
               <Input
-                label="Fecha de nacimiento (solo visual)"
+                label="Fecha de nacimiento"
                 type="date"
                 value={toISODateUI(perfil.fecha_nacimiento) ?? ''}
                 onChange={(v) => setPerfil(p => p ? { ...p, fecha_nacimiento: v || null } : p)}
               />
               <Select
-                label="Idioma (requerido por backend)"
+                label="Idioma"
                 value={String(perfil.idioma ?? 1)}
                 onChange={(v) => setPerfil(p => p ? { ...p, idioma: v ? Number(v) : 1 } : p)}
                 options={[
-                  { label: 'Español (1)', value: '1' },
-                  { label: 'Inglés (2)', value: '2' },
+                  { label: 'Español', value: '1' },
+                  { label: 'Inglés', value: '2' },
                 ]}
               />
             </div>
 
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm">{msg}</div>
+            {/* Mensaje de estado */}
+            {msg && (
+              <div className={`mt-6 p-4 rounded-xl ${
+                msg.includes('¡Guardado!') 
+                  ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' 
+                  : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <i data-feather={msg.includes('¡Guardado!') ? 'check-circle' : 'alert-circle'} className="w-4 h-4" />
+                  {msg}
+                </div>
+              </div>
+            )}
+
+            {/* Botones de acción */}
+            <div className="flex items-center justify-end gap-4 mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <Link
+                href="/protected/perfil"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+              >
+                <i data-feather="arrow-left" className="w-4 h-4" />
+                Volver
+              </Link>
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-xl px-4 py-2 font-semibold text-white shadow bg-gradient-to-r from-orange-500 to-amber-500 hover:opacity-95 disabled:opacity-60"
+                className="inline-flex items-center gap-2 px-6 py-2 text-sm font-semibold text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 rounded-xl shadow-lg transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {saving ? 'Guardando…' : 'Guardar cambios'}
+                {saving ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Guardando…
+                  </>
+                ) : (
+                  <>
+                    <i data-feather="save" className="w-4 h-4" />
+                    Guardar cambios
+                  </>
+                )}
               </button>
             </div>
           </form>
-        )}
-      </main>
+        </div>
+      )}
+    </main>
   );
 }
 
@@ -206,16 +264,18 @@ function Input({
 }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs opacity-70">{label}</span>
+      <span className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
       <input
         type={type}
-        className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 outline-none focus:ring-2 focus:ring-orange-500/60"
+        className="w-full rounded-xl border border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-900/20 px-4 py-3 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-400 dark:focus:border-orange-600 transition-all duration-200"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        placeholder={`Ingresa tu ${label.toLowerCase()}`}
       />
     </label>
   );
 }
+
 function Select({
   label, value, onChange, options,
 }: {
@@ -224,9 +284,9 @@ function Select({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs opacity-70">{label}</span>
+      <span className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
       <select
-        className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 outline-none focus:ring-2 focus:ring-orange-500/60"
+        className="w-full rounded-xl border border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-900/20 px-4 py-3 text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-400 dark:focus:border-orange-600 transition-all duration-200"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >

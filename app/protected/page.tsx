@@ -4,9 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 // @ts-ignore
 import feather from 'feather-icons';
+import { Check, X, Calendar, UserPlus, Info } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useNotifications, type NotificationItem, type NotifType } from './hooks/useNotifications';
+import StreakCardWrapper from "@/components/dashboard/StreakCardWrapper";
+
 
 type Perfil = { nombre: string | null; apellido: string | null; mail: string | null };
 
@@ -42,7 +45,66 @@ function useDebouncedValue<T>(value: T, delay = 300) {
   return v;
 }
 
+function useFeatherIcons(deps: any[] = []) {
+  useEffect(() => {
+    // esperar al próximo paint para que el DOM ya esté
+    const id = requestAnimationFrame(() => feather.replace());
+    return () => cancelAnimationFrame(id);
+  }, deps);
+}
+
+// ===== Avatar con iniciales (como en chats) =====
+function getInitials(nombre?: string | null, apellido?: string | null, mail?: string | null) {
+  const n = (nombre ?? "").trim();
+  const a = (apellido ?? "").trim();
+  if (n || a) {
+    const i1 = n ? n[0] : "";
+    const i2 = a ? a[0] : (n.split(" ")[1]?.[0] ?? "");
+    return (i1 + i2).toUpperCase() || "?";
+  }
+  // fallback por mail
+  const local = (mail ?? "").split("@")[0] ?? "";
+  if (local) {
+    const parts = local.replace(/[^a-zA-Z]/g, " ").trim().split(/\s+/);
+    const i1 = parts[0]?.[0] ?? "";
+    const i2 = parts[1]?.[0] ?? "";
+    return (i1 + i2).toUpperCase() || "?";
+  }
+  return "?";
+}
+
+function InitialsAvatar({
+  nombre,
+  apellido,
+ mail,
+ className = "",
+}: {
+  nombre?: string | null;
+  apellido?: string | null;
+  mail?: string | null;
+  className?: string;
+}) {
+  const initials = getInitials(nombre, apellido, mail);
+  return (
+    <div
+     className={`flex items-center justify-center rounded-full ${className} 
+                  bg-gradient-to-br from-[#f68b1f] to-[#f16f24] text-white 
+                  font-semibold border border-white/30 shadow-sm`}
+      aria-label={`Avatar de ${nombre ?? ""} ${apellido ?? ""}`.trim()}
+    >
+      <span className="select-none">{initials}</span>
+   </div>
+  );
+}
+
 export default function DashboardPage() {
+
+  const CARD_HEIGHT = 420; //para ajustar la altura de las cards
+  const GAP = 42;            // gap-6 = 1.5rem = 24px
+  const LEFT_TOP = 180;      // alto para "Iniciar reunión" (ajustá a gusto)
+  const LEFT_BOTTOM = CARD_HEIGHT - LEFT_TOP - GAP; // racha = resto
+  const FIX = 14;
+
   const supabase = useSupabaseClient<any>();
   const router = useRouter();
 
@@ -80,13 +142,23 @@ export default function DashboardPage() {
   // ---- ID de usuario ----
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
 
-// ---- Notificaciones (tabla Notificacion + Realtime)
-  const { notifications, loading: notiLoading, markAsRead } =
-    useNotifications(supabase, idUsuario);
+  // ---- Notificaciones (tabla Notificacion + Realtime)
+  const { notifications, loading: notiLoading, markAsRead, hasMore, loadMore, loadingMore } =
+  useNotifications(supabase, idUsuario, { pageSize: 8 });
 
-// Lista que realmente renderiza la card (para poder quitar optimista)
-  const [localNotifs, setLocalNotifs] = useState<NotificationItem[]>([]);
-  useEffect(() => { setLocalNotifs(notifications); }, [notifications]);
+  // Lista que realmente renderiza la card (para poder quitar optimista)
+ const [localNotifs, setLocalNotifs] = useState<NotificationItem[]>([]);
+    useEffect(() => { setLocalNotifs(notifications); }, [notifications]);
+
+  // IDs/keys que están saliendo con animación
+  const [leavingKeys, setLeavingKeys] = useState<number[]>([]);
+  const isLeaving = (n: NotificationItem) =>
+    leavingKeys.includes(reqKey(n));
+  const startLeaving = (n: NotificationItem) => {
+    const k = reqKey(n);
+    if (!k) return;
+    setLeavingKeys(prev => (prev.includes(k) ? prev : [...prev, k]));
+  };
 
 
   // Estado para hora y fecha actual
@@ -95,13 +167,40 @@ export default function DashboardPage() {
   // ===== UI helpers =====
   function iconFor(type: NotifType): string {
     switch (type) {
-      case 'friend_request':
-        return 'user-plus';
-      case 'meeting_invite':
-        return 'calendar';
-      default:
-        return 'info';
+      case 'friend_request':           return 'user-plus';
+      case 'friend_request_accepted':  return 'user-check';
+      case 'friend_request_rejected':  return 'user-x';
+      case 'meeting_invite':           return 'calendar';
+      default:                         return 'info';
     }
+  }
+
+  // estado resuelto para solicitudes de amistad
+  const isResolved = (n: NotificationItem) =>
+    n.type === 'friend_request' &&
+    (n.meta?.respuesta === 'aceptada' || n.meta?.respuesta === 'rechazada');
+
+  const resolvedLabel = (n: NotificationItem) =>
+    n.meta?.respuesta === 'aceptada' ? '✓ Amigos' : '✕ Rechazada';
+
+  const resolvedClass = (n: NotificationItem) =>
+    n.meta?.respuesta === 'aceptada'
+      ? 'bg-green-500/15 text-green-700 border border-green-500/30'
+      : 'bg-red-500/15 text-red-700 dark:text-red-400 border border-red-500/30';
+
+  // clave de solicitud (sirve para borrar notis por la misma solicitud_id)
+  const reqKey = (n: NotificationItem) =>
+    Number((n.meta as any)?.id_solicitud ?? (n.meta as any)?.id ?? 0);
+
+  function dropNotif(n: NotificationItem) {
+    setLocalNotifs(prev =>
+      prev.filter(x => x.id !== n.id && reqKey(x) !== reqKey(n))
+    );
+
+    // limpiar la marca de "leaving" para futuros items de esa solicitud
+    const k = reqKey(n);
+    if (k) setLeavingKeys(prev => prev.filter(x => x !== k));
+  
   }
 
   async function handleNotifAccept(n: NotificationItem) {
@@ -119,18 +218,28 @@ export default function DashboardPage() {
           p_id_receptor: idUsuario,
         });
       }
-
-      if (typeof n.id === 'number') await markAsRead(n.id);
-
-      // Oculto esta tarjeta en la UI
-      setLocalNotifs(prev => prev.filter(x => x.id !== n.id));
+      
+      // Persistir resolución en la misma notificación + marcar leída
+      if (typeof n.id === 'number') {
+        const meta = { ...(n.meta ?? {}), respuesta: 'aceptada', responded_at: new Date().toISOString() };
+        await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', n.id);
+        await markAsRead(n.id); // mantiene contadores en sync
+      }
+      // UI optimista (sin esfumar)
+      setLocalNotifs(prev =>
+        prev.map(x =>
+          x.id === n.id ? { ...x, leida: true, meta: { ...(x.meta ?? {}), respuesta: 'aceptada' } } : x
+        )
+      );
+      
       return;
     }
 
     if (n.type === 'meeting_invite') {
+      startLeaving(n);
       router.push('/protected/calendario');
       if (typeof n.id === 'number') await markAsRead(n.id);
-      setLocalNotifs(prev => prev.filter(x => x.id !== n.id));
+      setTimeout(() => dropNotif(n), 280);
       return;
     }
   } catch (e) {
@@ -142,31 +251,31 @@ export default function DashboardPage() {
   async function handleNotifReject(n: NotificationItem) {
   try {
     if (n.type === 'friend_request') {
-      const idSolicitante =
-        Number((n.meta as any)?.id_solicitante) ??
-        Number((n.meta as any)?.solicitante?.id) ??
-        null;
-      if (idUsuario && idSolicitante) {
-        await supabase.rpc('reject_contact_request', {
-          p_id_solicitante: idSolicitante,
+      const id_solicitante = Number((n.meta as any)?.id_solicitante);
+      if (idUsuario && id_solicitante) {
+        await supabase.rpc('reject_contact_request_v2', {
+          p_id_solicitante: id_solicitante,
           p_id_receptor: idUsuario,
         });
       }
-      if (typeof n.id === 'number') await markAsRead(n.id);
-      setLocalNotifs(prev => prev.filter(x => x.id !== n.id));
-      return;
-    }
-
-    if (n.type === 'meeting_invite') {
-      if (typeof n.id === 'number') await markAsRead(n.id);
-      setLocalNotifs(prev => prev.filter(x => x.id !== n.id));
+      
+      if (typeof n.id === 'number') {
+        const meta = { ...(n.meta ?? {}), respuesta: 'rechazada', responded_at: new Date().toISOString() };
+        await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', n.id);
+        await markAsRead(n.id);
+      }
+      // UI optimista (sin esfumar)
+      setLocalNotifs(prev =>
+        prev.map(x =>
+          x.id === n.id ? { ...x, leida: true, meta: { ...(x.meta ?? {}), respuesta: 'rechazada' } } : x
+        )
+      );
       return;
     }
   } catch (e) {
     console.error(e);
   }
 }
-
 
   function whenLabel(iso?: string | null) {
     if (!iso) return null;
@@ -180,7 +289,7 @@ export default function DashboardPage() {
   // Render de íconos
   useEffect(() => {
     feather.replace();
-  }, [notifications]);
+  }, [localNotifs]);
 
   // Actualizar hora cada minuto
   useEffect(() => {
@@ -237,6 +346,7 @@ export default function DashboardPage() {
     fetchPerfil();
   }, [supabase]);
 
+    
 
     return (
     <div className="space-y-8">
@@ -338,61 +448,91 @@ export default function DashboardPage() {
       </section>
 
 
-      {/* ====== Cards (reordenadas y con row-span) ====== */}
+      {/* ====== Cards ====== */}
       <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch lg:auto-rows-fr mt-6">
         {/* Col 1 / Fila 1 */}
         <Card
+          className="flex flex-col items-start"
+          style={{ height: `${LEFT_TOP}px` }}
           title="Iniciar reunión"
           description="Crea una sala e invita a otros."
-          buttonText="Crear reunión"
+          buttonText={
+            <button className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold mt-3 hover:brightness-105 transition">
+              Crear reunión
+            </button>
+          }
         />
 
         {/* Col 2 (alto: 2 filas) */}
         <Card
-          className="lg:row-span-2"
+          className="lg:row-span-2 overflow-hidden"
+          style={{ height: `${CARD_HEIGHT}px` }}
           title="Notificaciones"
           content={
-            <div className="flex flex-col h-80">
+            <div className="h-full flex flex-col min-h-0">
               {notiLoading ? (
                 <p className="text-muted-foreground text-sm">Cargando…</p>
-              ) : notifications.length === 0 ? (
+              ) : localNotifs.length === 0 ? (
                 <p className="text-muted-foreground text-sm">No hay notificaciones nuevas.</p>
               ) : (
-                <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-orange-300 scrollbar-track-orange-100 dark:scrollbar-thumb-orange-600 dark:scrollbar-track-gray-800">
-                  <ul className="divide-y divide-white/20 pr-2">
+                // cuerpo flexible con altura real y scroll visible
+                <div className="flex-1 min-h-0">
+                  <ul
+                    className="h-full divide-y divide-white/20 pr-2 overflow-y-auto scroll-thin overscroll-contain mr-[-15px] pb-3"
+                    style={{
+                      // mantiene tu cálculo, pero ahora la UL ocupa todo y scrollea
+                      maxHeight: `calc(${CARD_HEIGHT}px - 140px)`,
+                      minHeight: `calc(${CARD_HEIGHT}px - 140px)`,
+                    }}
+                  >
                     {localNotifs.map((n) => (
-                      <li key={n.id} className="py-3 flex items-start gap-3">
+                      <li
+                        key={n.id}
+                        className={
+                          "py-3 flex items-start gap-3 transition-all duration-300 " +
+                          (isLeaving(n) ? "opacity-0 -translate-y-2" : "")
+                        }
+                      >
                         <div className="flex-shrink-0 mt-1">
                           <i data-feather={iconFor(n.type)} className="w-4 h-4 text-orange-500" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-sm">{n.title}</div>
-                          {n.message && <div className="text-xs text-muted-foreground mt-1">{n.message}</div>}
-                          {n.when && <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>}
+                          {n.message && (
+                            <div className="text-xs text-muted-foreground mt-1">{n.message}</div>
+                          )}
+                          {/* {n.when && <div className="text-xs text-muted-foreground mt-1">{whenLabel(n.when)}</div>} */}
                         </div>
                         <div className="flex gap-2 flex-shrink-0">
-                          {n.type === 'friend_request' && (
+                          {n.type === "friend_request" && !isResolved(n) && (
                             <>
-                              <button 
-                                onClick={() => handleNotifAccept(n)} 
-                                className="w-6 h-6 rounded-md bg-green-500/20 hover:bg-green-500/30 text-green-600 flex items-center justify-center font-bold text-sm transition-all hover:scale-105" 
+                              <button
+                                onClick={() => handleNotifAccept(n)}
+                                className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600"
                                 title="Aceptar"
                               >
-                                ✓
+                                <i data-feather="check" className="w-3 h-3" />
                               </button>
-                              <button 
-                                onClick={() => handleNotifReject(n)} 
-                                className="w-6 h-6 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-600 flex items-center justify-center font-bold text-sm transition-all hover:scale-105" 
+                              <button
+                                onClick={() => handleNotifReject(n)}
+                                className="p-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-600"
                                 title="Rechazar"
                               >
-                                ✕
+                                <i data-feather="x" className="w-3 h-3" />
                               </button>
                             </>
                           )}
-                          {n.type === 'meeting_invite' && (
-                            <button 
-                              onClick={() => handleNotifAccept(n)} 
-                              className="w-6 h-6 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-600 flex items-center justify-center transition-all hover:scale-105" 
+                          {n.type === "friend_request" && isResolved(n) && (
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs font-semibold ${resolvedClass(n)}`}
+                            >
+                              {resolvedLabel(n)}
+                            </span>
+                          )}
+                          {n.type === "meeting_invite" && (
+                            <button
+                              onClick={() => handleNotifAccept(n)}
+                              className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-600"
                               title="Ver en calendario"
                             >
                               <i data-feather="calendar" className="w-3 h-3" />
@@ -401,6 +541,22 @@ export default function DashboardPage() {
                         </div>
                       </li>
                     ))}
+
+                    {/* Botón "Ver más" para cargar notificaciones reales adicionales */}
+                    {hasMore && (
+                      <li className="py-3 flex items-center justify-center">
+                        <button
+                          onClick={loadMore}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-full bg-orange-500/10 text-orange-600 hover:bg-orange-500/20 transition"
+                          disabled={loadingMore}
+                        >
+                          {loadingMore ? "Cargando…" : "Ver más"}
+                        </button>
+                      </li>
+                    )}
+
+                    {/* pequeño espacio para que el último item no quede tapado por el scrollbar */}
+                    <li className="h-1 list-none" aria-hidden />
                   </ul>
                 </div>
               )}
@@ -408,46 +564,125 @@ export default function DashboardPage() {
           }
         />
 
-        {/* Col 3 (alto: 2 filas) */}
+
+        {/* Col 3 / Fila 1 — Perfil (solo arriba) */}
         <Card
-          className="lg:row-span-2"
+          className="lg:col-start-3 lg:row-start-1"
+          style={{ height: `${LEFT_TOP}px` }}
           title="Perfil"
           content={
-            <>
+            <div className="h-full flex flex-col">
+              {/* --- Contenido principal --- */}
               {cargando ? (
                 <p className="text-sm text-muted-foreground">Cargando perfil...</p>
               ) : perfil ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Nombre: {perfil.nombre ?? '—'} {perfil.apellido ?? ''}
-                  </p>
-                  <p className="text-sm text-muted-foreground mb-2">Correo: {perfil.mail ?? '—'}</p>
-                </>
+                <div className="flex items-center gap-3">
+                  <InitialsAvatar
+                    nombre={perfil.nombre}
+                    apellido={perfil.apellido}
+                    mail={perfil.mail}
+                    className="w-12 h-12 text-base"
+                  />
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">
+                     {perfil.nombre ?? "—"} {perfil.apellido ?? ""}
+                    </p>
+                    <p className="text-sm text-muted-foreground truncate">
+                      {perfil.mail ?? "—"}
+                    </p>
+                  </div>
+                </div>
               ) : (
-                <p className="text-sm text-muted-foreground">No se encontró el perfil.</p>
+                <p className="text-sm text-muted-foreground">
+                  No se encontró el perfil.
+                </p>
               )}
-            </>
-          }
-          buttonText={
-            <div className="flex gap-2 mt-3">
-              <Link href="/protected/perfil" className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold hover:brightness-105 transition">
-                Ver perfil
-              </Link>
-              <Link href="/protected/perfil/editar" className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold hover:brightness-105 transition">
-                Editar perfil
-              </Link>
+
+              {/* --- Botones al final --- */}
+                <div className="flex gap-2 mt-5 justify-start">
+                <Link
+                  href="/protected/perfil"
+                  className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-3 py-1.5 rounded-full text-xs font-semibold hover:brightness-105 transition"
+                >
+                  Ver perfil
+                </Link>
+                <Link
+                  href="/protected/perfil/editar"
+                  className="bg-orange-500/10 text-orange-600 px-3 py-1.5 rounded-full text-xs font-semibold hover:bg-orange-500/20 transition"
+                >
+                  Editar perfil
+                </Link>
+              </div>
             </div>
           }
         />
 
-        {/* Col 1 / Fila 2 (debajo de "Iniciar reunión") */}
+
+       {/* Col 1 / Fila 2 (debajo de "perfil??") */}
+       <div
+          className="h-full flex-shrink-0 lg:col-start-1 lg:row-start-2"
+          style={{
+            height: `calc(${LEFT_BOTTOM}px + ${FIX}px)`,
+            marginBottom: `-${FIX}px`,
+            marginTop: '-14px', // sube toda la card un poquito
+          }}
+        >
+          {cargando ? <div>Cargando racha...</div> : <StreakCardWrapper />}
+        </div>
+
+        {/* Col 3 / Fila 2 — Próximamente */}
         <Card
-          title="Reuniones programadas"
-          list={['🗓 5 julio - Reunión equipo 10:00', '🗓 6 julio - Cliente Z 15:30']}
-          buttonText="Ver calendario"
+          className="lg:col-start-3 lg:row-start-2"
+          style={{
+            height: `calc(${LEFT_BOTTOM}px + ${FIX}px)`,
+            marginBottom: `-${FIX}px`,
+            marginTop: '-14px', // alineado con la racha
+          }}
+          title="Próximamente en Boomerang 🚀"
+          content={
+            <div className="h-full flex flex-col justify-center px-0">
+              <p className="text-sm font-medium text-foreground mb-1">  
+                Videollamadas grupales
+              </p>
+              <p className="text-sm text-muted-foreground mb-3">
+                Reunite con tu equipo y amigos, ¡todos juntos!
+              </p>
+              <p className="text-sm font-medium text-foreground mb-1">
+                Traducción de la página
+              </p>
+              <p className="text-sm text-muted-foreground">
+                ¡En muchos más idiomas!
+              </p>
+            </div>
+          }
         />
       </section>
 
+      {/* Scrollbar fino y naranja (global) */}
+      <style jsx global>{`
+        /* Firefox */
+        .scroll-thin {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(241, 111, 36, 0.45) transparent;
+        }
+        /* WebKit (Chrome, Edge, Safari) */
+        .scroll-thin::-webkit-scrollbar {
+          width: 5px;
+          margin-right: -2px;
+        }
+        .scroll-thin::-webkit-scrollbar-track {
+          background: transparent;
+          border-radius: 9999px;
+        }
+        .scroll-thin::-webkit-scrollbar-thumb {
+          background: rgba(241, 111, 36, 0.4);
+          border-radius: 9999px;
+          margin-right: 3px;
+        }
+        .scroll-thin::-webkit-scrollbar-thumb:hover {
+          background: rgba(241, 111, 36, 0.55);
+        }
+      `}</style>    
     </div>
   );
 }
@@ -501,6 +736,7 @@ function Card({
   content,
   buttonText,
   className,
+  style,
 }: {
   title: string;
   description?: string;
@@ -509,12 +745,12 @@ function Card({
   content?: React.ReactNode;
   buttonText?: string | React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
 }) {
   return (
     <div
-      className={`bg-orange-50/50 dark:bg-gray-700/50 rounded-xl p-6 shadow-lg backdrop-blur-md border border-orange-200/30 dark:border-gray-600/30 flex flex-col justify-between ${
-        className ?? ''
-      }`}
+      style={style}
+      className={`bg-orange-50/50 dark:bg-gray-700/50 rounded-xl p-6 shadow-lg backdrop-blur-md border border-orange-200/30 dark:border-gray-600/30 flex flex-col justify-between ${className ?? ''}`}
     >
       <div>
         <h2 className="text-orange-500 font-semibold text-lg mb-2">{title}</h2>

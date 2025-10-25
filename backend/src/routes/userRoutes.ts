@@ -145,6 +145,16 @@ router.post('/profile', create_usuario_profile);
  *               apodo:
  *                 type: string
  *                 example: Pedrito
+ *               pais:
+ *                 type: string
+ *                 example: Argentina
+ *               genero:
+ *                 type: integer
+ *                 example: 2
+ *               fecha_nacimiento:
+ *                 type: string
+ *                 format: date
+ *                 example: 2001-07-30
  *     responses:
  *       200:
  *         description: Perfil actualizado correctamente
