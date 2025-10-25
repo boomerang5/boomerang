@@ -1,19 +1,35 @@
-import supabase from "../../lib/supabase";
+import { supabaseAdmin } from "../../lib/supabase";
 
 export async function updateUsuarioProfileService(idUsuario: number, nombre: string, apellido: string, idioma: number, apodo: string, pais?: string) {
-  const { data, error } = await supabase.rpc("update_usuario_profile", {
-    p_id: idUsuario,
-    p_nombre: nombre,
-    p_apellido: apellido,
-    p_idioma: idioma,
-    p_apodo: apodo,
-    p_pais: pais || null
-  });
+  try {
+    console.log("🔄 Iniciando actualización de usuario:", { idUsuario, nombre, apellido, idioma, apodo, pais });
+    
+    // Incluir el campo 'pais' ahora que existe la columna
+    const { data, error } = await supabaseAdmin
+      .from('Usuario')
+      .update({
+        nombre: nombre,
+        apellido: apellido,
+        id_idioma: idioma,
+        apodo: apodo,
+        pais: pais || null
+      })
+      .eq('id', idUsuario)
+      .select();
 
-  if (error) {
-    console.error("❌ Supabase error:", error);
-    throw new Error(error.message);
+    if (error) {
+      console.error("❌ Supabase error:", error);
+      throw new Error(`Error de Supabase: ${error.message}`);
+    }
+
+    if (!data || data.length === 0) {
+      throw new Error(`Usuario con ID ${idUsuario} no encontrado`);
+    }
+
+    console.log("✅ Usuario actualizado correctamente:", data[0]);
+    return data[0]; 
+  } catch (error) {
+    console.error("❌ Error en updateUsuarioProfileService:", error);
+    throw error;
   }
-
-  return data; 
 }
