@@ -91,20 +91,28 @@ export default function EditarPerfilPage() {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
 
-      // 🔴 PUT /api/users/update acepta estas 6 claves:
+      // Construir payload usando las claves que el backend espera.
+      // Backend /api/users/update requiere: id, nombre, apellido, apodo, pais, genero, fecha_nacimiento, idioma
       const payload = {
         id: Number(perfil.id),                                  // requerido
         nombre: (perfil.nombre ?? '').trim(),                   // requerido
         apellido: (perfil.apellido ?? '').trim(),               // requerido
         idioma: Number(perfil.idioma ?? 1),                     // requerido (número)
         apodo: (perfil.apodo ?? '').trim(),                     // requerido
-        pais: (perfil.pais ?? '').trim(),                       // opcional
+        pais: (perfil.pais ?? '').trim(),                       // requerido por el backend
+        // El frontend mantiene `id_genero` en el state; el backend espera `genero`.
+        genero: perfil.id_genero != null ? Number(perfil.id_genero) : null,
+        // Fecha en formato yyyy-mm-dd (el input date ya lo provee así)
+        fecha_nacimiento: perfil.fecha_nacimiento ?? null,
       };
 
-      // Validación rápida antes de enviar
+      // Validación rápida antes de enviar (coincide con lo que exige el backend)
       if (!payload.id || !payload.nombre || !payload.apellido || !payload.apodo) {
         setMsg('Completá nombre, apellido y apodo.'); setSaving(false); return;
       }
+      if (!payload.pais) { setMsg('Completá el país.'); setSaving(false); return; }
+      if (payload.genero == null) { setMsg('Seleccioná el género.'); setSaving(false); return; }
+      if (!payload.fecha_nacimiento) { setMsg('Completá la fecha de nacimiento.'); setSaving(false); return; }
 
       const res = await fetch(`/api/perfil/update`, {
         method: 'PUT',

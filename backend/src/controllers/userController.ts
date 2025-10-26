@@ -66,32 +66,42 @@ export const create_usuario_profile = async (req: Request, res: Response) => {
 };
 
 
-//UPDATE_USUARIO_PROFILE
 export const update_usuario_profile = async (req: Request, res: Response) => {
-  const { id, nombre, apellido, idioma, apodo, pais, genero, fecha_nacimiento } = req.body;
+  const { id, nombre, apellido, apodo, pais, genero, fecha_nacimiento, idioma } = req.body;
 
-  if (!id || !nombre || !apellido || !idioma || !apodo) {
+  // Todos son requeridos para la RPC
+  if (
+    id === undefined ||
+    !nombre ||
+    !apellido ||
+    !apodo ||
+    !pais ||
+    genero === undefined ||
+    !fecha_nacimiento ||
+    idioma === undefined
+  ) {
     return res.status(400).json({ error: 'Faltan campos requeridos.' });
   }
 
   try {
-    await updateUsuarioProfileService(
-      Number(id), 
-      String(nombre), 
-      String(apellido), 
-      Number(idioma),
-      String(apodo), 
-      pais ?? null, 
-      genero !== undefined ? Number(genero) : undefined,
-      fecha_nacimiento ?? undefined
+    const usuario = await updateUsuarioProfileService(
+      Number(id),
+      String(nombre),
+      String(apellido),
+      String(apodo),
+      String(pais),
+      Number(genero),
+      String(fecha_nacimiento), // 'YYYY-MM-DD'
+      Number(idioma)
     );
 
-    return res.status(200).json({ message: "Perfil actualizado correctamente" });
+    return res.status(200).json({ message: 'Perfil actualizado correctamente', usuario });
   } catch (err) {
-    console.error('Error en updateUsuarioProfile:', err);
+    console.error('Error en update_usuario_profile:', err);
     return res.status(500).json({ error: 'Error interno del servidor.' });
   }
 };
+
 
 // GET_USUARIO_UUID
 export const get_usuario_uuid = async (req: Request, res: Response) => {
@@ -120,24 +130,25 @@ export const get_usuario_uuid = async (req: Request, res: Response) => {
 export const get_user_by_id_usuario = async (req: Request, res: Response) => {
   const { id } = req.params;
 
-  const parsedId = parseInt(id);
+  const parsedId = parseInt(id, 10);
   if (isNaN(parsedId)) {
     return res.status(400).json({ error: "ID inválido" });
   }
 
   try {
-    const data = await getUserByIdUsuario(parsedId);
+    const rows = await getUserByIdUsuario(parsedId);
 
-    if (!data || data.length === 0) {
+    if (!rows || rows.length === 0) {
       return res.status(404).json({ message: "Usuario no encontrado" });
     }
 
-    return res.status(200).json(data[0]);
+    return res.status(200).json(rows[0]);
   } catch (error: any) {
     console.error("❌ Error en get_user_by_id_usuario:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message ?? "Error interno del servidor" });
   }
 };
+
 
 // CHANGE_STATE_USER
 export const change_state_user = async (req: Request, res: Response) => {

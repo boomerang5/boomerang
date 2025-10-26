@@ -756,6 +756,43 @@ useEffect(() => {
     })()
   }, [sb])
 
+  // === Intentar resolver y fijar mi nombre visible (para que los rings lleven el nombre correcto)
+  useEffect(() => {
+    if (!sb) return
+    // Si ya tenemos un meName distinto del placeholder, no forzamos (pero igualmente intentamos rellenar si está vacío)
+    ;(async () => {
+      try {
+        // Preferir id numérico (RPC más fiable)
+        if (meNumericId != null) {
+          try {
+            const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
+            if (!error && data) {
+              const u = Array.isArray(data) ? data[0] : data
+              const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+              if (resolved) setMeName(String(resolved))
+            }
+          } catch (e) {
+            // ignore
+          }
+        } else if (meId) {
+          // Fallback por UUID usando la ruta interna del app router
+          try {
+            const res = await fetch(`/api/users/uuid/${meId}`)
+            if (res.ok) {
+              const json = await res.json()
+              const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+              if (resolved) setMeName(String(resolved))
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
+      } catch (e) {
+        // noop
+      }
+    })()
+  }, [sb, meId, meNumericId])
+
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
   const [incoming, setIncoming] = useState<IncomingCall | null>(null)
 
@@ -1001,13 +1038,37 @@ useEffect(() => {
       return
     }
 
+    // Asegurar que enviamos un nombre válido (fallback: intentar resolver justo antes de enviar)
+    let nameToSend = meName
+    if (!nameToSend || nameToSend === 'Yo') {
+      try {
+        if (meNumericId != null) {
+          const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
+          if (!error && data) {
+            const u = Array.isArray(data) ? data[0] : data
+            const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+            if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
+          }
+        } else if (meId) {
+          try {
+            const res = await fetch(`/api/users/uuid/${meId}`)
+            if (res.ok) {
+              const json = await res.json()
+              const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+              if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+
     for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)
       await ensureSubscribed(ch)
       await ch.send({
         type: 'broadcast',
         event: 'ring',
-        payload: { callId: id, room: id, from: { id: meId, name: meName } },
+        payload: { callId: id, room: id, from: { id: meId, name: nameToSend } },
       })
       await ch.unsubscribe()
     }
