@@ -324,8 +324,22 @@ function toISO(v?: string | null): string | null {
 }
 function fmtDate(iso?: string | null) {
   if (!iso) return '—';
+  // Evitar el problema de parsear 'YYYY-MM-DD' como UTC y que al convertir a
+  // local timezone termine mostrando el día anterior. Si recibimos el formato
+  // exacto 'YYYY-MM-DD', construimos la fecha usando el constructor local
+  // (año, mesIndex, día) para mantener la misma fecha en la zona del usuario.
+  const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(iso);
+  if (m) {
+    const y = Number(m[1]);
+    const mm = Number(m[2]);
+    const dd = Number(m[3]);
+    const d = new Date(y, mm - 1, dd); // constructor local
+    if (!isNaN(d.getTime())) return d.toLocaleDateString();
+    return iso;
+  }
   try {
-    return new Date(iso).toLocaleDateString();
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? iso : d.toLocaleDateString();
   } catch {
     return iso;
   }

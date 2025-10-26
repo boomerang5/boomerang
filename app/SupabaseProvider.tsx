@@ -16,21 +16,11 @@ export default function SupabaseProvider({ children }: { children: React.ReactNo
   });
 
   // Limpiar cookies corruptas al inicializar
-  useEffect(() => {
-    try {
-      // Intentar limpiar cookies de Supabase que puedan estar corruptas
-      const cookies = document.cookie.split(';');
-      cookies.forEach(cookie => {
-        const [name] = cookie.trim().split('=');
-        if (name.includes('supabase') || name.includes('sb-')) {
-          // Limpiar cookies de Supabase que puedan estar corruptas
-          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
-        }
-      });
-    } catch (error) {
-      console.warn('Error cleaning cookies:', error);
-    }
-  }, []);
+  // NOTE: previously this component attempted to clear Supabase cookies on
+  // initialization. That caused valid session cookies to be removed and
+  // produced unexpected redirects to /sign-in. We no longer clear cookies
+  // here. If you need to clear corrupt cookies during development, do it
+  // manually or add a dev-only guarded method.
 
   return <SessionContextProvider supabaseClient={supabase}>{children}</SessionContextProvider>;
 }
