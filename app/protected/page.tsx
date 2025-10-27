@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useNotifications, type NotificationItem, type NotifType } from './hooks/useNotifications';
 import StreakCardWrapper from "@/components/dashboard/StreakCardWrapper";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { pingDailyActivity } from "@/lib/activity";
 
 
 type Perfil = { nombre: string | null; apellido: string | null; mail: string | null };
@@ -286,6 +288,8 @@ export default function DashboardPage() {
     }
   }
 
+
+
   // Render de íconos
   useEffect(() => {
     feather.replace();
@@ -346,6 +350,24 @@ export default function DashboardPage() {
     fetchPerfil();
   }, [supabase]);
 
+    useEffect(() => {
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) return;
+
+      const { data: usuario, error } = await supabase
+        .from("Usuario")
+        .select("id")
+        .eq("User_id", user.id)
+        .single();
+
+      if (error || !usuario?.id) return;
+
+      await pingDailyActivity(supabase, usuario.id);
+    })();
+  }, [supabase]);
     
 
     return (
