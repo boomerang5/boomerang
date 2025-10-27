@@ -220,6 +220,7 @@ export default function VideoCallPage() {
   const [meNumericId, setMeNumericId] = useState<number | null>(null) // ID numérico
   const [meName, setMeName] = useState<string>('Yo')
   const [peerId, setPeerId] = useState<string>('')               // uuid o id del peer
+  const [peerName, setPeerName] = useState<string | null>(null)
 
   const meIdInt = useMemo(() => {
     if (meNumericId != null) return meNumericId
@@ -1009,6 +1010,41 @@ useEffect(() => {
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
   const [incoming, setIncoming] = useState<IncomingCall | null>(null)
 
+  // Resolver nombre/apodo del peer cuando cambie peerId o recibamos incoming
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        // Si el incoming trae un nombre explícito, usarlo inmediatamente
+        if (incoming && incoming.fromName) {
+          setPeerName(incoming.fromName)
+          return
+        }
+
+        // Si no hay peerId o no hay cliente supabase aún, limpiar
+        if (!peerId || !sb) {
+          if (mounted) setPeerName(null)
+          return
+        }
+
+        // Intentar resolver por UUID/id vía la ruta interna del app
+        try {
+          const res = await fetch(`/api/users/uuid/${peerId}`)
+          if (res.ok) {
+            const json = await res.json()
+            const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+            if (mounted) setPeerName(resolved ? String(resolved) : null)
+            return
+          }
+        } catch (e) { /* ignore */ }
+
+        // fallback: dejar null (mostraremos 'Invitado' en la UI)
+        if (mounted) setPeerName(null)
+      } catch (e) { /* noop */ }
+    })()
+    return () => { mounted = false }
+  }, [peerId, incoming, sb])
+
   // Llamadas manejadas y "rings" ya vistos (para evitar dups entre uuid/id)
   const handledCallsRef = useRef<Set<string>>(new Set())
   const seenRingsRef = useRef<Set<string>>(new Set())
@@ -1708,6 +1744,9 @@ useEffect(() => {
     !handledCallsRef.current.has(incoming.callId) &&
     handledBump >= 0 // fuerza recomputar cuando cambia handledBump
 
+  // Nombre a mostrar en el header: preferir incoming.fromName, luego peerName, luego fallback 'Invitado'
+  const headerDisplayName = (incoming && incoming.fromName) || peerName || 'Invitado'
+
   return (
     <div className="min-h-screen w-full bg-orange-50 dark:bg-[#0d0d0d] text-foreground flex flex-col">
       <header className="sticky top-0 z-40 w-full">
@@ -1721,7 +1760,7 @@ useEffect(() => {
               </div>
               <div className="leading-tight">
                 <div className="text-sm text-muted-foreground">Reunión</div>
-                <div className="font-semibold">{callId ?? 'BOOM-—'}</div>
+                <div className="font-semibold truncate">{headerDisplayName}</div>
               </div>
               <span
                 className={clsx(
