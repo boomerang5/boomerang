@@ -29,6 +29,16 @@ interface Stroke {
 }
 
 export default function PizarraPage() {
+  // Set a clear window title so the opened whiteboard window is identifiable when choosing a window to share
+  useEffect(() => {
+    const prev = document.title
+    try {
+      document.title = 'Boomerang - Pizarra'
+    } catch (e) {}
+    return () => {
+      try { document.title = prev } catch (e) {}
+    }
+  }, [])
   // Referencias DOM
   const appRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
