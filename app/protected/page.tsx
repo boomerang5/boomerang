@@ -450,16 +450,30 @@ export default function DashboardPage() {
 
       {/* ====== Cards ====== */}
       <section className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 items-stretch lg:auto-rows-fr mt-6">
-        {/* Col 1 / Fila 1 */}
+        {/* Col 1 / Fila 1 - Estadísticas de Llamadas */}
         <Card
-          className="flex flex-col items-start"
+          className="flex flex-col"
           style={{ height: `${LEFT_TOP}px` }}
-          title="Iniciar reunión"
-          description="Crea una sala e invita a otros."
-          buttonText={
-            <button className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-full font-semibold mt-3 hover:brightness-105 transition">
-              Crear reunión
-            </button>
+          title="Estadísticas Generales (Últimos 30 días)"
+          content={
+            <div className="flex justify-between gap-2 w-full">
+              <div className="bg-orange-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1">
+                <div className="text-xl font-bold text-orange-600 dark:text-orange-400">17</div>
+                <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Total Llamadas</div>
+              </div>
+              <div className="bg-green-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1">
+                <div className="text-xl font-bold text-green-600 dark:text-green-400">16</div>
+                <div className="text-[10px] text-gray-600 dark:text-gray-400">Conectadas</div>
+              </div>
+              <div className="bg-blue-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1">
+                <div className="text-xl font-bold text-blue-600 dark:text-blue-400">1h 5m</div>
+                <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Tiempo Total</div>
+              </div>
+              <div className="bg-purple-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1">
+                <div className="text-xl font-bold text-purple-600 dark:text-purple-400">3</div>
+                <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Contactos Únicos</div>
+              </div>
+            </div>
           }
         />
 
