@@ -497,10 +497,10 @@ export default function DashboardPage() {
         <Card
           className="flex flex-col"
           style={{ height: `${LEFT_TOP}px` }}
-          title="Estadísticas Generales (Últimos 30 días)"
+          title="Resumen de Llamadas"
           content={
             estadisticas ? (
-              <div className="flex justify-center items-center gap-2 w-full mt-2">
+              <div className="flex justify-center items-center gap-2 w-full mt-6">
                 <div className="bg-orange-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1 flex flex-col justify-center">
                   <div className="text-l font-bold text-orange-600 dark:text-orange-400">{estadisticas.totalLlamadas}</div>
                   <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Total Llamadas</div>
