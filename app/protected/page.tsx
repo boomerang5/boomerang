@@ -437,14 +437,14 @@ export default function DashboardPage() {
           className="grid grid-cols-3 sm:grid-cols-5 gap-6 justify-items-center"
         >
           <ActionBubble
-            href="/protected/videollamada"
+            href="/protected/contactos"
             emoji="🎥"
             title="Videollamá"
             subtitle="Cara a cara en segundos"
           />
           <ActionBubble
-            href="/protected/chats"
-            emoji="💬"
+            href="/protected/pizarra"
+            emoji="✏️"
             title="Usá la pizarra"
             subtitle="Escribí con tu mano, sin mouse"
           />
@@ -461,9 +461,9 @@ export default function DashboardPage() {
             subtitle="Tu asistente en la app"
           />
           <ActionBubble
-            href="/protected/contactos"
-            emoji="🌍"
-            title="Conocé gente"
+            href="/protected/chats"
+            emoji="💬"
+            title="Chatea con amigos"
             subtitle="De todo el mundo"
           />
         </div>

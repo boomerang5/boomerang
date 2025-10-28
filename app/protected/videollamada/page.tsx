@@ -197,6 +197,12 @@ export default function VideoCallPage() {
   const [inCall, setInCall] = useState(false)
   const [panel, setPanel] = useState<Panel>('none')
 
+  // Chat (ephemeral for the call) — keep in parent so it survives panel unmount/mount
+  const [chatMessages, setChatMessages] = useState<Array<{id: string; from: string; fromId?: string; text: string; ts: number}>>([])
+  const chatSeenRef = useRef<Set<string>>(new Set())
+
+  
+
   // ---- Refs de video
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -214,6 +220,7 @@ export default function VideoCallPage() {
   const [meNumericId, setMeNumericId] = useState<number | null>(null) // ID numérico
   const [meName, setMeName] = useState<string>('Yo')
   const [peerId, setPeerId] = useState<string>('')               // uuid o id del peer
+  const [peerName, setPeerName] = useState<string | null>(null)
 
   const meIdInt = useMemo(() => {
     if (meNumericId != null) return meNumericId
@@ -227,6 +234,14 @@ export default function VideoCallPage() {
   const [callRowId, setCallRowId] = useState<number | null>(null)
   const [ending, setEnding] = useState(false)
 
+  // Clear chat when call ends (callId becomes null)
+  useEffect(() => {
+    if (!callId) {
+      setChatMessages([])
+      try { chatSeenRef.current.clear() } catch {}
+    }
+  }, [callId])
+
   const callerUserIdRef = useRef<string | null>(null)
   const calleeUserIdRef = useRef<string | null>(null)
 
@@ -239,6 +254,13 @@ export default function VideoCallPage() {
   // ---- WebRTC
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
+  const screenStreamRef = useRef<MediaStream | null>(null)
+  const prevLocalStreamRef = useRef<MediaStream | null>(null)
+  // Guard flags to avoid stop/start races when browser triggers multiple onended/oninactive events
+  const suppressStartRef = useRef<boolean>(false)
+  const stoppingRef = useRef<boolean>(false)
+  // Cooldown timestamp to prevent immediate restart (ms since epoch)
+  const disabledUntilRef = useRef<number>(0)
   const iceDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([])
 
@@ -249,6 +271,7 @@ export default function VideoCallPage() {
   // ---- Controles extra
   const [shareOn, setShareOn] = useState(false)
   const [translateOn, setTranslateOn] = useState(false)
+  const [peerSharing, setPeerSharing] = useState(false)
 
   // === Opciones de idiomas y voces ===
 const SOURCE_LANGUAGE_OPTIONS = [
@@ -626,7 +649,198 @@ useEffect(() => {
     }
   }
 
-  const toggleShare = () => { setShareOn(v => !v) }
+  // Toggle screen sharing: capture display, replace tracks in-call, and revert when stopped
+  const toggleShare = async () => {
+    // Prevent concurrent stop/start races
+    if (stoppingRef.current) {
+      log('~ toggleShare ignored — stop in progress')
+      return
+    }
+
+    // If already sharing, stop and revert to previous local stream
+    if (shareOn) {
+      stoppingRef.current = true
+      try {
+        screenStreamRef.current?.getTracks().forEach(t => t.stop())
+      } catch {}
+      screenStreamRef.current = null
+
+      // restore previous local stream (camera) if present; if not, try to acquire camera
+      let camStream = prevLocalStreamRef.current
+      if (!camStream) {
+        try {
+          // attempt to re-enable camera (will prompt if needed)
+          await enableCam()
+          camStream = localStreamRef.current
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      localStreamRef.current = camStream
+      if (localVideoRef.current) localVideoRef.current.srcObject = camStream
+
+      if (pcRef.current && camStream) {
+        const videoSender = pcRef.current.getSenders().find(s => s.track?.kind === 'video')
+        const audioSender = pcRef.current.getSenders().find(s => s.track?.kind === 'audio')
+        const camVideo = camStream.getVideoTracks()[0]
+        const camAudio = camStream.getAudioTracks()[0]
+        try {
+          if (videoSender && camVideo) {
+            await videoSender.replaceTrack(camVideo)
+            log('→ video track replaced with camera')
+          }
+          if (audioSender && camAudio) {
+            await audioSender.replaceTrack(camAudio)
+            log('→ audio track replaced with camera')
+          }
+          // Force a renegotiation so the remote peer updates its stream immediately
+          try {
+            const offer = await pcRef.current.createOffer()
+            await pcRef.current.setLocalDescription(offer)
+            await sendSignal({ type: 'offer', sdp: pcRef.current.localDescription!, from: meId })
+            log('→ renegotiation offer sent (restore camera)')
+          } catch (e:any) {
+            log('! renegotiate (restore) error: ' + (e?.message || e))
+          }
+        } catch (e:any) { log('! error replacing tracks: ' + e?.message) }
+      }
+
+      setShareOn(false)
+      try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: false } }) } catch (e) {}
+      stoppingRef.current = false
+      log('× screen sharing stopped')
+      return
+    }
+
+    // Start screen share
+    // If we recently handled an external stop, suppress immediate restart
+    if (suppressStartRef.current) {
+      // also respect explicit cooldown window
+      const now = Date.now()
+      if (now < disabledUntilRef.current) {
+        log('~ suppressed start due to recent external stop (cooldown)')
+        suppressStartRef.current = false
+        return
+      }
+      suppressStartRef.current = false
+      log('~ suppressed start due to recent external stop')
+      return
+    }
+    // Respect cooldown in case other code set it
+    if (Date.now() < disabledUntilRef.current) {
+      log('~ start suppressed by cooldown')
+      return
+    }
+
+    let disp: MediaStream | null = null
+    try {
+      disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+    } catch (e:any) {
+      log('! screen share cancelled or failed: ' + (e?.message || e))
+      return
+    }
+
+    // save previous local stream so we can restore later
+    prevLocalStreamRef.current = localStreamRef.current
+    screenStreamRef.current = disp
+    localStreamRef.current = disp
+    if (localVideoRef.current) localVideoRef.current.srcObject = disp
+    setShareOn(true)
+    log('✓ screen sharing started')
+
+    try {
+      // notify peer we're sharing
+      try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: true } }) } catch (e) {}
+    } catch {}
+
+    // Ensure we detect when the browser stops sharing via its UI (e.g. "Dejar de compartir")
+    // Use an immediate, direct stop handler to avoid races that would re-open the picker
+    const stopHandler = async () => {
+      // mark suppression and cooldown to avoid immediate restart
+      suppressStartRef.current = true
+      disabledUntilRef.current = Date.now() + 2000 // 2s cooldown
+      // perform immediate stop logic (avoid relying on toggleShare state closure)
+      if (stoppingRef.current) return
+      stoppingRef.current = true
+      try {
+        try { screenStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+        screenStreamRef.current = null
+
+        // restore previous local stream (camera) if present; if not, try to acquire camera
+        let camStream = prevLocalStreamRef.current
+        if (!camStream) {
+          try { await enableCam(); camStream = localStreamRef.current } catch (e) { /* ignore */ }
+        }
+
+        localStreamRef.current = camStream
+        if (localVideoRef.current) localVideoRef.current.srcObject = camStream
+
+        if (pcRef.current && camStream) {
+          const videoSender = pcRef.current.getSenders().find(s => s.track?.kind === 'video')
+          const audioSender = pcRef.current.getSenders().find(s => s.track?.kind === 'audio')
+          const camVideo = camStream.getVideoTracks()[0]
+          const camAudio = camStream.getAudioTracks()[0]
+          try {
+            if (videoSender && camVideo) { await videoSender.replaceTrack(camVideo); log('→ video track replaced with camera (stopHandler)') }
+            if (audioSender && camAudio) { await audioSender.replaceTrack(camAudio); log('→ audio track replaced with camera (stopHandler)') }
+            try {
+              const offer = await pcRef.current.createOffer()
+              await pcRef.current.setLocalDescription(offer)
+              await sendSignal({ type: 'offer', sdp: pcRef.current.localDescription!, from: meId })
+              log('→ renegotiation offer sent (stopHandler)')
+            } catch (e:any) { log('! renegotiate (stopHandler) error: ' + (e?.message || e)) }
+          } catch (e:any) { log('! error replacing tracks (stopHandler): ' + e?.message) }
+        }
+
+        setShareOn(false)
+          try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: false } }) } catch (e) {}
+        log('× screen sharing stopped (stopHandler)')
+      } finally {
+        stoppingRef.current = false
+      }
+    }
+
+    try {
+      // oninactive fires when the stream becomes inactive
+      (disp as any).oninactive = () => { void stopHandler() }
+    } catch (e) {}
+    // Also add onended to every track as a fallback
+    try {
+      disp.getTracks().forEach(t => {
+        try { t.onended = () => { void stopHandler() } } catch (e) {}
+      })
+    } catch (e) {}
+
+    // if in a call, replace tracks
+    if (pcRef.current) {
+      const screenVideo = disp.getVideoTracks()[0]
+      const screenAudio = disp.getAudioTracks()[0] || null
+      const videoSender = pcRef.current.getSenders().find(s => s.track?.kind === 'video')
+      const audioSender = pcRef.current.getSenders().find(s => s.track?.kind === 'audio')
+      try {
+        if (videoSender && screenVideo) {
+          await videoSender.replaceTrack(screenVideo)
+          log('→ video track replaced with screen')
+        }
+        if (audioSender && screenAudio) {
+          await audioSender.replaceTrack(screenAudio)
+          log('→ audio track replaced with screen')
+        }
+        // Force renegotiation so peer updates the remote stream to show the screen share
+        try {
+          const offer = await pcRef.current.createOffer()
+          await pcRef.current.setLocalDescription(offer)
+          await sendSignal({ type: 'offer', sdp: pcRef.current.localDescription!, from: meId })
+          log('→ renegotiation offer sent (screen share)')
+        } catch (e:any) {
+          log('! renegotiate (screen) error: ' + (e?.message || e))
+        }
+      } catch (e:any) { log('! error replacing tracks: ' + e?.message) }
+    }
+
+    // when user stops sharing from browser UI, revert — handled above via oninactive/onended
+  }
   const toggleTranslate = () => { setTranslateOn(v => !v) }
   const openChat = () => setPanel(p => (p === 'chat' ? 'none' : 'chat'))
 
@@ -756,8 +970,80 @@ useEffect(() => {
     })()
   }, [sb])
 
+  // === Intentar resolver y fijar mi nombre visible (para que los rings lleven el nombre correcto)
+  useEffect(() => {
+    if (!sb) return
+    // Si ya tenemos un meName distinto del placeholder, no forzamos (pero igualmente intentamos rellenar si está vacío)
+    ;(async () => {
+      try {
+        // Preferir id numérico (RPC más fiable)
+        if (meNumericId != null) {
+          try {
+            const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
+            if (!error && data) {
+              const u = Array.isArray(data) ? data[0] : data
+              const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+              if (resolved) setMeName(String(resolved))
+            }
+          } catch (e) {
+            // ignore
+          }
+        } else if (meId) {
+          // Fallback por UUID usando la ruta interna del app router
+          try {
+            const res = await fetch(`/api/users/uuid/${meId}`)
+            if (res.ok) {
+              const json = await res.json()
+              const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+              if (resolved) setMeName(String(resolved))
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
+      } catch (e) {
+        // noop
+      }
+    })()
+  }, [sb, meId, meNumericId])
+
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
   const [incoming, setIncoming] = useState<IncomingCall | null>(null)
+
+  // Resolver nombre/apodo del peer cuando cambie peerId o recibamos incoming
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        // Si el incoming trae un nombre explícito, usarlo inmediatamente
+        if (incoming && incoming.fromName) {
+          setPeerName(incoming.fromName)
+          return
+        }
+
+        // Si no hay peerId o no hay cliente supabase aún, limpiar
+        if (!peerId || !sb) {
+          if (mounted) setPeerName(null)
+          return
+        }
+
+        // Intentar resolver por UUID/id vía la ruta interna del app
+        try {
+          const res = await fetch(`/api/users/uuid/${peerId}`)
+          if (res.ok) {
+            const json = await res.json()
+            const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+            if (mounted) setPeerName(resolved ? String(resolved) : null)
+            return
+          }
+        } catch (e) { /* ignore */ }
+
+        // fallback: dejar null (mostraremos 'Invitado' en la UI)
+        if (mounted) setPeerName(null)
+      } catch (e) { /* noop */ }
+    })()
+    return () => { mounted = false }
+  }, [peerId, incoming, sb])
 
   // Llamadas manejadas y "rings" ya vistos (para evitar dups entre uuid/id)
   const handledCallsRef = useRef<Set<string>>(new Set())
@@ -1001,13 +1287,37 @@ useEffect(() => {
       return
     }
 
+    // Asegurar que enviamos un nombre válido (fallback: intentar resolver justo antes de enviar)
+    let nameToSend = meName
+    if (!nameToSend || nameToSend === 'Yo') {
+      try {
+        if (meNumericId != null) {
+          const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
+          if (!error && data) {
+            const u = Array.isArray(data) ? data[0] : data
+            const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+            if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
+          }
+        } else if (meId) {
+          try {
+            const res = await fetch(`/api/users/uuid/${meId}`)
+            if (res.ok) {
+              const json = await res.json()
+              const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+              if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+
     for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)
       await ensureSubscribed(ch)
       await ch.send({
         type: 'broadcast',
         event: 'ring',
-        payload: { callId: id, room: id, from: { id: meId, name: meName } },
+        payload: { callId: id, room: id, from: { id: meId, name: nameToSend } },
       })
       await ch.unsubscribe()
     }
@@ -1190,6 +1500,17 @@ useEffect(() => {
         // Redirigir a pantalla principal
         redirectToMainPage()
       }
+    })
+
+  // handle remote peer announcing they started/stopped sharing (so we can adjust fit)
+    ch.on('broadcast', { event: 'sharing' }, ({ payload }: any) => {
+      try {
+        const from = String(payload?.from ?? '')
+        if (!from || from === meId) return
+        const sharing = !!payload?.sharing
+        setPeerSharing(sharing)
+        log(`← sharing ${sharing ? 'START' : 'STOP'} from ${from}`)
+      } catch (e) {}
     })
 
     await ensureSubscribed(ch)
@@ -1395,12 +1716,36 @@ useEffect(() => {
     }
   }, [callId, role]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Abrir pizarra en ventana aparte (ruta interna de la app)
+  const openWhiteboard = () => {
+    const whiteboardUrl = '/protected/pizarra'
+    const screenWidth = window.screen.availWidth
+    const screenHeight = window.screen.availHeight
+    const whiteboardWindow = window.open(
+      whiteboardUrl,
+      'whiteboard',
+      `width=${screenWidth},height=${screenHeight},left=0,top=0,scrollbars=no,toolbar=no,menubar=no,location=no,status=no,resizable=yes`
+    )
+    if (!whiteboardWindow) {
+      alert('No se pudo abrir la pizarra. Por favor permitir pop-ups en tu navegador.')
+      return
+    }
+    setTimeout(() => {
+      try { whiteboardWindow.moveTo(0, 0); whiteboardWindow.resizeTo(screenWidth, screenHeight) } catch (e) { console.log('No se pudo maximizar automáticamente:', e) }
+    }, 500)
+    log('🎨 Pizarra aérea abierta en pantalla completa')
+    log("💡 Para compartirla: usa 'Compartir pantalla' y seleccioná la ventana 'whiteboard'")
+  }
+
   // ========= Render
   const showIncomingToast =
     !!incoming &&
     role === 'callee' &&
     !handledCallsRef.current.has(incoming.callId) &&
     handledBump >= 0 // fuerza recomputar cuando cambia handledBump
+
+  // Nombre a mostrar en el header: preferir incoming.fromName, luego peerName, luego fallback 'Invitado'
+  const headerDisplayName = (incoming && incoming.fromName) || peerName || 'Invitado'
 
   return (
     <div className="min-h-screen w-full bg-orange-50 dark:bg-[#0d0d0d] text-foreground flex flex-col">
@@ -1415,7 +1760,7 @@ useEffect(() => {
               </div>
               <div className="leading-tight">
                 <div className="text-sm text-muted-foreground">Reunión</div>
-                <div className="font-semibold">{callId ?? 'BOOM-—'}</div>
+                <div className="font-semibold truncate">{headerDisplayName}</div>
               </div>
               <span
                 className={clsx(
@@ -1436,8 +1781,8 @@ useEffect(() => {
         </div>
       </header>
 
-      {/* Main */}
-      <main className="relative flex-1 overflow-visible">
+  {/* Main */}
+  <main className="relative flex-1 min-h-0 overflow-hidden">
         {/* Traducción en tiempo real */}
         {translateOn && (
           <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/95 dark:bg-black/90 px-6 py-4 shadow-2xl border border-orange-400/40 max-w-3xl w-[95vw] text-center">
@@ -1552,6 +1897,8 @@ useEffect(() => {
                 inCall={!!callId}
                 videoRef={localVideoRef}
                 muted
+                // No mirror when sharing screen — el peer ya ve correctamente
+                mirrored={!shareOn}
               />
               <VideoTile
                 name={'Invitado'}
@@ -1559,14 +1906,25 @@ useEffect(() => {
                 micOn={true}
                 inCall={!!callId}
                 videoRef={remoteVideoRef}
+                peerSharing={peerSharing}
               />
             </div>
 
           </section>
 
           {panel !== 'none' && (
-            <aside className="relative z-40 border-l border-white/20 bg-white/30 dark:bg-white/10 backdrop-blur-xl p-4 overflow-y-auto">
-              {panel === 'chat' && <ChatPanel />}
+            <aside className="relative z-40 border-l border-white/20 bg-white/30 dark:bg-white/10 backdrop-blur-xl p-4 overflow-hidden h-full max-h-[75vh]">
+              {panel === 'chat' && (
+                <ChatPanel
+                  callCh={callCh}
+                  meName={meName}
+                  meId={meId}
+                  callId={callId}
+                  messages={chatMessages}
+                  setMessages={setChatMessages}
+                  seenMsgIdsRef={chatSeenRef}
+                />
+              )}
               {panel === 'people' && <div className="text-sm opacity-80">Personas (placeholder)</div>}
               {panel === 'settings' && <div className="text-sm opacity-80">Ajustes (placeholder)</div>}
             </aside>
@@ -1585,6 +1943,7 @@ useEffect(() => {
           onToggleShare={toggleShare}
           onToggleTranslate={toggleTranslate}
           onOpenChat={openChat}
+          onOpenWhiteboard={openWhiteboard}
           onHangup={hangup}
         />
 
@@ -1632,7 +1991,7 @@ function TimeBadge() {
 }
 
 function VideoTile({
-  name, isYou, camOn, micOn, inCall, videoRef, muted,
+  name, isYou, camOn, micOn, inCall, videoRef, muted, peerSharing, mirrored = true,
 }: {
   name: string
   isYou?: boolean
@@ -1641,7 +2000,27 @@ function VideoTile({
   inCall: boolean
   videoRef: RefObject<HTMLVideoElement | null>
   muted?: boolean
+  peerSharing?: boolean
+  mirrored?: boolean
 }) {
+  const handleToggleFullscreen = async () => {
+    const v = videoRef.current
+    if (!v) return
+    try {
+      if (!document.fullscreenElement) {
+        if (v.requestFullscreen) await v.requestFullscreen()
+        else if ((v as any).webkitRequestFullscreen) (v as any).webkitRequestFullscreen()
+        else if ((v as any).msRequestFullscreen) (v as any).msRequestFullscreen()
+      } else {
+        if (document.exitFullscreen) await document.exitFullscreen()
+        else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen()
+        else if ((document as any).msExitFullscreen) (document as any).msExitFullscreen()
+      }
+    } catch (e) {
+      // ignore fullscreen errors
+    }
+  }
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/20 bg-white/20 dark:bg-white/10 backdrop-blur-md shadow-lg aspect-video">
       <video
@@ -1649,8 +2028,27 @@ function VideoTile({
         autoPlay
         playsInline
         muted={muted}
-        className={clsx('absolute inset-0 h-full w-full object-cover', camOn && inCall ? 'opacity-100' : 'opacity-0', isYou && 'scale-x-[-1]')}
+        onDoubleClick={() => { if (!isYou) void handleToggleFullscreen() }}
+        title={isYou ? undefined : 'Doble click para ver en pantalla completa'}
+        // Select fit mode: local previews keep cover; remote tiles use cover by default
+        // but switch to contain when the peer is sharing a screen so the whole screen fits.
+        className={clsx(
+          'absolute inset-0 h-full w-full',
+          isYou ? 'object-cover' : (peerSharing ? 'object-contain' : 'object-cover'),
+          camOn && inCall ? 'opacity-100' : 'opacity-0',
+          isYou && mirrored && 'scale-x-[-1]'
+        )}
       />
+      {/* Fullscreen button for remote tile */}
+      {!isYou && camOn && inCall && (
+        <button
+          onClick={() => { void handleToggleFullscreen() }}
+          title="Pantalla completa"
+          className="absolute top-2 right-2 z-20 bg-black/60 text-white rounded px-2 py-1 text-xs hover:bg-black/80"
+        >
+          ⛶
+        </button>
+      )}
       <div className={clsx(
         'absolute inset-0 flex items-center justify-center select-none transition',
         camOn && inCall ? 'opacity-0' : 'opacity-100',
@@ -1673,11 +2071,11 @@ function VideoTile({
 function CallControls({
   micOn, camOn, shareOn, translateOn, translationError,
   onToggleMic, onToggleCam, onToggleShare, onToggleTranslate,
-  onOpenChat, onHangup,
+  onOpenChat, onOpenWhiteboard, onHangup,
 }: {
   micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; translationError: string | null;
   onToggleMic: () => void; onToggleCam: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
-  onOpenChat: () => void; onHangup: () => void;
+  onOpenChat: () => void; onOpenWhiteboard: () => void; onHangup: () => void;
 }) {
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
@@ -1692,8 +2090,9 @@ function CallControls({
       >
         <RoundBtn active={micOn} onClick={onToggleMic} title={micOn ? 'Silenciar micrófono' : 'Activar micrófono'} icon="mic" />
         <RoundBtn active={camOn} onClick={onToggleCam} title={camOn ? 'Apagar cámara' : 'Encender cámara'} icon="video" />
-        <RoundBtn active={shareOn} onClick={onToggleShare} title="Compartir pantalla" icon="monitor" />
-        <RoundBtn onClick={onOpenChat} title="Chat" icon="message-square" />
+  <RoundBtn active={shareOn} onClick={onToggleShare} title="Compartir pantalla" icon="monitor" />
+  <RoundBtn onClick={onOpenWhiteboard} title="Pizarra" icon="edit" />
+  <RoundBtn onClick={onOpenChat} title="Chat" icon="message-square" />
 
         <span className="mx-3 hidden h-6 w-px bg-black/10 dark:bg-white/15 sm:inline" />
 
@@ -1752,111 +2151,95 @@ function RoundBtn({
 }
 
 /* ============== Panel de Chat ============== */
-function ChatPanel() {
+function ChatPanel({ callCh, meName, meId, callId, messages, setMessages, seenMsgIdsRef }:
+  { callCh: any; meName: string; meId: string; callId: string | null; messages: Array<{id: string; from: string; fromId?: string; text: string; ts: number}>; setMessages: (m: any)=>void; seenMsgIdsRef: RefObject<Set<string>> }) {
   const [newMessage, setNewMessage] = useState('')
-  
-  // Datos hardcodeados del chat
-  const chatMessages = [
-    {
-      id: 1,
-      sender: 'María García',
-      message: '¡Hola! ¿Cómo están todos?',
-      timestamp: '10:30',
-      isMe: false
-    },
-    {
-      id: 2,
-      sender: 'Carlos López',
-      message: 'Todo bien, gracias. ¿Y tú?',
-      timestamp: '10:32',
-      isMe: false
-    },
-    {
-      id: 3,
-      sender: 'Yo',
-      message: 'Perfecto, gracias por preguntar',
-      timestamp: '10:35',
-      isMe: true
-    },
-    {
-      id: 4,
-      sender: 'Ana Rodríguez',
-      message: '¿Alguien puede compartir la pantalla para mostrar el proyecto?',
-      timestamp: '10:37',
-      isMe: false
-    },
-    {
-      id: 5,
-      sender: 'Yo',
-      message: 'Claro, en un momento lo comparto',
-      timestamp: '10:38',
-      isMe: true
-    },
-    {
-      id: 6,
-      sender: 'María García',
-      message: 'Excelente, gracias',
-      timestamp: '10:39',
-      isMe: false
-    }
-  ]
+  const containerRef = useRef<HTMLDivElement | null>(null)
 
-  const handleSendMessage = () => {
-    if (newMessage.trim()) {
-      // Aquí se podría agregar lógica para enviar el mensaje
-      setNewMessage('')
+  // Append message locally and optionally send over the call channel
+  const sendMessage = async (text: string) => {
+    if (!text.trim()) return
+  const msgId = String(Date.now()) + Math.random().toString(36).slice(2,8)
+  const msg = { id: msgId, from: meName || 'Yo', fromId: meId, text: text.trim(), ts: Date.now() }
+  // mark seen so we don't add again when the channel echoes the message back
+  try { seenMsgIdsRef.current?.add(msgId) } catch {}
+  setMessages((m: any) => [...m, msg])
+    setNewMessage('')
+    // Try to send over realtime channel if available
+    try {
+      if (callCh) {
+        await callCh.send({ type: 'broadcast', event: 'chat', payload: msg })
+      }
+    } catch (e) {
+      // ignore send errors — this chat is ephemeral
+      console.warn('chat send failed', e)
     }
   }
 
+  // Listen for incoming chat messages on the call channel
+  useEffect(() => {
+    if (!callCh) return
+    const handler = ({ payload }: any) => {
+      try {
+        const p = payload
+        if (!p || !p.text) return
+  const incomingId = String(p.id ?? (Date.now() + Math.random().toString(36).slice(2,8)))
+  // ignore messages we've already seen (e.g. our own echoed message)
+  if (seenMsgIdsRef.current && seenMsgIdsRef.current.has(incomingId)) return
+  try { seenMsgIdsRef.current?.add(incomingId) } catch {}
+  setMessages((m: any) => [...m, { id: incomingId, from: p.from || 'Invitado', fromId: p.fromId, text: p.text, ts: Number(p.ts || Date.now()) }])
+      } catch (e) { console.warn('chat payload parse error', e) }
+    }
+    try { callCh.on('broadcast', { event: 'chat' }, handler) } catch (e) { /* ignore */ }
+    return () => {
+      try { callCh.off('broadcast', { event: 'chat' }, handler) } catch (e) { /* ignore */ }
+    }
+  }, [callCh])
+
+  // Auto-scroll when new messages arrive
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [messages.length])
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/20">
         <i data-feather="message-square" className="w-5 h-5" />
         <h3 className="font-semibold">Chat de la reunión</h3>
       </div>
-      
-      <div className="flex-1 overflow-y-auto space-y-3 mb-4">
-        {chatMessages.map((msg) => (
-          <div
-            key={msg.id}
-            className={clsx(
-              'flex flex-col max-w-[85%]',
-              msg.isMe ? 'ml-auto items-end' : 'mr-auto items-start'
+
+      <div ref={containerRef} className="flex-1 overflow-y-auto space-y-3 mb-4 px-1">
+        {messages.map((msg) => (
+          <div key={msg.id} className={clsx('flex flex-col max-w-[85%]', msg.fromId === meId ? 'ml-auto items-end' : 'mr-auto items-start')}>
+            {msg.fromId !== meId && (
+              <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">{msg.from}</span>
             )}
-          >
-            {!msg.isMe && (
-              <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                {msg.sender}
-              </span>
-            )}
-            <div
-              className={clsx(
-                'rounded-2xl px-3 py-2 text-sm',
-                msg.isMe
-                  ? 'bg-gradient-to-r from-orange-400 to-orange-600 text-white'
-                  : 'bg-white/20 dark:bg-white/10 text-gray-800 dark:text-gray-200'
-              )}
-            >
-              {msg.message}
+            <div className={clsx(
+              'rounded-2xl px-3 py-2 text-sm',
+              msg.fromId === meId
+                ? 'bg-gradient-to-r from-orange-400 to-orange-600 text-white'
+                : 'bg-white dark:bg-neutral-900/70 text-gray-800 dark:text-gray-200 ring-1 ring-black/5'
+            )}>
+              {msg.text}
             </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {msg.timestamp}
-            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">{new Date(msg.ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</span>
           </div>
         ))}
       </div>
-      
+
       <div className="flex gap-2">
         <input
           type="text"
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+          onKeyPress={(e) => e.key === 'Enter' && sendMessage(newMessage)}
           placeholder="Escribe un mensaje..."
           className="flex-1 rounded-full border border-white/20 bg-white/20 dark:bg-white/10 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/50"
         />
         <button
-          onClick={handleSendMessage}
+          onClick={() => sendMessage(newMessage)}
           className="rounded-full bg-gradient-to-r from-orange-400 to-orange-600 text-white p-2 hover:from-orange-500 hover:to-orange-700 transition-colors"
         >
           <i data-feather="send" className="w-4 h-4" />

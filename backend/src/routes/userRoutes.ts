@@ -110,7 +110,7 @@ router.get('/contacts', get_all_contacts);
 router.post('/profile', create_usuario_profile);
 
 //-----------------------------------------------------------------------------------------------------------------
-//POST UPDATE_USUARIO_PROFILE
+// POST UPDATE_USUARIO_PROFILE
 /**
  * @swagger
  * /api/users/update:
@@ -127,8 +127,11 @@ router.post('/profile', create_usuario_profile);
  *               - id
  *               - nombre
  *               - apellido
- *               - idioma
  *               - apodo
+ *               - pais
+ *               - genero
+ *               - fecha_nacimiento
+ *               - idioma
  *             properties:
  *               id:
  *                 type: integer
@@ -139,9 +142,6 @@ router.post('/profile', create_usuario_profile);
  *               apellido:
  *                 type: string
  *                 example: Argañaraz
- *               idioma:
- *                 type: integer
- *                 example: 2
  *               apodo:
  *                 type: string
  *                 example: Pedrito
@@ -150,11 +150,14 @@ router.post('/profile', create_usuario_profile);
  *                 example: Argentina
  *               genero:
  *                 type: integer
- *                 example: 2
+ *                 example: 1
  *               fecha_nacimiento:
  *                 type: string
  *                 format: date
- *                 example: 2001-07-30
+ *                 example: 2001-10-04
+ *               idioma:
+ *                 type: integer
+ *                 example: 2
  *     responses:
  *       200:
  *         description: Perfil actualizado correctamente
@@ -166,8 +169,11 @@ router.post('/profile', create_usuario_profile);
  *                 message:
  *                   type: string
  *                   example: Perfil actualizado correctamente
+ *                 usuario:
+ *                   type: object
  */
 router.put('/update', update_usuario_profile);
+
 
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -375,25 +381,25 @@ router.get("/uuid/:uuid", get_usuario_uuid);
  *             schema:
  *               type: object
  *               properties:
- *                 id:
+ *                 id_usuario:
  *                   type: integer
- *                   example: 15
+ *                   example: 21
  *                 nombre:
  *                   type: string
- *                   example: Paula
+ *                   example: Pedro
  *                 apellido:
  *                   type: string
- *                   example: Arrascaeta
+ *                   example: Argañaraz
  *                 mail:
  *                   type: string
- *                   example: anapaulaft02@gmail.com
+ *                   example: pedroarganaraz12@gmail.com
  *                 fecha_registro:
  *                   type: string
  *                   format: date-time
  *                   example: 2025-07-11T02:06:57.584557
  *                 apodo:
  *                   type: string
- *                   example: Peu
+ *                   example: Drope
  *                 id_idioma:
  *                   type: integer
  *                   example: 1
@@ -403,15 +409,28 @@ router.get("/uuid/:uuid", get_usuario_uuid);
  *                 fecha_nacimiento:
  *                   type: string
  *                   format: date
- *                   example: 2001-06-20
+ *                   example: 2001-10-04
  *                 id_genero:
  *                   type: integer
- *                   example: 2
+ *                   example: 1
  *                 nombre_genero:
  *                   type: string
- *                   example: Femenino
+ *                   example: Masculino
+ *                 id_foto_perfil:
+ *                   type: integer
+ *                   nullable: true
+ *                   example: 15
+ *                 path_foto_perfil:
+ *                   type: string
+ *                   nullable: true
+ *                   example: uploads/perfiles/15.png
+ *                 pais:
+ *                   type: string
+ *                   example: Argentina
+ *                 id_estado:
+ *                   type: integer
+ *                   example: 1
  */
-
 router.get('/:id', get_user_by_id_usuario);
 
 
