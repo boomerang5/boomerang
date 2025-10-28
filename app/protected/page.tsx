@@ -142,6 +142,14 @@ export default function DashboardPage() {
   // ---- ID de usuario ----
   const [idUsuario, setIdUsuario] = useState<number | null>(null);
 
+  // ---- Estadísticas de llamadas ----
+  const [estadisticas, setEstadisticas] = useState<{
+    totalLlamadas: number
+    llamadasCompletadas: number
+    totalMinutos: number
+    participantesUnicos: number
+  } | null>(null);
+
   // ---- Notificaciones (tabla Notificacion + Realtime)
   const { notifications, loading: notiLoading, markAsRead, hasMore, loadMore, loadingMore } =
   useNotifications(supabase, idUsuario, { pageSize: 8 });
@@ -298,6 +306,41 @@ export default function DashboardPage() {
     return () => clearInterval(timer);
   }, []);
 
+  // Función para formatear tiempo
+  const formatearTiempo = (minutos: number): string => {
+    if (minutos < 60) {
+      return `${minutos.toFixed(0)}m`
+    }
+    const horas = Math.floor(minutos / 60)
+    const mins = Math.floor(minutos % 60)
+    return `${horas}h ${mins}m`
+  }
+
+  // Cargar estadísticas de llamadas
+  useEffect(() => {
+    const fetchEstadisticas = async () => {
+      try {
+        const fechaFin = new Date()
+        const fechaInicio = new Date()
+        fechaInicio.setDate(fechaFin.getDate() - 30)
+        
+        const params = new URLSearchParams({
+          fechaInicio: fechaInicio.toISOString().split('T')[0],
+          fechaFin: fechaFin.toISOString().split('T')[0]
+        })
+
+        const response = await fetch(`/api/reports/resumen?${params}`)
+        if (response.ok) {
+          const data = await response.json()
+          setEstadisticas(data.estadisticasGenerales)
+        }
+      } catch (err) {
+        console.error('Error cargando estadísticas:', err)
+      }
+    }
+
+    fetchEstadisticas()
+  }, [])
 
   // Perfil + resolver id_usuario (uuid -> Usuario.id)
   useEffect(() => {
@@ -456,24 +499,30 @@ export default function DashboardPage() {
           style={{ height: `${LEFT_TOP}px` }}
           title="Estadísticas Generales (Últimos 30 días)"
           content={
-            <div className="flex justify-between gap-2 w-full">
-              <div className="bg-orange-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1">
-                <div className="text-xl font-bold text-orange-600 dark:text-orange-400">17</div>
-                <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Total Llamadas</div>
+            estadisticas ? (
+              <div className="flex justify-center items-center gap-2 w-full mt-2">
+                <div className="bg-orange-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1 flex flex-col justify-center">
+                  <div className="text-l font-bold text-orange-600 dark:text-orange-400">{estadisticas.totalLlamadas}</div>
+                  <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Total Llamadas</div>
+                </div>
+                <div className="bg-green-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1 flex flex-col justify-center">
+                  <div className="text-l font-bold text-green-600 dark:text-green-400">{estadisticas.llamadasCompletadas}</div>
+                  <div className="text-[10px] text-gray-600 dark:text-gray-400">Conectadas</div>
+                </div>
+                <div className="bg-blue-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1 flex flex-col justify-center">
+                  <div className="text-l font-bold text-blue-600 dark:text-blue-400">{formatearTiempo(estadisticas.totalMinutos)}</div>
+                  <div className="text-[11px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Tiempo Total</div>
+                </div>
+                <div className="bg-purple-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1 flex flex-col justify-center">
+                  <div className="text-l font-bold text-purple-600 dark:text-purple-400">{estadisticas.participantesUnicos}</div>
+                  <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Contactos Únicos</div>
+                </div>
               </div>
-              <div className="bg-green-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1">
-                <div className="text-xl font-bold text-green-600 dark:text-green-400">16</div>
-                <div className="text-[10px] text-gray-600 dark:text-gray-400">Conectadas</div>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-sm text-gray-500">Cargando estadísticas...</p>
               </div>
-              <div className="bg-blue-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1">
-                <div className="text-xl font-bold text-blue-600 dark:text-blue-400">1h 5m</div>
-                <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Tiempo Total</div>
-              </div>
-              <div className="bg-purple-50/50 dark:bg-gray-700/50 rounded-lg p-2 text-center flex-1">
-                <div className="text-xl font-bold text-purple-600 dark:text-purple-400">3</div>
-                <div className="text-[10px] text-gray-600 dark:text-gray-400 whitespace-nowrap">Contactos Únicos</div>
-              </div>
-            </div>
+            )
           }
         />
 
