@@ -1167,10 +1167,10 @@ export default function ChatsPage() {
                           {activeTab === 'todos' && (
                             <span className={`text-xs px-2 py-1 rounded-full ${
                               chat.id_tipo_chat === 1 
-                                ? 'bg-blue-100 text-blue-600' 
+                                ? '' //bg-blue-100 text-blue-600 
                                 : 'bg-green-100 text-green-600'
-                            }`}>
-                              {chat.id_tipo_chat === 1 ? 'Privado' : 'Grupo'}
+                            }`}> 
+                              {chat.id_tipo_chat === 1 ? '' : 'Grupo'} 
                             </span>
                           )}
                           {/* Contador de mensajes no leídos */}

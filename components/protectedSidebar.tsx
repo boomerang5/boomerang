@@ -68,10 +68,6 @@ export default function ProtectedSidebar() {
             <i data-feather="edit-3" className={cls('/protected/pizarra')} />
           </Link>
         </div>
-
-        <div className="flex flex-col items-center gap-5 mb-4">
-          <i data-feather="help-circle" className="w-5 h-5 text-black dark:text-white" />
-        </div>
       </aside>
 
   )

@@ -399,15 +399,6 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold text-foreground">
             {cargando ? 'Cargando…' : `¡Bienvenido, ${perfil?.nombre ?? 'Usuario'}!`}
           </h1>
-          <select
-            value={estado}
-            onChange={(e) => setEstado(e.target.value)}
-            className="bg-white/30 dark:bg-white/10 border border-orange-400 text-orange-600 font-semibold text-sm px-3 py-1.5 rounded-md backdrop-blur-sm"
-          >
-            <option value="available">Disponible</option>
-            <option value="busy">Ocupado</option>
-            <option value="away">Ausente</option>
-          </select>
         </div>
       </header>
 
