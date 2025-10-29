@@ -28,7 +28,6 @@ export async function createUsuarioProfileService({
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message);
   }
 

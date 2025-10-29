@@ -6,7 +6,6 @@ export async function getUsuarioUuid(uuidUsuario: string) {
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message);
   }
 

@@ -6,7 +6,6 @@ export async function getUserLanguageService(idUsuario: number) {
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
     throw new Error(error.message); 
   }
 

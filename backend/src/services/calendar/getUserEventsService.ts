@@ -24,7 +24,6 @@ export async function getUserEventsService(
     return eventos;
   }
 
-  console.log(`📚 Procesando ${eventos.length} eventos para usuario ${idUsuario}`);
 
   // Ahora agregamos la información de confirmación para cada evento
   const eventosConConfirmacion = await Promise.all(
@@ -41,7 +40,6 @@ export async function getUserEventsService(
         }
 
         // Si es invitado, obtener su estado de confirmación usando el campo original
-        console.log(`🔍 Buscando confirmación para evento ${evento.id}, usuario ${idUsuario}`);
         const { data: confirmacion, error: confirmError } = await supabase
           .from('EventoInvitado')
           .select('confirmado')
@@ -49,15 +47,7 @@ export async function getUserEventsService(
           .eq('id_usuario', idUsuario)
           .single();
 
-        console.log(`📊 Resultado confirmación evento ${evento.id}:`, {
-          error: confirmError,
-          data: confirmacion,
-          confirmado: confirmacion?.confirmado
-        });
-
         if (confirmError || !confirmacion) {
-          console.log(`⚠️ No hay confirmación para evento ${evento.id}, marcando como pendiente`);
-          // Si no existe registro de invitación, marcamos como pendiente
           return {
             ...evento,
             mi_confirmacion: 'pendiente'
@@ -72,14 +62,12 @@ export async function getUserEventsService(
           estadoConfirmacion = 'rechazado';
         }
 
-        console.log(`✅ Estado final evento ${evento.id}: ${estadoConfirmacion}`);
 
         return {
           ...evento,
           mi_confirmacion: estadoConfirmacion
         };
       } catch (err) {
-        console.error(`❌ Error al obtener confirmación para evento ${evento.id}:`, err);
         // En caso de error, marcamos como pendiente por defecto
         return {
           ...evento,

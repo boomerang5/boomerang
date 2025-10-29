@@ -24,12 +24,10 @@ export async function createGroupWithChatService({
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
     process.exit(1);
   }
 
   if (!data) {
-    console.log("ℹ️ La función no devolvió datos.");
     return null;
   }
 
@@ -54,6 +52,5 @@ export async function createGroupWithChatService({
     return null;
   }
 
-  console.log("✅ Grupo y chat creados:", { idGrupo, idChat });
   return { idGrupo, idChat };
 }

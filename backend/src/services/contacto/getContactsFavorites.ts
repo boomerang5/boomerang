@@ -6,7 +6,6 @@ export async function getContactsFavoritesService(idUsuario: number) {
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message);
   }
 

@@ -8,10 +8,8 @@ export async function createGroupService(nombreGrupo: string, descripcion: strin
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
     throw new Error(error.message);
   }
 
-  console.log("✅ Grupo creado correctamente. Resultado:", data);
   return data;
 }

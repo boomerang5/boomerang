@@ -18,11 +18,8 @@ export async function createEventService(
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
     throw new Error(error.message);
   }
-
-  console.log("✅ Evento creado correctamente. Resultado:", data);
   return data;
 }
 

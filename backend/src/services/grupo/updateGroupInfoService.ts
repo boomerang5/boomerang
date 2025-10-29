@@ -8,10 +8,8 @@ export async function updateGroupInfoService(idGrupo: number, nombreGrupo?: stri
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
     throw error;
   }
 
-  console.log("✅ Grupo actualizado correctamente. Resultado:", data);
   return { ok: true, data };
 }

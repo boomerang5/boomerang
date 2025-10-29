@@ -7,7 +7,6 @@ export async function changeStateUser(idUsuario: number, idEstado: number) {
     });
 
     if (error) {
-        console.error("❌ Supabase error:", error);
         throw new Error(error.message);
     }
 

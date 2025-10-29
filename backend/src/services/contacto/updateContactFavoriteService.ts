@@ -8,7 +8,6 @@ export async function updateContactFavoriteService(id_usuario: number, idContact
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message);
   }
 

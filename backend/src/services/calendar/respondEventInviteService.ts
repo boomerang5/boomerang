@@ -13,9 +13,7 @@ export async function respondEventInviteService(
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
     throw new Error(error.message);
   }
 
-  console.log("✅ Respuesta registrada correctamente.");
 }

@@ -19,24 +19,12 @@ export const create_event = async (req: Request, res: Response) => {
   }
 
   try {
-    console.log('🔄 create_event - Datos recibidos:', {
-      id_creador,
-      titulo,
-      fecha,
-      descripcion,
-      color,
-      invitados,
-      cantidadInvitados: invitados?.length || 0
-    });
 
     const id = await createEventService(Number(id_creador), titulo, new Date(fecha), descripcion ?? null, color ?? null, invitados ?? null);
-
-    console.log('✅ Evento creado correctamente. Resultado:', id);
 
     // Si hay invitados, crear notificaciones
     if (invitados && Array.isArray(invitados) && invitados.length > 0) {
       try {
-        console.log('📧 Creando notificaciones para nuevo evento con invitados...');
         
         // Obtener información del creador
         const { data: creatorData } = await supabase
@@ -49,10 +37,6 @@ export const create_event = async (req: Request, res: Response) => {
           ? `${creatorData.nombre || ''} ${creatorData.apellido || ''}`.trim() || creatorData.apodo || `Usuario ${id_creador}`
           : `Usuario ${id_creador}`;
 
-        console.log('👤 Organizador:', organizadorNombre);
-        console.log('📋 Título del evento:', titulo);
-        console.log('📮 Invitados para notificar:', invitados);
-
         // Crear notificaciones para todos los invitados
         await NotificationService.createMultipleEventInviteNotifications(
           invitados,
@@ -63,7 +47,6 @@ export const create_event = async (req: Request, res: Response) => {
           descripcion // 🆕 NUEVO: Pasar descripción del evento
         );
 
-        console.log(`✅ Creadas ${invitados.length} notificaciones para nuevo evento`);
       } catch (notificationError) {
         console.error('⚠️ Error al crear notificaciones para nuevo evento (evento creado exitosamente):', notificationError);
       }
@@ -87,59 +70,27 @@ export const delete_event = async (req: Request, res: Response) => {
     return res.status(400).json({ error: "Faltan campos requeridos." });
   }
   try {
-    console.log('🔄 delete_event - Datos recibidos:', {
-      id_evento,
-      id_editor
-    });
 
     // 🆕 OBTENER DETALLES DEL EVENTO ANTES DE BORRARLO PARA NOTIFICACIONES
     let eventDetails: any = null;
     let invitados: number[] = [];
     
     try {
-      console.log('🔍 Obteniendo detalles del evento antes de eliminarlo...');
       const eventDetailsArray = await getEventDetailsService(Number(id_evento), Number(id_editor));
-      
-      console.log('📄 Detalles del evento obtenidos (array):', JSON.stringify(eventDetailsArray, null, 2));
       
       if (eventDetailsArray && Array.isArray(eventDetailsArray) && eventDetailsArray.length > 0) {
         // El primer elemento contiene la información básica del evento
         eventDetails = eventDetailsArray[0];
         
-        console.log('📋 Información básica del evento:', {
-          id: eventDetails?.id,
-          titulo: eventDetails?.titulo,
-          fecha: eventDetails?.fecha,
-          creado_por: eventDetails?.creado_por
-        });
-        
         // Obtener todos los IDs únicos de invitados (excluyendo al organizador)
         const idsInvitados = eventDetailsArray
           .filter((row: any) => {
-            console.log(`🔍 Evaluando fila:`, {
-              id_invitado: row.id_invitado,
-              id_editor: Number(id_editor),
-              esNulo: row.id_invitado === null,
-              esOrganizador: row.id_invitado === Number(id_editor),
-              pasaFiltro: row.id_invitado !== null && row.id_invitado !== Number(id_editor)
-            });
             return row.id_invitado !== null && row.id_invitado !== Number(id_editor);
           })
           .map((row: any) => row.id_invitado)
           .filter((id: number, index: number, array: number[]) => array.indexOf(id) === index); // eliminar duplicados
         
         invitados = idsInvitados;
-        
-        console.log('👥 IDs de invitados encontrados:', idsInvitados);
-        console.log('🔍 ID del organizador:', Number(id_editor));
-        console.log('📮 Invitados a notificar sobre cancelación:', invitados);
-        console.log('📊 Total invitados para notificar:', invitados.length);
-      } else {
-        console.log('⚠️ No hay detalles del evento o array vacío:', {
-          tieneEventDetailsArray: !!eventDetailsArray,
-          esArray: Array.isArray(eventDetailsArray),
-          longitud: eventDetailsArray?.length || 0
-        });
       }
     } catch (detailsError) {
       console.warn('⚠️ No se pudieron obtener detalles del evento para notificaciones:', detailsError);
@@ -147,18 +98,10 @@ export const delete_event = async (req: Request, res: Response) => {
 
     // Eliminar el evento
     const result = await deleteEventService(Number(id_evento), Number(id_editor));
-    console.log('✅ Evento eliminado correctamente');
 
     // 🆕 ENVIAR NOTIFICACIONES DE CANCELACIÓN
     if (eventDetails && invitados.length > 0) {
       try {
-        console.log('📧 Iniciando proceso de notificaciones de cancelación...');
-        console.log('📧 Condiciones:', {
-          tieneEventDetails: !!eventDetails,
-          cantidadInvitados: invitados.length,
-          invitados: invitados
-        });
-        
         // Obtener información del organizador
         const { data: organizadorData } = await supabase
           .from('Usuario')
@@ -173,15 +116,6 @@ export const delete_event = async (req: Request, res: Response) => {
         const tituloEvento = eventDetails.titulo || 'Evento sin título';
         const fechaEvento = eventDetails.fecha;
 
-        console.log('📋 Datos para notificaciones:', {
-          organizadorNombre,
-          tituloEvento,
-          fechaEvento,
-          id_evento: Number(id_evento),
-          invitados
-        });
-
-        console.log('🚀 Llamando a NotificationService.createMultipleEventCancelledNotifications...');
         const resultadoNotificaciones = await NotificationService.createMultipleEventCancelledNotifications(
           invitados,
           tituloEvento,
@@ -190,21 +124,13 @@ export const delete_event = async (req: Request, res: Response) => {
           fechaEvento
         );
 
-        console.log(`✅ Resultado de notificaciones de cancelación:`, resultadoNotificaciones);
-        console.log(`✅ Enviadas ${invitados.length} notificaciones de cancelación exitosamente`);
       } catch (notificationError) {
         console.error('⚠️ Error al enviar notificaciones de cancelación (evento eliminado exitosamente):', notificationError);
         if (notificationError instanceof Error) {
           console.error('⚠️ Stack trace:', notificationError.stack);
         }
       }
-    } else {
-      console.log('ℹ️ No se envían notificaciones de cancelación:', {
-        tieneEventDetails: !!eventDetails,
-        cantidadInvitados: invitados.length,
-        razon: !eventDetails ? 'Sin detalles del evento' : 'Sin invitados para notificar'
-      });
-    }
+    } 
 
     return res.status(200).json({ message: "Evento eliminado correctamente", result });
   } catch (err: any) {
@@ -266,18 +192,12 @@ export const respond_event_invite = async (req: Request, res: Response) => {
     return res.status(400).json({ error: "Faltan campos requeridos o parámetros inválidos." });
   }
   try {
-    console.log('🔄 respond_event_invite - Datos recibidos:', {
-      id_evento,
-      id_usuario,
-      confirmado
-    });
     
     // Responder a la invitación del evento
     await respondEventInviteService(Number(id_evento), Number(id_usuario), confirmado);
     
     // Buscar y marcar la notificación correspondiente como respondida
     try {
-      console.log('🔍 Buscando notificación de invitación para marcar como respondida...');
       
       // Obtener las notificaciones del usuario para buscar la correspondiente a este evento
       const userNotifications = await NotificationService.getUserNotifications(Number(id_usuario));
@@ -290,12 +210,8 @@ export const respond_event_invite = async (req: Request, res: Response) => {
       );
       
       if (eventNotification) {
-        console.log('📧 Notificación encontrada, marcando como respondida:', eventNotification.id);
-        
         const response = confirmado ? 'accept' : 'decline';
         await NotificationService.markAsResponded(eventNotification.id, response);
-        
-        console.log(`✅ Notificación ${eventNotification.id} marcada como ${response}`);
       } else {
         console.log('⚠️ No se encontró notificación de invitación para este evento o ya fue respondida');
       }
@@ -450,31 +366,16 @@ export const update_event = async (req: Request, res: Response) => {
   process.stdout.write('🎯 [CONTROLLER] update_event INICIADO - ¡FUNCIÓN EJECUTADA!\n');
   process.stdout.write(`🔄 update_event - Datos: ${JSON.stringify(req.body)}\n`);
   
-  console.log('🎯 [CONTROLLER] update_event INICIADO - ¡FUNCIÓN EJECUTADA!');
-  console.log('🔄 update_event - Datos recibidos:', {
-    body: req.body,
-    fecha_raw: req.body.fecha,
-    fecha_tipo: typeof req.body.fecha
-  });
-  
   const { id_evento, id_editor, titulo, fecha, descripcion, color } = req.body;
   if (!id_evento || !id_editor) {
     return res.status(400).json({ error: "Faltan campos requeridos." });
   }
   
   try {
-    console.log('📤 Llamando a updateEventService con:', {
-      id_evento: Number(id_evento),
-      id_editor: Number(id_editor),
-      titulo,
-      fecha: fecha ? new Date(fecha) : undefined,
-      descripcion,
-      color
-    });
     
     await updateEventService(Number(id_evento), Number(id_editor), titulo ?? undefined, fecha ? new Date(fecha) : undefined, descripcion ?? undefined, color ?? undefined);
-    
-    console.log('✅ update_event completado exitosamente');
+
+    process.stdout.write('✅ update_event completado exitosamente\n');
     return res.status(200).json({ message: "Evento actualizado correctamente" });
   } catch (err: any) {
     console.error("❌ Error inesperado en update_event:", err);
@@ -492,24 +393,17 @@ export const update_event_participants = async (req: Request, res: Response) => 
   }
 
   try {
-    console.log('🔄 update_event_participants - Datos recibidos:', {
-      id_evento,
-      id_editor,
-      participantes,
-      cantidadParticipantes: participantes?.length || 0
-    });
-
     // Primero, obtener los participantes actuales del evento para comparar
     let participantesAnteriores: number[] = [];
     try {
-      console.log('🔍 Obteniendo participantes actuales del evento...');
       const eventDetailsRaw = await getEventDetailsService(Number(id_evento), Number(id_editor));
-      console.log('📊 Respuesta raw de getEventDetailsService:', eventDetailsRaw);
-      
+      process.stdout.write('📊 Respuesta raw de getEventDetailsService:\n');
+      process.stdout.write(JSON.stringify(eventDetailsRaw, null, 2) + '\n');
+
       // Manejar si es un array (múltiples filas) o un objeto único
       let eventDetails = eventDetailsRaw;
       if (Array.isArray(eventDetailsRaw)) {
-        console.log('📄 Los detalles del evento son un array, usando el primer elemento');
+        process.stdout.write('📄 Los detalles del evento son un array, usando el primer elemento\n');
         eventDetails = eventDetailsRaw[0];
       }
       
@@ -524,9 +418,9 @@ export const update_event_participants = async (req: Request, res: Response) => 
           .map((row: any) => row.id_invitado);
         participantesAnteriores = [...new Set(idsParticipantes)]; // Eliminar duplicados
       }
-      console.log('👥 Participantes anteriores (sin organizador):', participantesAnteriores);
     } catch (error) {
-      console.warn('⚠️ No se pudieron obtener participantes anteriores:', error);
+      process.stdout.write('⚠️ No se pudieron obtener participantes anteriores:\n');
+      process.stdout.write(JSON.stringify(error, null, 2) + '\n');
     }
 
     // Actualizar los participantes
@@ -535,19 +429,20 @@ export const update_event_participants = async (req: Request, res: Response) => 
       Number(id_editor),  // idEditor  
       participantes || [] // participantes
     );
-    
-    console.log('✅ update_event_participants - Participantes actualizados correctamente');
+
+    process.stdout.write('✅ update_event_participants - Participantes actualizados correctamente\n');
 
     // Gestionar notificaciones de forma inteligente
     try {
-      console.log('🔍 Obteniendo detalles del evento para gestionar notificaciones...');
+      process.stdout.write('🔍 Obteniendo detalles del evento para gestionar notificaciones...\n');
       const eventDetailsRaw = await getEventDetailsService(Number(id_evento), Number(id_editor));
-      console.log('📄 Detalles del evento obtenidos:', JSON.stringify(eventDetailsRaw, null, 2));
-      
+      process.stdout.write('📄 Detalles del evento obtenidos:\n');
+      process.stdout.write(JSON.stringify(eventDetailsRaw, null, 2) + '\n');
+
       // Manejar si es un array (múltiples filas) o un objeto único
       let eventDetails = eventDetailsRaw;
       if (Array.isArray(eventDetailsRaw) && eventDetailsRaw.length > 0) {
-        console.log('📄 Los detalles del evento son un array, usando el primer elemento para datos básicos');
+        process.stdout.write('📄 Los detalles del evento son un array, usando el primer elemento para datos básicos\n');
         eventDetails = eventDetailsRaw[0];
       }
       
@@ -557,34 +452,30 @@ export const update_event_participants = async (req: Request, res: Response) => 
         const tituloEvento = eventDetails.titulo || eventDetails.title || eventDetails.nombre || 'Evento sin título';
         const fechaEvento = eventDetails.fecha || eventDetails.date || eventDetails.fechaHora;
         
-        console.log('👤 Organizador:', organizadorNombre);
-        console.log('📋 Título del evento:', tituloEvento);
-        console.log('📅 Fecha del evento:', fechaEvento);
-        
         // Participantes nuevos (sin incluir al organizador)
         const participantesNuevos = (participantes || []).filter((p: number) => p !== Number(id_editor));
-        console.log('� Participantes nuevos (sin organizador):', participantesNuevos);
-        
+        process.stdout.write('👤 Participantes nuevos (sin organizador):\n');
+        process.stdout.write(JSON.stringify(participantesNuevos, null, 2) + '\n');
+
         // Determinar qué usuarios fueron removidos y cuáles agregados
         const participantesRemovidosIds = participantesAnteriores.filter((id: number) => !participantesNuevos.includes(id));
         const participantesAgregadosIds = participantesNuevos.filter((id: number) => !participantesAnteriores.includes(id));
-        
-        console.log('🗑️ Participantes removidos:', participantesRemovidosIds);
-        console.log('🆕 Participantes agregados:', participantesAgregadosIds);
+
+        process.stdout.write('🗑️ Participantes removidos:\n');
+        process.stdout.write(JSON.stringify(participantesRemovidosIds, null, 2) + '\n');
         
         // 1. Eliminar notificaciones de invitación para usuarios removidos
         if (participantesRemovidosIds.length > 0) {
-          console.log('�️ Eliminando notificaciones de participantes removidos...');
           const deleteResult = await NotificationService.deleteEventInviteNotificationsForUsers(
             Number(id_evento),
             participantesRemovidosIds
           );
-          console.log(`✅ Eliminadas ${deleteResult.count} notificaciones de invitación`);
+          process.stdout.write(`✅ Eliminadas ${deleteResult.count} notificaciones de invitación\n`);
         }
         
         // 2. Crear notificaciones para usuarios agregados
         if (participantesAgregadosIds.length > 0) {
-          console.log('📧 Creando notificaciones para participantes agregados...');
+          process.stdout.write('📧 Creando notificaciones para participantes agregados...\n');
           const createResult = await NotificationService.createMultipleEventInviteNotifications(
             participantesAgregadosIds,
             tituloEvento,
@@ -592,14 +483,14 @@ export const update_event_participants = async (req: Request, res: Response) => 
             Number(id_evento),
             fechaEvento
           );
-          console.log(`✅ Creadas ${participantesAgregadosIds.length} notificaciones de invitación`);
+          process.stdout.write(`✅ Creadas ${participantesAgregadosIds.length} notificaciones de invitación\n`);
         }
         
         if (participantesRemovidosIds.length === 0 && participantesAgregadosIds.length === 0) {
-          console.log('ℹ️ No hay cambios en participantes, no se modifican notificaciones');
+          process.stdout.write('ℹ️ No hay cambios en participantes, no se modifican notificaciones\n');
         }
       } else {
-        console.log('⚠️ No se obtuvieron detalles del evento para gestionar notificaciones');
+        process.stdout.write('⚠️ No se obtuvieron detalles del evento para gestionar notificaciones\n');
       }
     } catch (notificationError) {
       // Si falla la creación de notificaciones, no queremos que falle toda la operación

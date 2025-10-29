@@ -7,7 +7,6 @@ export async function addContactService(idUsuario: number, idUsuarioContacto: nu
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message);
   }
 

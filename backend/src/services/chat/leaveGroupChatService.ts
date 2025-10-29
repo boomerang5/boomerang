@@ -7,9 +7,7 @@ export async function leaveGroupChatService(idUsuario: number, idChat: number) {
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
-    process.exit(1);
+    throw error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
   }
-
-  console.log("✅ Usuario salió del chat grupal correctamente. Resultado:", data);
+  return data
 }

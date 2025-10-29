@@ -45,8 +45,7 @@ export async function updateEventService(
 
   // Solo si cambió la fecha: resetear confirmaciones y notificar
   if (fechaCambio) {
-    console.log('📅 Cambio de fecha detectado - reseteando confirmaciones y enviando notificaciones');
-
+    
     // 1. Resetear confirmaciones (excepto creador)
     await supabase
       .from('EventoInvitado')
@@ -98,10 +97,8 @@ export async function updateEventService(
             fecha.toISOString()
           );
         } catch (error) {
-          console.error(`Error enviando notificación a usuario ${invitado.id_usuario}:`, error);
         }
       }
-      console.log('✅ Notificaciones enviadas por cambio de fecha');
     }
   }
 

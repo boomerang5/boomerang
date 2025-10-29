@@ -7,7 +7,7 @@ export async function updateUsuarioProfileService(
   apodo: string,
   pais: string,
   genero: number,
-  fecha_nacimiento: string, // 'YYYY-MM-DD'
+  fecha_nacimiento: string, 
   idioma: number
 ) {
   try {
@@ -35,10 +35,8 @@ export async function updateUsuarioProfileService(
       throw new Error(`Usuario con ID ${idUsuario} no encontrado`);
     }
 
-    console.log("Usuario actualizado (RPC):", data);
-    return data; // la función retorna el registro "Usuario"
+    return data; 
   } catch (error) {
-    console.error("Error en updateUsuarioProfileService:", error);
     throw error;
   }
 }

@@ -7,7 +7,6 @@ export async function getAllContactsService(idUsuario: number, busquedaOpcional?
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message);
   }
 

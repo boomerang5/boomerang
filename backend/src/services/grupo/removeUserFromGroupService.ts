@@ -7,10 +7,7 @@ export async function removeUserFromGroupService(idGrupo: number, idUsuario: num
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message); 
   }
-
-  console.log("✅ Usuario eliminado correctamente. Resultado:", data);
   return data;
 }

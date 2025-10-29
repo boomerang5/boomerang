@@ -7,7 +7,6 @@ export async function updateUserProfilePhoto(idUsuario: number, idArchivo: numbe
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message);
   }
 

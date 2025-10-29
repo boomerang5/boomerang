@@ -6,7 +6,6 @@ export async function getFileService(idArchivo: number) {
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
     throw new Error(error.message);
   }
   return Array.isArray(data) ? data[0] : data
