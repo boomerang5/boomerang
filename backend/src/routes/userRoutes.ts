@@ -2,7 +2,7 @@ import express from 'express';
 
 const router = express.Router();
 
-import { get_all_contacts, create_usuario_profile, update_usuario_profile, get_usuario_uuid, get_user_by_id_usuario, change_state_user, get_state_user, update_user_profile_photo, get_user_language} from '../controllers/userController';
+import { get_all_contacts, create_usuario_profile, update_usuario_profile, get_usuario_uuid, get_user_by_id_usuario, change_state_user, get_state_user, update_user_profile_photo, get_user_language, get_all_idiomas, get_all_generos} from '../controllers/userController';
 
 // GET GET_ALL_CONTACTS
 /**
@@ -415,24 +415,9 @@ router.get("/uuid/:uuid", get_usuario_uuid);
  *                   example: 1
  *                 nombre_genero:
  *                   type: string
- *                   example: Masculino
- *                 id_foto_perfil:
- *                   type: integer
- *                   nullable: true
- *                   example: 15
- *                 path_foto_perfil:
- *                   type: string
- *                   nullable: true
- *                   example: uploads/perfiles/15.png
- *                 pais:
- *                   type: string
- *                   example: Argentina
- *                 id_estado:
- *                   type: integer
- *                   example: 1
+ *                   example: Femenino
  */
+
 router.get('/:id', get_user_by_id_usuario);
-
-
 
 export default router;

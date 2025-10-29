@@ -6,6 +6,7 @@ export async function createUsuarioProfileService({
   idioma,
   apodo,
   user_id,
+  email,
   genero,
   fecha_nacimiento
 }: {
@@ -14,6 +15,7 @@ export async function createUsuarioProfileService({
   idioma: number;
   apodo: string;
   user_id: string;
+  email: string;
   genero?: number | null;
   fecha_nacimiento?: string | null;
 }) {
@@ -23,8 +25,9 @@ export async function createUsuarioProfileService({
     p_idioma: idioma,
     p_apodo: apodo,
     p_user_id: user_id,
+    p_email: email,
     p_genero: genero ?? null,
-    p_fec_nacimiento: fecha_nacimiento ?? null,
+    p_fecha_nacimiento: fecha_nacimiento ?? null,
   });
 
   if (error) {

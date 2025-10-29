@@ -391,4 +391,59 @@ router.get("/uuid/:uuid", userController_1.get_usuario_uuid);
  *                   example: Femenino
  */
 router.get('/:id', userController_1.get_user_by_id_usuario);
+//-----------------------------------------------------------------------------------------------------------------
+// GET GET_ALL_IDIOMAS
+/**
+ * @swagger
+ * /api/users/idiomas:
+ *   get:
+ *     summary: Obtener todos los idiomas disponibles
+ *     tags: [Usuarios]
+ *     responses:
+ *       200:
+ *         description: Lista de idiomas disponibles
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id_idioma:
+ *                     type: integer
+ *                     example: 1
+ *                   nombre_idioma:
+ *                     type: string
+ *                     example: Español
+ *                   codigo_iso:
+ *                     type: string
+ *                     example: es-ES
+ */
+router.get('/idiomas', userController_1.get_all_idiomas);
+//-----------------------------------------------------------------------------------------------------------------
+// GET GET_ALL_GENEROS
+/**
+ * @swagger
+ * /api/users/generos:
+ *   get:
+ *     summary: Obtener todos los géneros disponibles
+ *     tags: [Usuarios]
+ *     responses:
+ *       200:
+ *         description: Lista de géneros disponibles
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id_genero:
+ *                     type: integer
+ *                     example: 1
+ *                   nombre_genero:
+ *                     type: string
+ *                     example: Masculino
+ */
+router.get('/generos', userController_1.get_all_generos);
 exports.default = router;
