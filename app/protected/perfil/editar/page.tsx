@@ -21,6 +21,17 @@ type Perfil = {
   path_foto_perfil?: string | null; // solo UI
 };
 
+interface Genero {
+  id: number;
+  nombregenero: string;
+}
+
+interface Idioma {
+  id_idioma: number;
+  nombre_idioma: string;
+  codigo_iso: string;
+}
+
 export default function EditarPerfilPage() {
   const supabase = useSupabaseClient();
   const router = useRouter();
@@ -28,16 +39,93 @@ export default function EditarPerfilPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  
+  // Estados para géneros y idiomas dinámicos
+  const [generos, setGeneros] = useState<Genero[]>([]);
+  const [loadingGeneros, setLoadingGeneros] = useState(true);
+  const [idiomas, setIdiomas] = useState<Idioma[]>([]);
+  const [loadingIdiomas, setLoadingIdiomas] = useState(true);
 
   // Render de íconos Feather
   useEffect(() => {
     feather.replace();
   }, []);
 
+  // Cargar géneros dinámicamente desde el stored procedure
+  const loadGeneros = async () => {
+    try {
+      setLoadingGeneros(true);
+      const response = await fetch('/api/users/generos', {
+        cache: 'no-store'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setGeneros(data);
+      } else {
+        console.error('❌ Error cargando géneros:', await response.text());
+        // Fallback con géneros hardcodeados
+        const fallbackGeneros = [
+          { id: 1, nombregenero: 'Masculino' },
+          { id: 2, nombregenero: 'Femenino' },
+          { id: 3, nombregenero: 'Prefiero no decirlo' }
+        ];
+        setGeneros(fallbackGeneros);
+      }
+    } catch (error) {
+      console.error('❌ Error cargando géneros:', error);
+      // Fallback con géneros hardcodeados
+      const fallbackGeneros = [
+        { id: 1, nombregenero: 'Masculino' },
+        { id: 2, nombregenero: 'Femenino' },
+        { id: 3, nombregenero: 'Prefiero no decirlo' }
+      ];
+      setGeneros(fallbackGeneros);
+    } finally {
+      setLoadingGeneros(false);
+    }
+  };
+
+  // Cargar idiomas dinámicamente desde el stored procedure
+  const loadIdiomas = async () => {
+    try {
+      setLoadingIdiomas(true);
+      const response = await fetch('/api/users/idiomas', {
+        cache: 'no-store'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setIdiomas(data);
+      } else {
+        console.error('❌ Error cargando idiomas:', await response.text());
+        // Fallback con idiomas hardcodeados
+        const fallbackIdiomas = [
+          { id_idioma: 1, nombre_idioma: 'Español', codigo_iso: 'es-ES' },
+          { id_idioma: 2, nombre_idioma: 'Inglés', codigo_iso: 'en-US' }
+        ];
+        setIdiomas(fallbackIdiomas);
+      }
+    } catch (error) {
+      console.error('❌ Error cargando idiomas:', error);
+      // Fallback con idiomas hardcodeados
+      const fallbackIdiomas = [
+        { id_idioma: 1, nombre_idioma: 'Español', codigo_iso: 'es-ES' },
+        { id_idioma: 2, nombre_idioma: 'Inglés', codigo_iso: 'en-US' }
+      ];
+      setIdiomas(fallbackIdiomas);
+    } finally {
+      setLoadingIdiomas(false);
+    }
+  };
+
   // Cargar datos actuales (via proxy interno)
   useEffect(() => {
-    (async () => {
+    const loadData = async () => {
       try {
+        // Cargar géneros e idiomas primero
+        await Promise.all([loadGeneros(), loadIdiomas()]);
+        
         const { data: sess } = await supabase.auth.getSession();
         const uuid = sess.session?.user?.id;
         if (!uuid) throw new Error('Sin sesión');
@@ -79,7 +167,9 @@ export default function EditarPerfilPage() {
       } finally {
         setLoading(false);
       }
-    })();
+    };
+    
+    loadData();
   }, [supabase]);
 
   async function onSave(e: React.FormEvent) {
@@ -194,12 +284,15 @@ export default function EditarPerfilPage() {
                 label="Género"
                 value={String(perfil.id_genero ?? '')}
                 onChange={(v) => setPerfil(p => p ? { ...p, id_genero: v ? Number(v) : null } : p)}
-                options={[
-                  { label: 'Seleccionar…', value: '' },
-                  { label: 'Masculino', value: '1' },
-                  { label: 'Femenino', value: '2' },
-                  { label: 'Prefiero no decir', value: '3' },
-                ]}
+                options={(() => {
+                  return [
+                    { label: 'Seleccionar…', value: '' },
+                    ...generos.map(g => ({ 
+                      label: g.nombregenero, 
+                      value: String(g.id) 
+                    }))
+                  ];
+                })()}
               />
               <Input
                 label="Fecha de nacimiento"
@@ -211,10 +304,12 @@ export default function EditarPerfilPage() {
                 label="Idioma"
                 value={String(perfil.idioma ?? 1)}
                 onChange={(v) => setPerfil(p => p ? { ...p, idioma: v ? Number(v) : 1 } : p)}
-                options={[
-                  { label: 'Español', value: '1' },
-                  { label: 'Inglés', value: '2' },
-                ]}
+                options={(() => {
+                  return idiomas.map(i => ({ 
+                    label: i.nombre_idioma, 
+                    value: String(i.id_idioma) 
+                  }));
+                })()}
               />
             </div>
 
