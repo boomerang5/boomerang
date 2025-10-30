@@ -8,8 +8,6 @@ export async function getUserCallHistoryService(
   to?: string
 ) {
   try {
-    console.log(`🔄 Llamando al SP get_llamadas_conectadas para usuario: ${idUsuario}`);
-    console.log('📋 Filtros recibidos:', { q, from, to });
     
     const { data, error } = await supabase.rpc('get_llamadas_conectadas', {
       p_id_usuario: idUsuario
@@ -21,7 +19,6 @@ export async function getUserCallHistoryService(
     }
 
     if (!data || data.length === 0) {
-      console.log("ℹ️ No se encontraron llamadas para el usuario");
       return [];
     }
 
@@ -45,7 +42,6 @@ export async function getUserCallHistoryService(
         
         return matchTitle || matchDescription || matchUserName || matchParticipants;
       });
-      console.log(`🔍 Filtro de búsqueda "${q}" aplicado (incluye apodos): ${filteredData.length} resultados`);
     }
 
     if (from) {
@@ -53,7 +49,6 @@ export async function getUserCallHistoryService(
       filteredData = filteredData.filter((llamada: any) => 
         new Date(llamada.fecha_inicio) >= fromDate
       );
-      console.log(`📅 Filtro desde "${from}" aplicado: ${filteredData.length} resultados`);
     }
 
     if (to) {
@@ -62,10 +57,8 @@ export async function getUserCallHistoryService(
       filteredData = filteredData.filter((llamada: any) => 
         new Date(llamada.fecha_inicio) <= toDate
       );
-      console.log(`📅 Filtro hasta "${to}" aplicado: ${filteredData.length} resultados`);
     }
 
-    console.log(`✅ Se encontraron ${filteredData.length} llamadas después de filtros para el usuario ${idUsuario}`);
     
     // Agregar campos de fecha y hora separados
     const processedData = filteredData.map((llamada: any) => {
