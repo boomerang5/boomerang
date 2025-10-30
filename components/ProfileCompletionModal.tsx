@@ -24,8 +24,8 @@ interface Idioma {
 }
 
 interface Genero {
-  id_genero: number;
-  nombre_genero: string;
+  id: number;
+  NombreGenero: string;
 }
 
 export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCompletionModalProps) {
@@ -90,36 +90,14 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
     }
   };
 
-  const loadGeneros = async () => {
-    try {
-      setLoadingGeneros(true);
-      const response = await fetch('/api/users/generos', {
-        cache: 'no-store'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setGeneros(data);
-      } else {
-        console.error('Error cargando géneros:', await response.text());
-        // Fallback con géneros hardcodeados
-        setGeneros([
-          { id_genero: 1, nombre_genero: 'Masculino' },
-          { id_genero: 2, nombre_genero: 'Femenino' },
-          { id_genero: 3, nombre_genero: 'Prefiero no decirlo' }
-        ]);
-      }
-    } catch (error) {
-      console.error('Error cargando géneros:', error);
-      // Fallback con géneros hardcodeados
-      setGeneros([
-        { id_genero: 1, nombre_genero: 'Masculino' },
-        { id_genero: 2, nombre_genero: 'Femenino' },
-        { id_genero: 3, nombre_genero: 'Prefiero no decirlo' }
-      ]);
-    } finally {
-      setLoadingGeneros(false);
-    }
+  const loadGeneros = () => {
+    // Géneros hardcodeados
+    setGeneros([
+      { id: 1, NombreGenero: 'Masculino / Male' },
+      { id: 2, NombreGenero: 'Femenino / Female' },
+      { id: 3, NombreGenero: 'Prefiero no decirlo / Prefer not to say' }
+    ]);
+    setLoadingGeneros(false);
   };
 
   const validateForm = (): boolean => {
@@ -223,10 +201,13 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                Completá tu perfil
+                Completá tu perfil / Complete your profile
               </h2>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Necesitamos algunos datos para personalizar tu experiencia
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                We need some information to personalize your experience
               </p>
             </div>
           </div>
@@ -238,7 +219,7 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
             {/* Nombre */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Nombre *
+                Nombre/Name *
               </label>
               <input
                 type="text"
@@ -249,7 +230,6 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
                     ? 'border-red-500 bg-red-50 dark:bg-red-900/20' 
                     : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
                 } text-gray-900 dark:text-white`}
-                placeholder="Tu nombre"
               />
               {errors.nombre && (
                 <p className="text-red-500 text-xs mt-1">{errors.nombre}</p>
@@ -259,7 +239,7 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
             {/* Apellido */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Apellido *
+                Apellido/Last Name *
               </label>
               <input
                 type="text"
@@ -270,7 +250,6 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
                     ? 'border-red-500 bg-red-50 dark:bg-red-900/20' 
                     : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
                 } text-gray-900 dark:text-white`}
-                placeholder="Tu apellido"
               />
               {errors.apellido && (
                 <p className="text-red-500 text-xs mt-1">{errors.apellido}</p>
@@ -280,7 +259,7 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
             {/* Apodo */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Apodo *
+                Apodo/Nickname *
               </label>
               <input
                 type="text"
@@ -291,7 +270,6 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
                     ? 'border-red-500 bg-red-50 dark:bg-red-900/20' 
                     : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700'
                 } text-gray-900 dark:text-white`}
-                placeholder="¿Cómo te gusta que te llamen?"
               />
               {errors.apodo && (
                 <p className="text-red-500 text-xs mt-1">{errors.apodo}</p>
@@ -301,7 +279,7 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
             {/* Género */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Género *
+                Género/Gender *
               </label>
               <select
                 value={profile.genero || ''}
@@ -319,8 +297,8 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
                   <>
                     <option value="">Seleccionar género</option>
                     {generos.map((genero) => (
-                      <option key={genero.id_genero} value={genero.id_genero}>
-                        {genero.nombre_genero}
+                      <option key={genero.id} value={genero.id}>
+                        {genero.NombreGenero}
                       </option>
                     ))}
                   </>
@@ -334,7 +312,7 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
             {/* Fecha de nacimiento */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Fecha de nacimiento *
+                Fecha de nacimiento/Date of Birth *
               </label>
               <input
                 type="date"
@@ -354,7 +332,7 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
             {/* Idioma */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Idioma preferido *
+                Idioma preferido/Preferred Language *
               </label>
               <select
                 value={profile.idioma}
@@ -405,6 +383,9 @@ export default function ProfileCompletionModal({ isOpen, onComplete }: ProfileCo
         <div className="px-6 py-3 bg-gray-50 dark:bg-gray-750 rounded-b-2xl">
           <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
             * Campos obligatorios. Esta información es necesaria para usar Boomerang.
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+          * Required fields. This information is necessary to use Boomerang.
           </p>
         </div>
       </div>

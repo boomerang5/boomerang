@@ -189,16 +189,10 @@ export default function CalendarioPage() {
 
       const eventosData = await response.json();
       
-      console.log('🔍 Datos recibidos del backend:', eventosData);
       
       // Log detallado de cada evento
       eventosData.forEach((evento: any, index: number) => {
-        console.log(`📋 Evento ${index + 1} (ID: ${evento.id}):`, {
-          creado_por: evento.creado_por,
-          mi_confirmacion: evento.mi_confirmacion,
-          confirmacion: evento.confirmacion,
-          todosLosCampos: Object.keys(evento)
-        });
+        
       });
       
       // Mapear campos del backend al formato esperado por el frontend
@@ -210,14 +204,11 @@ export default function CalendarioPage() {
             if (evento.creado_por === usuarioId) {
               // Si soy el creador, siempre confirmado
               miConfirmacion = 'confirmado';
-              console.log(`👑 Evento ${evento.id}: Soy organizador -> confirmado`);
             } else if (evento.mi_confirmacion) {
               // Usar el campo del backend si existe
               miConfirmacion = evento.mi_confirmacion;
-              console.log(`📋 Evento ${evento.id}: Backend dice -> ${evento.mi_confirmacion}`);
             } else {
               // FALLBACK: Consultar directamente la confirmación desde el frontend
-              console.log(`🔄 Evento ${evento.id}: Consultando confirmación directamente...`);
               try {
                 const { data: sess } = await supabase.auth.getSession();
                 const { data: confirmacion } = await supabase
@@ -235,16 +226,12 @@ export default function CalendarioPage() {
                   } else {
                     miConfirmacion = 'pendiente';
                   }
-                  console.log(`✅ Evento ${evento.id}: Confirmación directa -> ${miConfirmacion}`);
-                } else {
-                  console.log(`⚠️ Evento ${evento.id}: No hay registro de invitación`);
-                }
+                } 
               } catch (error) {
                 console.error(`❌ Error consultando confirmación evento ${evento.id}:`, error);
               }
             }
 
-            console.log(`✅ Evento ${evento.id} final: ${miConfirmacion}`);
 
             return {
               ...evento,
@@ -418,14 +405,7 @@ export default function CalendarioPage() {
         // Editar evento existente
         
         // 1. Actualizar datos básicos del evento
-        console.log('🔄 Actualizando evento - enviando datos:', {
-          id_evento: eventoSeleccionado.id,
-          id_editor: usuarioId,
-          titulo: eventoData.titulo,
-          descripcion: eventoData.descripcion,
-          fecha: eventoData.fecha_programada,
-          color: eventoData.color,
-        });
+    
 
         const response = await fetch('/api/calendar', {
           method: 'PATCH',
@@ -443,10 +423,7 @@ export default function CalendarioPage() {
           }),
         });
 
-        console.log('📤 Respuesta de actualización de evento:', {
-          status: response.status,
-          ok: response.ok
-        });
+       
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -1467,7 +1444,6 @@ function ModalEvento({
   // Efecto para actualizar campos cuando se abre modal de edición
   useEffect(() => {
     if (evento) {
-      console.log('🔄 Actualizando campos del modal para editar evento:', evento);
       
       setTitulo(evento.titulo || '');
       setDescripcion(evento.descripcion || '');
@@ -1481,10 +1457,7 @@ function ModalEvento({
         };
         
         const fechaFormateada = formatearFechaLocal(new Date(evento.fecha_programada));
-        console.log('📅 Actualizando fecha en modal:', {
-          fechaOriginal: evento.fecha_programada,
-          fechaFormateada
-        });
+        
         setFecha(fechaFormateada);
       }
     }

@@ -1,115 +1,94 @@
 // src/services/llamada/getUserCallHistoryService.ts
 import supabase from "../../lib/supabase";
 
-export async function getUserCallHistoryService(idUsuario: number) {
-  // Primero obtenemos los IDs de llamadas donde el usuario participa
-  const { data: misLlamadas, error: misLlamadasError } = await supabase
-    .from('participantes_llamada')
-    .select('id_llamada')
-    .eq('id_usuario', idUsuario);
+export async function getUserCallHistoryService(
+  idUsuario: number, 
+  q?: string, 
+  from?: string, 
+  to?: string
+) {
+  try {
+    console.log(`🔄 Llamando al SP get_llamadas_conectadas para usuario: ${idUsuario}`);
+    console.log('📋 Filtros recibidos:', { q, from, to });
+    
+    const { data, error } = await supabase.rpc('get_llamadas_conectadas', {
+      p_id_usuario: idUsuario
+    });
 
-  if (misLlamadasError) {
-    console.error("❌ Error al obtener mis llamadas:", misLlamadasError);
-    throw new Error(misLlamadasError.message);
-  }
+    if (error) {
+      console.error("❌ Error al ejecutar SP get_llamadas_conectadas:", error);
+      throw new Error(error.message);
+    }
 
-  if (!misLlamadas || misLlamadas.length === 0) {
-    return [];
-  }
+    if (!data || data.length === 0) {
+      console.log("ℹ️ No se encontraron llamadas para el usuario");
+      return [];
+    }
 
-  const idsLlamadas = misLlamadas.map(l => l.id_llamada);
+    let filteredData = data;
 
-  // Ahora obtenemos los detalles de esas llamadas
-  const { data: llamadas, error: llamadasError } = await supabase
-    .from("llamadas")
-    .select(`
-      id_llamada,
-      tipo,
-      estado,
-      fecha_inicio,
-      fecha_fin,
-      duracion_segundos,
-      titulo,
-      descripcion,
-      id_grupo,
-      tiene_grabacion,
-      id_archivo_grabacion,
-      tiene_transcripcion,
-      id_chat,
-      resumen
-    `)
-    .in('id_llamada', idsLlamadas)
-    .order('fecha_inicio', { ascending: false });
+    // Aplicar filtros en el backend
+    if (q) {
+      const searchTerm = q.toLowerCase();
+      filteredData = filteredData.filter((llamada: any) => {
+        // Búsqueda en campos principales
+        const matchTitle = llamada.titulo?.toLowerCase().includes(searchTerm);
+        const matchDescription = llamada.descripcion?.toLowerCase().includes(searchTerm);
+        const matchUserName = llamada.otro_usuario_nombre?.toLowerCase().includes(searchTerm);
+        
+        // Búsqueda en participantes (incluyendo apodo)
+        const matchParticipants = llamada.participantes?.some((p: any) => 
+          p.nombre?.toLowerCase().includes(searchTerm) ||
+          p.apellido?.toLowerCase().includes(searchTerm) ||
+          p.apodo?.toLowerCase().includes(searchTerm)
+        );
+        
+        return matchTitle || matchDescription || matchUserName || matchParticipants;
+      });
+      console.log(`🔍 Filtro de búsqueda "${q}" aplicado (incluye apodos): ${filteredData.length} resultados`);
+    }
 
-  if (llamadasError) {
-    console.error("❌ Error al obtener llamadas:", llamadasError);
-    throw new Error(llamadasError.message);
-  }
+    if (from) {
+      const fromDate = new Date(from);
+      filteredData = filteredData.filter((llamada: any) => 
+        new Date(llamada.fecha_inicio) >= fromDate
+      );
+      console.log(`📅 Filtro desde "${from}" aplicado: ${filteredData.length} resultados`);
+    }
 
-  if (!llamadas || llamadas.length === 0) {
-    return [];
-  }
+    if (to) {
+      const toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999); // Incluir todo el día
+      filteredData = filteredData.filter((llamada: any) => 
+        new Date(llamada.fecha_inicio) <= toDate
+      );
+      console.log(`📅 Filtro hasta "${to}" aplicado: ${filteredData.length} resultados`);
+    }
 
-  // Para cada llamada, obtenemos los participantes
-  const llamadasConParticipantes = await Promise.all(
-    llamadas.map(async (llamada) => {
-      // Obtener participantes
-      const { data: participantes, error: participantesError } = await supabase
-        .from("participantes_llamada")
-        .select(`
-          id_usuario,
-          es_host
-        `)
-        .eq('id_llamada', llamada.id_llamada);
-
-      if (participantesError) {
-        console.error(`❌ Error al obtener participantes de llamada ${llamada.id_llamada}:`, participantesError);
-      }
-
-      // Obtener información de usuarios
-      const idsUsuarios = participantes?.map(p => p.id_usuario) || [];
-      const { data: usuarios } = await supabase
-        .from('usuario')
-        .select('id_usuario, nombre, apellido, apodo')
-        .in('id_usuario', idsUsuarios);
-
-      // Formatear participantes con información del usuario
-      const participantesFormateados = participantes?.map(p => {
-        const usuario = usuarios?.find(u => u.id_usuario === p.id_usuario);
-        return {
-          id_usuario: p.id_usuario,
-          nombre: usuario?.nombre || '',
-          apellido: usuario?.apellido || '',
-          apodo: usuario?.apodo || null,
-          es_iniciador: p.es_host
-        };
-      }) || [];
-
-      // Encontrar el otro usuario (para llamadas 1-a-1)
-      let otroUsuarioNombre = null;
-      let esHost = false;
-
-      if (!llamada.id_grupo && participantes && participantes.length > 0) {
-        const otroParticipante = participantes.find(p => p.id_usuario !== idUsuario);
-        if (otroParticipante) {
-          const otroUsuario = usuarios?.find(u => u.id_usuario === otroParticipante.id_usuario);
-          if (otroUsuario) {
-            otroUsuarioNombre = `${otroUsuario.nombre} ${otroUsuario.apellido}`;
-          }
-        }
-
-        const miParticipacion = participantes.find(p => p.id_usuario === idUsuario);
-        esHost = miParticipacion?.es_host || false;
-      }
-
+    console.log(`✅ Se encontraron ${filteredData.length} llamadas después de filtros para el usuario ${idUsuario}`);
+    
+    // Agregar campos de fecha y hora separados
+    const processedData = filteredData.map((llamada: any) => {
+      const fechaInicio = new Date(llamada.fecha_inicio);
+      
+      // Usar fecha local para evitar problemas de zona horaria
+      const year = fechaInicio.getFullYear();
+      const month = String(fechaInicio.getMonth() + 1).padStart(2, '0');
+      const day = String(fechaInicio.getDate()).padStart(2, '0');
+      const hours = String(fechaInicio.getHours()).padStart(2, '0');
+      const minutes = String(fechaInicio.getMinutes()).padStart(2, '0');
+      
       return {
         ...llamada,
-        otro_usuario_nombre: otroUsuarioNombre,
-        participantes: participantesFormateados,
-        es_host: esHost
+        fecha_solo: `${year}-${month}-${day}`, // YYYY-MM-DD en fecha local
+        hora_solo: `${hours}:${minutes}` // HH:MM en hora local
       };
-    })
-  );
-
-  return llamadasConParticipantes;
+    });
+    
+    return processedData;
+    
+  } catch (err: any) {
+    console.error("❌ Error inesperado en getUserCallHistoryService:", err);
+    throw new Error(err.message || "Error interno del servidor");
+  }
 }
