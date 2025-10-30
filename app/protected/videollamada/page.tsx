@@ -21,7 +21,7 @@ type SignalPayload =
   | { type: 'ice'; candidate: RTCIceCandidateInit; from: string }
   | { type: 'hangup'; from: string }
 
-type IncomingCall = { callId: string; fromId: string; fromName?: string }
+type IncomingCall = { callId: string; fromId: string; fromName?: string; transcript?: boolean }
 
 /* =================== Helpers de datos =================== */
 
@@ -196,8 +196,8 @@ export default function VideoCallPage() {
   // ---- UI base
   const [inCall, setInCall] = useState(false)
   const [panel, setPanel] = useState<Panel>('none')
-
-  // Chat (ephemeral for the call) — keep in parent so it survives panel unmount/mount
+  // Flag: la llamada tiene transcripción activada (muestra aviso azul)
+  const [callTranscriptActive, setCallTranscriptActive] = useState(false)  // Chat (ephemeral for the call) — keep in parent so it survives panel unmount/mount
   const [chatMessages, setChatMessages] = useState<Array<{id: string; from: string; fromId?: string; text: string; ts: number}>>([])
   const chatSeenRef = useRef<Set<string>>(new Set())
 
@@ -239,6 +239,50 @@ export default function VideoCallPage() {
     if (!callId) {
       setChatMessages([])
       try { chatSeenRef.current.clear() } catch {}
+    }
+  }, [callId])
+
+  // Detectar transcripción desde URL cuando haya una llamada
+  useEffect(() => {
+    console.log('🔵 useEffect transcripción ejecutándose - callId=', callId)
+    if (!callId) {
+      console.log('🔵 No callId, saliendo del useEffect')
+      return
+    }
+    
+    // Verificar parámetro transcript en URL
+    let hasTranscript = false
+    let source = 'none'
+    
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        hasTranscript = window.location.search.includes('transcript=1')
+        if (hasTranscript) source = 'URL'
+      }
+    } catch (e) {
+      console.log('🔵 Error leyendo URL, probando sessionStorage')
+    }
+    
+    // Fallback a sessionStorage
+    if (!hasTranscript) {
+      try {
+        hasTranscript = sessionStorage.getItem('vc_transcript') === '1'
+        if (hasTranscript) source = 'sessionStorage'
+      } catch {}
+    }
+    
+    console.log('🔵 Resultado detección:', { hasTranscript, source, url: window.location?.search })
+    
+    if (hasTranscript) {
+      console.log('🔵🔵🔵 ACTIVANDO TRANSCRIPCIÓN desde', source)
+      setCallTranscriptActive(true)
+      
+      // Verificar inmediatamente que se activó
+      setTimeout(() => {
+        console.log('🔵 Estado después de setTimeout - callTranscriptActive debería ser true')
+      }, 100)
+    } else {
+      console.log('❌ NO se activa transcripción')
     }
   }, [callId])
 
@@ -967,6 +1011,12 @@ useEffect(() => {
         setPeerId(toQ)
         log(`~ peer via ?to=${toQ}`)
       }
+      // Prefill transcript flag from query (caller may pass ?transcript=1)
+      const transcriptQ = qp('transcript')
+      if (transcriptQ === '1') {
+        try { sessionStorage.setItem('vc_transcript', '1') } catch {}
+        log('~ auto-call will send transcript flag (from query)')
+      }
     })()
   }, [sb])
 
@@ -1009,6 +1059,14 @@ useEffect(() => {
 
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
   const [incoming, setIncoming] = useState<IncomingCall | null>(null)
+
+  // Detectar si la llamada tiene transcripción activada (para callee con incoming)
+  useEffect(() => {
+    if (callId && inCall && incoming?.transcript) {
+      // Solo activar si es callee y hay flag de transcripción en incoming
+      setCallTranscriptActive(true)
+    }
+  }, [callId, inCall, incoming])
 
   // Resolver nombre/apodo del peer cuando cambie peerId o recibamos incoming
   useEffect(() => {
@@ -1073,6 +1131,7 @@ useEffect(() => {
       const ch = sb.channel(`user:${key}`, { config: { broadcast: { self: false } } })
 
       ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
+        try { console.log('📨 ring payload received:', payload) } catch (e) {}
         const cid = String(payload.callId || '')
         if (!cid) return
 
@@ -1106,13 +1165,14 @@ useEffect(() => {
         }
 
         const fromName = String(payload.from?.name ?? 'Invitado')
+        const transcriptFlag = Boolean(payload.transcript || payload.from?.transcript)
         log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
         setCallId(cid); callIdRef.current = cid
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
         calleeUserIdRef.current = String(meId || key)
         setPeerId(fromId)
-        setIncoming({ callId: cid, fromId, fromName }) // mostrar notificación
+        setIncoming({ callId: cid, fromId, fromName, transcript: transcriptFlag }) // mostrar notificación
         try { navigator.vibrate?.(200) } catch {}
       })
 
@@ -1194,7 +1254,12 @@ useEffect(() => {
       sessionStorage.setItem(onceKey, 'done')
       ;(async () => {
         if (!localStreamRef.current) await enableCam()
-        await makeCall(to)
+        // Check if caller wanted transcript saved (sessionStorage or URL param)
+        const fromStorage = sessionStorage.getItem('vc_transcript') === '1'
+        const fromUrl = qp('transcript') === '1'
+        const shouldTranscript = fromStorage || fromUrl
+        await makeCall(to, shouldTranscript)
+        try { sessionStorage.removeItem('vc_transcript') } catch {}
       })()
     }
     return () => { sessionStorage.removeItem(onceKey) }
@@ -1258,7 +1323,12 @@ useEffect(() => {
   }, [sb, inboxReady])
 
   // ========= 3) Acciones Call/Accept/Reject/Cancel
-  const makeCall = async (peerOverride?: string) => {
+  const makeCall = async (peerOverride?: string, sendTranscript: boolean = false) => {
+    // ACTIVAR TRANSCRIPCIÓN INMEDIATAMENTE SI ES SOLICITADA
+    if (sendTranscript) {
+      setCallTranscriptActive(true)
+    }
+    
     if (!sb) return
     if (!inboxReady) return alert('Aún suscribiéndose al inbox… probá de nuevo en un segundo')
 
@@ -1317,7 +1387,7 @@ useEffect(() => {
       await ch.send({
         type: 'broadcast',
         event: 'ring',
-        payload: { callId: id, room: id, from: { id: meId, name: nameToSend } },
+        payload: { callId: id, room: id, from: { id: meId, name: nameToSend, transcript: !!sendTranscript }, transcript: !!sendTranscript },
       })
       await ch.unsubscribe()
     }
@@ -1672,6 +1742,7 @@ useEffect(() => {
     setCallPeers(0)
     pendingIceRef.current = []
     setInCall(false)
+    setCallTranscriptActive(false)
 
     setEnding(false)
   }
@@ -1701,6 +1772,7 @@ useEffect(() => {
     setCallCh(null)
     callChRef.current = null
     setInCall(false)
+    setCallTranscriptActive(false)
   }
 
   // Función para redirigir a la pantalla principal cuando se rechaza la llamada
@@ -1771,6 +1843,20 @@ useEffect(() => {
                 <span className={clsx('h-2 w-2 rounded-full', inCall ? 'bg-green-500' : 'bg-orange-500')} />
                 {inCall ? 'En llamada' : role === 'idle' ? 'Lista' : 'Estableciendo…'}
               </span>
+              {/* Badge azul: Transcripción activada */}
+              {(() => {
+                console.log('🔵 DEBUG BADGE:', { callTranscriptActive, inCall, shouldShow: callTranscriptActive })
+                return callTranscriptActive ? (
+                  <span className="ml-2 inline-flex items-center gap-2 rounded-full border border-blue-400/40 bg-white/20 text-blue-600 px-2.5 py-1 text-xs backdrop-blur-md">
+                    <span className="h-2 w-2 rounded-full bg-blue-500" />
+                    Transcripción Activada
+                  </span>
+                ) : (
+                  <span className="ml-2 text-xs text-red-500">
+                    DEBUG: callTranscriptActive={String(callTranscriptActive)}
+                  </span>
+                )
+              })()}
             </div>
 
             <div className="flex items-center gap-3">
@@ -1783,6 +1869,8 @@ useEffect(() => {
 
   {/* Main */}
   <main className="relative flex-1 min-h-0 overflow-hidden">
+
+        
         {/* Traducción en tiempo real */}
         {translateOn && (
           <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/95 dark:bg-black/90 px-6 py-4 shadow-2xl border border-orange-400/40 max-w-3xl w-[95vw] text-center">
@@ -1950,10 +2038,11 @@ useEffect(() => {
         {/* === Notificación de llamada entrante (local) === */}
         {showIncomingToast && (
           <IncomingCallToast
-            fromName={incoming!.fromName || 'Invitado'}
-            onAccept={accept}
-            onReject={reject}
-          />
+              fromName={incoming!.fromName || 'Invitado'}
+              onAccept={accept}
+              onReject={reject}
+              transcript={incoming!.transcript}
+            />
         )}
       </main>
     </div>
@@ -2254,10 +2343,12 @@ function IncomingCallToast({
   fromName,
   onAccept,
   onReject,
+  transcript,
 }: {
   fromName: string
   onAccept: () => void
   onReject: () => void
+  transcript?: boolean
 }) {
   return (
     <div className="fixed right-4 bottom-24 z-[60] max-w-md w-[92vw] sm:w-auto">
@@ -2271,6 +2362,9 @@ function IncomingCallToast({
           <div className="min-w-0">
             <div className="text-sm text-black/60 dark:text-white/70">Llamada entrante</div>
             <div className="font-semibold truncate">{fromName}</div>
+            {transcript && (
+              <div className="text-xs text-gray-500 mt-1 font-semibold">*Aviso: Transcripción Activada</div>
+            )}
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={onAccept}

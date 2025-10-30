@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useUser, useSupabaseClient } from '@supabase/auth-helpers-react';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
-type IncomingCall = { callId: string; fromId: string; fromName?: string };
+type IncomingCall = { callId: string; fromId: string; fromName?: string; transcript?: boolean };
 
 // Mejor tipar explícito el canal
 async function ensureSubscribed(ch: RealtimeChannel): Promise<void> {
@@ -154,9 +154,11 @@ export default function CallNotificationsProvider({
           }
           seenCallIdsRef.current.add(callId);
 
+          const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript);
           currentCallIdRef.current = callId;
           peerIdRef.current = fromId;
-          setIncoming({ callId, fromId, fromName });
+          setIncoming({ callId, fromId, fromName, transcript: transcriptFlag });
+          try { console.log('[CallNotif] full payload:', payload) } catch {}
           try {
             navigator.vibrate?.(200);
           } catch {}
@@ -273,7 +275,7 @@ export default function CallNotificationsProvider({
     <>
       {children}
       {incoming && inboxReady && (
-        <Toast fromName={incoming.fromName || 'Invitado'} onAccept={onAccept} onReject={onReject} />
+        <Toast fromName={incoming.fromName || 'Invitado'} onAccept={onAccept} onReject={onReject} transcript={incoming.transcript} />
       )}
     </>
   );
@@ -283,10 +285,12 @@ function Toast({
   fromName,
   onAccept,
   onReject,
+  transcript,
 }: {
   fromName: string;
   onAccept: () => void;
   onReject: () => void;
+  transcript?: boolean;
 }) {
   return (
     <div className="fixed right-4 bottom-6 z-[100] max-w-md w-[92vw] sm:w-auto">
@@ -306,6 +310,9 @@ function Toast({
           <div className="min-w-0">
             <div className="text-sm text-black/60 dark:text-white/70">Llamada entrante</div>
             <div className="font-semibold truncate">{fromName}</div>
+            {transcript && (
+              <div className="text-xs text-gray-500 mt-1 font-semibold">*Aviso: Transcripción Activada</div>
+            )}
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={onAccept}

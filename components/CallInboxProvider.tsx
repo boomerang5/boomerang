@@ -9,10 +9,12 @@ function IncomingCallToast({
   fromName,
   onAccept,
   onReject,
+  transcript,
 }: {
   fromName: string
   onAccept: () => void
   onReject: () => void
+  transcript?: boolean
 }) {
   return (
     <div className="fixed right-4 bottom-24 z-[60] max-w-md w-[92vw] sm:w-auto">
@@ -26,6 +28,9 @@ function IncomingCallToast({
           <div className="min-w-0">
             <div className="text-sm text-black/60 dark:text-white/70">Llamada entrante</div>
             <div className="font-semibold truncate">{fromName}</div>
+            {transcript && (
+              <div className="text-xs text-gray-500 mt-1 font-semibold">*Aviso: Transcripción Activada</div>
+            )}
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={onAccept}
@@ -47,7 +52,7 @@ function IncomingCallToast({
   )
 }
 
-type Incoming = { callId: string; fromId: string; fromName?: string }
+type Incoming = { callId: string; fromId: string; fromName?: string; transcript?: boolean }
 
 // 👉 Ajustá esta ruta si tu página de llamada vive en otra
 const CALL_PATH = '/videollamada'
@@ -123,7 +128,9 @@ export default function CallInboxProvider() {
         const fromName = String(payload.from?.name ?? 'Invitado')
         const callId = String(payload.callId ?? '')
         if (!callId || !fromId) return
-        setIncoming({ callId, fromId, fromName })
+  const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript)
+  setIncoming({ callId, fromId, fromName, transcript: transcriptFlag })
+  try { console.log('[CallInbox] payload:', payload) } catch {}
         try { navigator.vibrate?.(200) } catch {}
       })
 

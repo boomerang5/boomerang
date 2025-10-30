@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Search, Phone, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useNotifications } from '../hooks/useNotifications';
+import SaveTranscriptModal from '../../../components/SaveTranscriptModal';
 
 
 // Hook centralizado para agenda confirmada
@@ -456,7 +457,7 @@ export default function ContactosPage() {
   }
 
   // Función principal para navegar a videollamada
-  async function gotoCall(c: ContactoAgenda, kind: 'audio' | 'video') {
+  async function gotoCall(c: ContactoAgenda, kind: 'audio' | 'video', shouldSaveTranscript: boolean = false) {
     console.log('🔍 gotoCall - Contacto completo:', c);
     console.log('🔍 id_usuario_contacto:', c.id_usuario_contacto);
     console.log('🔍 id directo:', c.id);
@@ -500,11 +501,53 @@ export default function ContactosPage() {
     const params = new URLSearchParams();
     params.set('to', peer);
     params.set('autocall', '1');
+    if (shouldSaveTranscript) params.set('transcript', '1');
     if (kind === 'video') params.set('type', 'video');
     router.push(`/protected/videollamada?${params.toString()}`);
   }
 
-  const handleCall = (c: ContactoAgenda) => { void gotoCall(c, 'audio'); };
+  const handleCall = (c: ContactoAgenda) => { void gotoCall(c, 'audio', false); };
+
+  // Nuevo flujo: abrir modal de confirmación antes de ejecutar la llamada
+  const [showSaveTranscriptModal, setShowSaveTranscriptModal] = useState(false);
+  const [pendingCallContact, setPendingCallContact] = useState<ContactoAgenda | null>(null);
+
+  const handleCallOpenModal = (c: ContactoAgenda) => {
+    setPendingCallContact(c);
+    setShowSaveTranscriptModal(true);
+  };
+
+  const handleSaveChoice = (save: boolean, title?: string) => {
+    // Ejecutar la llamada sólo después de la elección.
+    // Si el usuario eligió "Si", debemos recibir además un título obligatorio.
+    if (pendingCallContact) {
+      try {
+        console.log('[contactos] handleSaveChoice save=', save, 'contact=', pendingCallContact, 'title=', title);
+        if (save) {
+          // title must be provided by modal; store transient keys for the call page
+          if (!title || !title.trim()) {
+            console.warn('[contactos] Se intentó guardar sin título válido. Abortando llamada con transcripción.');
+            // Close modal and keep pending contact so user can retry
+            setShowSaveTranscriptModal(false);
+            return;
+          }
+          try {
+            sessionStorage.setItem('vc_transcript', '1');
+            sessionStorage.setItem('vc_transcript_title', title.trim());
+          } catch (e) { console.warn('sessionStorage set failed', e) }
+        } else {
+          // Ensure any previous transient keys are cleared
+          try { sessionStorage.removeItem('vc_transcript'); sessionStorage.removeItem('vc_transcript_title'); } catch (e) {}
+        }
+      } catch (e) { console.warn('handleSaveChoice error', e) }
+
+      // debug: log URL we will navigate to (gotoCall will push)
+      try { console.log('[contactos] navigating to call, transcript param=', !!save, 'title=', title); } catch (e) {}
+      void gotoCall(pendingCallContact, 'audio', !!save);
+    }
+    setPendingCallContact(null);
+    setShowSaveTranscriptModal(false);
+  };
 
   /* ====== Realtime: mis solicitudes enviadas + contactos aceptados ====== */
   useEffect(() => {
@@ -759,7 +802,7 @@ const combinedAgenda = useMemo(
                   // 👉 Contacto confirmado: botones de llamada habilitados
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleCall(c)}
+                      onClick={() => handleCallOpenModal(c)}
                       disabled={!canCall}
                       aria-label={canCall ? 'Llamar' : 'Solicitud pendiente'}
                       title={canCall ? 'Llamar' : 'Solicitud pendiente'}
@@ -851,6 +894,15 @@ const combinedAgenda = useMemo(
           </div>
         </div>
       </div>
+    )}
+
+    {/* ====== Modal Guardar transcripción (confirmación) ====== */}
+    {showSaveTranscriptModal && (
+      <SaveTranscriptModal
+        open={showSaveTranscriptModal}
+        onClose={() => { setPendingCallContact(null); setShowSaveTranscriptModal(false); }}
+        onChoose={handleSaveChoice}
+      />
     )}
   </>
 );
