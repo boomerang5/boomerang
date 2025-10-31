@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useSupabaseClient } from '@supabase/auth-helpers-react';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
@@ -167,7 +167,10 @@ export default function CallNotificationsProvider({
           );
           currentCallIdRef.current = callId;
           peerIdRef.current = fromId;
-          setIncoming({ callId, fromId, fromName, transcript: transcriptFlag });
+          const incomingData = { callId, fromId, fromName, transcript: transcriptFlag };
+          setIncoming(incomingData);
+          
+          log(`✅ Incoming call set: ${callId} from ${fromId} (${fromName}) transcript:${transcriptFlag}`);
           try { console.log('[CallNotif] full payload:', payload) } catch {}
           try {
             navigator.vibrate?.(200);
@@ -196,7 +199,7 @@ export default function CallNotificationsProvider({
         log('✓ SUBSCRIBED', `user:${key}`);
       };
 
-      // uuid “real”
+      // uuid "real"
       if (meUuid) await setup(meUuid);
       // uuid por pestaña
       try {
@@ -287,10 +290,14 @@ export default function CallNotificationsProvider({
     };
   }, []);
 
+
+
+
+
   return (
     <>
       {children}
-      {incoming && inboxReady && (
+      {incoming && (
         <Toast fromName={incoming.fromName || 'Invitado'} onAccept={onAccept} onReject={onReject} transcript={incoming.transcript} />
       )}
     </>

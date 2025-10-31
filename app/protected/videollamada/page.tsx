@@ -109,6 +109,9 @@ async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: 
     }
   }
 
+  // SIEMPRE incluir la key original como válida (importante para UUIDs temporales de incógnito)
+  keys.add(key)
+
   return Array.from(keys)
 }
 
@@ -1214,6 +1217,8 @@ useEffect(() => {
           return
         }
 
+
+
   const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
   const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
   log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
@@ -1309,7 +1314,11 @@ useEffect(() => {
         const fromUrl = qp('transcript') === '1'
         const shouldTranscript = fromStorage || fromUrl
         await makeCall(to, shouldTranscript)
-        try { sessionStorage.removeItem('vc_transcript') } catch {}
+        try { 
+          sessionStorage.removeItem('vc_transcript') 
+          sessionStorage.removeItem('vc_call_title') 
+          sessionStorage.removeItem('vc_call_description')
+        } catch {}
       })()
     }
     return () => { sessionStorage.removeItem(onceKey) }
@@ -1407,29 +1416,42 @@ useEffect(() => {
       return
     }
 
-    // Asegurar que enviamos un nombre válido (fallback: intentar resolver justo antes de enviar)
+    // Asegurar que enviamos un nombre válido (SIEMPRE resolver para evitar cache incorrecto)
     let nameToSend = meName
-    if (!nameToSend || nameToSend === 'Yo') {
-      try {
-        if (meNumericId != null) {
+    console.log('[NAME DEBUG] Initial meName:', meName, 'meId:', meId, 'meNumericId:', meNumericId)
+    
+    // FORZAR resolución siempre (sin importar el valor actual de meName)
+    try {
+      if (meNumericId != null) {
+        try {
           const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
           if (!error && data) {
             const u = Array.isArray(data) ? data[0] : data
             const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+            console.log('[NAME DEBUG] RPC data:', u, 'resolved:', resolved);
             if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
           }
-        } else if (meId) {
-          try {
-            const res = await fetch(`/api/users/uuid/${meId}`)
-            if (res.ok) {
-              const json = await res.json()
-              const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
-              if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
-            }
-          } catch {}
+        } catch (e) {
+          console.log('[NAME DEBUG] RPC failed:', e);
         }
-      } catch {}
+      } else if (meId) {
+        try {
+          const res = await fetch(`/api/users/uuid/${meId}`)
+          if (res.ok) {
+            const json = await res.json()
+            const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+            console.log('[NAME DEBUG] UUID fetch:', json, 'resolved:', resolved);
+            if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
+          }
+        } catch (e) {
+          console.log('[NAME DEBUG] UUID fetch failed:', e);
+        }
+      }
+    } catch (e) {
+      console.log('[NAME DEBUG] Overall resolution failed:', e);
     }
+
+    console.log('[NAME DEBUG] Final nameToSend:', nameToSend);
 
     for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)

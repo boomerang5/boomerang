@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { Search, Phone, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useNotifications } from '../hooks/useNotifications';
-import SaveTranscriptModal from '../../../components/SaveTranscriptModal';
+import CallConfigModal from '../../../components/CallConfigModal';
 
 
 // Hook centralizado para agenda confirmada
@@ -457,7 +457,7 @@ export default function ContactosPage() {
   }
 
   // Función principal para navegar a videollamada
-  async function gotoCall(c: ContactoAgenda, kind: 'audio' | 'video', shouldSaveTranscript: boolean = false) {
+  async function gotoCall(c: ContactoAgenda, kind: 'audio' | 'video', shouldSaveTranscript: boolean = false, title?: string, description?: string) {
     console.log('🔍 gotoCall - Contacto completo:', c);
     console.log('🔍 id_usuario_contacto:', c.id_usuario_contacto);
     console.log('🔍 id directo:', c.id);
@@ -503,50 +503,49 @@ export default function ContactosPage() {
     params.set('autocall', '1');
     if (shouldSaveTranscript) params.set('transcript', '1');
     if (kind === 'video') params.set('type', 'video');
+    
+    // Guardar información de la llamada en sessionStorage
+    if (title) {
+      try {
+        sessionStorage.setItem('vc_call_title', title);
+        if (description) {
+          sessionStorage.setItem('vc_call_description', description);
+        }
+        if (shouldSaveTranscript) {
+          sessionStorage.setItem('vc_transcript', '1');
+          sessionStorage.setItem('vc_transcript_title', title);
+        }
+      } catch (e) { 
+        console.warn('sessionStorage set failed', e); 
+      }
+    }
+    
     router.push(`/protected/videollamada?${params.toString()}`);
   }
 
   const handleCall = (c: ContactoAgenda) => { void gotoCall(c, 'audio', false); };
 
-  // Nuevo flujo: abrir modal de confirmación antes de ejecutar la llamada
-  const [showSaveTranscriptModal, setShowSaveTranscriptModal] = useState(false);
+  // Nuevo flujo: abrir modal de configuración antes de ejecutar la llamada
+  const [showCallConfigModal, setShowCallConfigModal] = useState(false);
   const [pendingCallContact, setPendingCallContact] = useState<ContactoAgenda | null>(null);
 
   const handleCallOpenModal = (c: ContactoAgenda) => {
     setPendingCallContact(c);
-    setShowSaveTranscriptModal(true);
+    setShowCallConfigModal(true);
   };
 
-  const handleSaveChoice = (save: boolean, title?: string) => {
-    // Ejecutar la llamada sólo después de la elección.
-    // Si el usuario eligió "Si", debemos recibir además un título obligatorio.
+  const handleCallConfirm = (title: string, description: string, transcriptionEnabled: boolean) => {
+    // Ejecutar la llamada con la configuración proporcionada
     if (pendingCallContact) {
       try {
-        console.log('[contactos] handleSaveChoice save=', save, 'contact=', pendingCallContact, 'title=', title);
-        if (save) {
-          // title must be provided by modal; store transient keys for the call page
-          if (!title || !title.trim()) {
-            console.warn('[contactos] Se intentó guardar sin título válido. Abortando llamada con transcripción.');
-            // Close modal and keep pending contact so user can retry
-            setShowSaveTranscriptModal(false);
-            return;
-          }
-          try {
-            sessionStorage.setItem('vc_transcript', '1');
-            sessionStorage.setItem('vc_transcript_title', title.trim());
-          } catch (e) { console.warn('sessionStorage set failed', e) }
-        } else {
-          // Ensure any previous transient keys are cleared
-          try { sessionStorage.removeItem('vc_transcript'); sessionStorage.removeItem('vc_transcript_title'); } catch (e) {}
-        }
-      } catch (e) { console.warn('handleSaveChoice error', e) }
-
-      // debug: log URL we will navigate to (gotoCall will push)
-      try { console.log('[contactos] navigating to call, transcript param=', !!save, 'title=', title); } catch (e) {}
-      void gotoCall(pendingCallContact, 'audio', !!save);
+        console.log('[contactos] handleCallConfirm title=', title, 'description=', description, 'transcription=', transcriptionEnabled, 'contact=', pendingCallContact);
+        void gotoCall(pendingCallContact, 'audio', transcriptionEnabled, title, description);
+      } catch (e) { 
+        console.warn('handleCallConfirm error', e);
+      }
     }
     setPendingCallContact(null);
-    setShowSaveTranscriptModal(false);
+    setShowCallConfigModal(false);
   };
 
   /* ====== Realtime: mis solicitudes enviadas + contactos aceptados ====== */
@@ -896,12 +895,12 @@ const combinedAgenda = useMemo(
       </div>
     )}
 
-    {/* ====== Modal Guardar transcripción (confirmación) ====== */}
-    {showSaveTranscriptModal && (
-      <SaveTranscriptModal
-        open={showSaveTranscriptModal}
-        onClose={() => { setPendingCallContact(null); setShowSaveTranscriptModal(false); }}
-        onChoose={handleSaveChoice}
+    {/* ====== Modal Configurar llamada ====== */}
+    {showCallConfigModal && (
+      <CallConfigModal
+        open={showCallConfigModal}
+        onClose={() => { setPendingCallContact(null); setShowCallConfigModal(false); }}
+        onConfirm={handleCallConfirm}
       />
     )}
   </>
