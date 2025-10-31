@@ -886,6 +886,29 @@ useEffect(() => {
     // when user stops sharing from browser UI, revert — handled above via oninactive/onended
   }
   const toggleTranslate = () => { setTranslateOn(v => !v) }
+  
+  const toggleTranscript = () => { 
+    setCallTranscriptActive(v => {
+      const newValue = !v
+      
+      // Notificar al peer del cambio de transcripción (solo en llamadas activas)
+      if (callCh && inCall && peerId) {
+        callCh.send({
+          type: 'broadcast',
+          event: 'transcript_sync',
+          payload: {
+            active: newValue,
+            fromUserId: meId,
+            requestSync: false
+          }
+        })
+        log(`📝 Notified peer of transcript change: active=${newValue}`)
+      }
+      
+      return newValue
+    }) 
+  }
+  
   const openChat = () => setPanel(p => (p === 'chat' ? 'none' : 'chat'))
 
   // ---- Log
@@ -1103,6 +1126,32 @@ useEffect(() => {
     return () => { mounted = false }
   }, [peerId, incoming, sb])
 
+  // Transcript sync para llamadas 1-a-1: cuando me uno a una llamada, preguntar al peer por su estado de transcript
+  useEffect(() => {
+    if (!callCh || !inCall || !peerId) return
+    
+    log('📝 Setting up transcript sync for 1-a-1 call')
+    
+    // Enviar request de sync después de un delay para asegurar que el peer esté listo
+    const syncTimer = setTimeout(() => {
+      if (!callCh) return
+      
+      callCh.send({
+        type: 'broadcast',
+        event: 'transcript_sync',
+        payload: {
+          active: callTranscriptActive,
+          fromUserId: meId,
+          requestSync: true
+        }
+      })
+      
+      log(`📝 Sent transcript sync request: active=${callTranscriptActive}`)
+    }, 2000) // 2 segundos de delay para asegurar que ambos estén conectados
+    
+    return () => clearTimeout(syncTimer)
+  }, [callCh, inCall, peerId, callTranscriptActive, meId])
+
   // Llamadas manejadas y "rings" ya vistos (para evitar dups entre uuid/id)
   const handledCallsRef = useRef<Set<string>>(new Set())
   const seenRingsRef = useRef<Set<string>>(new Set())
@@ -1132,11 +1181,12 @@ useEffect(() => {
 
       ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
         try { console.log('📨 ring payload received:', payload) } catch (e) {}
-        const cid = String(payload.callId || '')
+        // soportar varias formas de payload: payload.callId / payload.room, payload.from.{id,name} o payload.fromId/payload.fromName
+        const cid = String(payload?.callId ?? payload?.room ?? '')
         if (!cid) return
 
         // 🚫 si el ring viene de mí misma, ignorar (uuid o id numérico)
-        const fromId = String(payload.from?.id ?? '')
+        const fromId = String(payload?.from?.id ?? payload?.fromId ?? payload?.from_uuid ?? payload?.from_id ?? '')
         if (fromId && (fromId === meId || (meNumericId != null && fromId === String(meNumericId)))) {
           log('~ ring ignorado (from=me)')
           return
@@ -1164,9 +1214,9 @@ useEffect(() => {
           return
         }
 
-        const fromName = String(payload.from?.name ?? 'Invitado')
-        const transcriptFlag = Boolean(payload.transcript || payload.from?.transcript)
-        log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
+  const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
+  const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
+  log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
         setCallId(cid); callIdRef.current = cid
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
@@ -1583,6 +1633,42 @@ useEffect(() => {
       } catch (e) {}
     })
 
+    // handle transcript sync between peers (1-a-1 calls only)
+    ch.on('broadcast', { event: 'transcript_sync' }, ({ payload }: any) => {
+      try {
+        const fromUserId = String(payload?.fromUserId ?? '')
+        const isActive = Boolean(payload?.active)
+        const requestSync = Boolean(payload?.requestSync)
+        
+        // Ignorar mis propios mensajes
+        if (fromUserId === meId || fromUserId === String(meNumericId)) return
+        
+        log(`📝 transcript_sync from ${fromUserId}: active=${isActive}, requestSync=${requestSync}`)
+        
+        // Si el peer solicita sync, enviarle mi estado actual
+        if (requestSync) {
+          ch.send({
+            type: 'broadcast',
+            event: 'transcript_sync',
+            payload: {
+              active: callTranscriptActive,
+              fromUserId: meId,
+              requestSync: false
+            }
+          })
+          log(`📝 Responded to transcript sync request: active=${callTranscriptActive}`)
+        }
+        
+        // Si el peer tiene transcript activo y yo no, activarlo automáticamente
+        if (isActive && !callTranscriptActive) {
+          log('📝 Auto-enabling transcript to sync with peer')
+          setCallTranscriptActive(true)
+        }
+      } catch (e) {
+        log('! Error handling transcript_sync: ' + (e as Error)?.message)
+      }
+    })
+
     await ensureSubscribed(ch)
     await ch.track({ id: presenceKey, name: meName })
     log(`✓ SUBSCRIBED call:${id}`)
@@ -1844,19 +1930,12 @@ useEffect(() => {
                 {inCall ? 'En llamada' : role === 'idle' ? 'Lista' : 'Estableciendo…'}
               </span>
               {/* Badge azul: Transcripción activada */}
-              {(() => {
-                console.log('🔵 DEBUG BADGE:', { callTranscriptActive, inCall, shouldShow: callTranscriptActive })
-                return callTranscriptActive ? (
-                  <span className="ml-2 inline-flex items-center gap-2 rounded-full border border-blue-400/40 bg-white/20 text-blue-600 px-2.5 py-1 text-xs backdrop-blur-md">
-                    <span className="h-2 w-2 rounded-full bg-blue-500" />
-                    Transcripción Activada
-                  </span>
-                ) : (
-                  <span className="ml-2 text-xs text-red-500">
-                    DEBUG: callTranscriptActive={String(callTranscriptActive)}
-                  </span>
-                )
-              })()}
+              {callTranscriptActive && (
+                <span className="ml-2 inline-flex items-center gap-2 rounded-full border border-blue-400/40 bg-white/20 text-blue-600 px-2.5 py-1 text-xs backdrop-blur-md">
+                  <span className="h-2 w-2 rounded-full bg-blue-500" />
+                  Transcripción Activada
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
@@ -2025,11 +2104,13 @@ useEffect(() => {
           camOn={camOn}
           shareOn={shareOn}
           translateOn={translateOn}
+          transcriptActive={callTranscriptActive}
           translationError={translationError}
           onToggleMic={toggleLocalMic}
           onToggleCam={toggleLocalCam}
           onToggleShare={toggleShare}
           onToggleTranslate={toggleTranslate}
+          onToggleTranscript={toggleTranscript}
           onOpenChat={openChat}
           onOpenWhiteboard={openWhiteboard}
           onHangup={hangup}
@@ -2158,12 +2239,12 @@ function VideoTile({
 /* =================== Barra de controles flotante =================== */
 
 function CallControls({
-  micOn, camOn, shareOn, translateOn, translationError,
-  onToggleMic, onToggleCam, onToggleShare, onToggleTranslate,
+  micOn, camOn, shareOn, translateOn, transcriptActive, translationError,
+  onToggleMic, onToggleCam, onToggleShare, onToggleTranslate, onToggleTranscript,
   onOpenChat, onOpenWhiteboard, onHangup,
 }: {
-  micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; translationError: string | null;
-  onToggleMic: () => void; onToggleCam: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
+  micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; transcriptActive: boolean; translationError: string | null;
+  onToggleMic: () => void; onToggleCam: () => void; onToggleShare: () => void; onToggleTranslate: () => void; onToggleTranscript: () => void;
   onOpenChat: () => void; onOpenWhiteboard: () => void; onHangup: () => void;
 }) {
   return (
@@ -2188,18 +2269,32 @@ function CallControls({
         <button
           onClick={onToggleTranslate}
           className={clsx(
-            "hidden sm:inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all",
+            "hidden sm:inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-all whitespace-nowrap",
             translateOn
               ? "bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow-lg ring-2 ring-orange-300"
               : "bg-gradient-to-r from-orange-300 to-orange-500 text-white/95 hover:text-white hover:shadow-md"
           )}
           title={translateOn ? "Desactivar traducción en tiempo real" : "Activar traducción en tiempo real"}
         >
-          <i data-feather="globe" className={clsx("w-5 h-5", translateOn && "animate-pulse")} />
-          {translateOn ? "Traducción ON" : "Traducción"}
+          <i data-feather="globe" className={clsx("w-4 h-4", translateOn && "animate-pulse")} />
+          <span className="text-xs">{translateOn ? "Traducir ON" : "Traducir"}</span>
           {translateOn && translationError && (
             <span className="ml-1 text-xs">⚠️</span>
           )}
+        </button>
+
+        <button
+          onClick={onToggleTranscript}
+          className={clsx(
+            "hidden sm:inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-all whitespace-nowrap",
+            transcriptActive
+              ? "bg-gradient-to-r from-blue-400 to-blue-600 text-white shadow-lg ring-2 ring-blue-300"
+              : "bg-gradient-to-r from-blue-300 to-blue-500 text-white/95 hover:text-white hover:shadow-md"
+          )}
+          title={transcriptActive ? "Desactivar transcripción de llamada" : "Activar transcripción de llamada"}
+        >
+          <i data-feather="file-text" className={clsx("w-4 h-4", transcriptActive && "animate-pulse")} />
+          <span className="text-xs">{transcriptActive ? "ON" : "Transcript"}</span>
         </button>
 
         <button

@@ -136,9 +136,17 @@ export default function CallNotificationsProvider({
         const ch = sb.channel(`user:${key}`, { config: { broadcast: { self: false } } });
 
         ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
-          const callId = String(payload?.callId ?? '');
-          const fromId = String(payload?.from?.id ?? '');
-          const fromName = String(payload?.from?.name ?? 'Invitado');
+          // Soportar varias formas de payload (desde distintos clientes/backends):
+          //  - payload.callId + payload.from: { id, name }
+          //  - payload.callId + payload.fromId + payload.fromName
+          //  - payload.room as alias de callId
+          const callId = String(payload?.callId ?? payload?.room ?? '');
+          const fromId = String(
+            payload?.from?.id ?? payload?.fromId ?? payload?.from_uuid ?? payload?.from_id ?? ''
+          );
+          const fromName = String(
+            payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado'
+          );
           if (!callId || !fromId) return;
 
           // ignorar rings míos (uuid o id numérico)
@@ -154,7 +162,9 @@ export default function CallNotificationsProvider({
           }
           seenCallIdsRef.current.add(callId);
 
-          const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript);
+          const transcriptFlag = Boolean(
+            payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe || payload?.from?.transcription
+          );
           currentCallIdRef.current = callId;
           peerIdRef.current = fromId;
           setIncoming({ callId, fromId, fromName, transcript: transcriptFlag });
@@ -216,27 +226,33 @@ export default function CallNotificationsProvider({
   // 3) Acciones
   const onAccept = async () => {
     const callId = currentCallIdRef.current;
-    const fromRaw = peerIdRef.current;
+    const fromRaw = peerIdRef.current; // quien llamó (caller)
     if (!callId || !fromRaw) return;
-  
+
     const peerUuid = await resolvePeerUuidByAnyId(sb, fromRaw);
     if (!peerUuid) {
       log('! could not resolve peer uuid on accept', { fromRaw });
       return;
     }
-  
-    try { sessionStorage.setItem(`aa:${callId}`, '1'); } catch {}
-  
+
+    try {
+      sessionStorage.setItem(`aa:${callId}`, '1');
+    } catch {}
+
+    // Navegar a la página de llamada como callee. La page espera ?incoming=<id>&from=<caller>&autoaccept=1&aa=<token>
     const url = new URL(window.location.origin + callRoute);
     url.searchParams.set('incoming', callId);
     url.searchParams.set('room', callId);
-    url.searchParams.set('to', peerUuid);
-    url.searchParams.set('from', peerUuid);
-    url.searchParams.set('peer', peerUuid);
-    url.searchParams.set('role', 'callee');
+    url.searchParams.set('from', peerUuid); // quien nos llamó
     url.searchParams.set('autoaccept', '1');
     url.searchParams.set('aa', callId);
-  
+    
+    // Si la llamada entrante tiene transcript, pasarlo como parámetro
+    if (incoming?.transcript) {
+      url.searchParams.set('transcript', '1');
+      log('📝 Passing transcript=1 to videollamada page');
+    }
+
     setIncoming(null);
     router.push(url.toString());
   };
