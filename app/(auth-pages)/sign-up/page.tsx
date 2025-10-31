@@ -4,7 +4,6 @@ import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { SmtpMessage } from "../smtp-message";
 import { GoogleSignInButton } from "@/components/google-sign-in-button";
 
 export default async function Signup(props: {
@@ -15,7 +14,7 @@ export default async function Signup(props: {
   if ("message" in searchParams) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 py-12">
-        <div className="bg-white/60 backdrop-blur-xl rounded-xl p-6 shadow-xl border border-orange-200 max-w-md w-full text-center">
+        <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-6 shadow-2xl border border-orange-200/50 max-w-md w-full text-center">
           <FormMessage message={searchParams} />
         </div>
       </div>
@@ -23,58 +22,60 @@ export default async function Signup(props: {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-100 via-white to-orange-50 px-4 py-16">
-      <form className="w-full max-w-md bg-white/50 backdrop-blur-xl rounded-2xl p-10 shadow-2xl border border-orange-100">
-        <h1 className="text-3xl font-bold text-orange-600 mb-2">Registrate</h1>
-        <p className="text-sm text-muted-foreground mb-6">
-          Ya tienes una cuenta?{" "}
-          <Link className="text-orange-600 font-medium underline" href="/sign-in">
-            Iniciar sesión
-          </Link>
-        </p>
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-md mx-auto py-8">
+        <form className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-orange-200/50">
+          <h1 className="text-4xl font-extrabold mb-3 text-center">
+            <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
+              Registrate
+            </span>
+          </h1>
+          <p className="text-sm text-gray-700 mb-6 text-center">
+            Ya tienes una cuenta?{" "}
+            <Link className="text-orange-600 font-medium underline hover:text-orange-700 transition-colors" href="/sign-in">
+              Iniciar sesión
+            </Link>
+          </p>
 
-        <div className="flex flex-col gap-4">
-          <div>
-            <Label htmlFor="email">Email</Label>
-            <Input
-              name="email"
-              placeholder="you@example.com"
-              required
-              className="mt-1"
-            />
+          <div className="flex flex-col gap-4 text-sm">
+            <div>
+              <Label htmlFor="email" className="text-gray-900 font-medium">Email</Label>
+              <Input
+                name="email"
+                placeholder="you@example.com"
+                required
+                className="mt-1.5 text-sm py-2.5 bg-white border-gray-300 focus:border-orange-500 focus:ring-orange-500"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="password" className="text-gray-900 font-medium">Contraseña</Label>
+              <Input
+                type="password"
+                name="password"
+                placeholder="Tu contraseña"
+                minLength={6}
+                required
+                className="mt-1.5 text-sm py-2.5 bg-white border-gray-300 focus:border-orange-500 focus:ring-orange-500"
+              />
+            </div>
+
+            <SubmitButton
+              formAction={signUpAction}
+              pendingText="Registrando..."
+              className="bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold px-4 py-3 rounded-full mt-2 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all text-sm"
+            >
+              Registrate
+            </SubmitButton>
+
+            <FormMessage message={searchParams} />
+
+            <div className="mt-4">
+              <GoogleSignInButton />
+            </div>
           </div>
-
-          <div>
-            <Label htmlFor="password">Contraseña</Label>
-            <Input
-              type="password"
-              name="password"
-              placeholder="Tu contraseña"
-              minLength={6}
-              required
-              className="mt-1"
-            />
-          </div>
-
-          <SubmitButton
-            formAction={signUpAction}
-            pendingText="Registrando..."
-            className="bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold px-4 py-2 rounded-full hover:from-orange-600 hover:to-orange-700"
-          >
-            Registrate
-          </SubmitButton>
-
-          <FormMessage message={searchParams} />
-
-          <div className="mt-4">
-            <GoogleSignInButton />
-          </div>
-        </div>
-
-        <div className="mt-6 text-xs text-muted-foreground text-center">
-          <SmtpMessage />
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   );
 }

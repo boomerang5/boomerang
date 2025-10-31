@@ -32,7 +32,7 @@ const geistSans = Geist({
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={geistSans.className} suppressHydrationWarning>
-      <body className="bg-orange-50 dark:bg-gray-700 text-foreground overflow-x-hidden">
+      <body className="bg-gradient-to-b from-orange-200 via-orange-100 to-orange-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-700 text-foreground overflow-x-hidden">
         {/* 👇 Toda la app envuelta con el SessionContextProvider */}
         <SupabaseProvider>
           <ThemeProvider
@@ -42,21 +42,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             disableTransitionOnChange
           >
             <main className="min-h-screen flex flex-col">
-              {/* Header */}
-              <nav className="w-full flex justify-center border-b border-b-orange-200 dark:border-b-orange-800
-                              h-13 md:h-16 px-5 bg-orange-50 dark:bg-gray-600">
-                <div className="w-full max-w-7xl flex justify-between items-center text-sm">
-                  <Link href="/" className="flex items-center gap-2 shrink-0">
+              {/* Header - Estilo Duolingo */}
+              <nav className="w-full border-b border-b-orange-300/30 dark:border-b-gray-700/30
+                              h-18 md:h-20 bg-transparent shadow-sm">
+                <div className="w-full h-full flex items-center justify-between px-6 md:px-12 lg:px-16">
+                  <Link href="/" className="flex items-center gap-2 shrink-0 hover:opacity-80 transition-opacity">
                     <Image
                       src="/boomerang.png"
                       alt="Boomerang logo"
                       width={450}
                       height={300}
                       priority
-                      className="h-8 md:h-12 w-auto object-contain"
+                      className="h-10 md:h-14 w-auto object-contain"
                     />
                   </Link>
-                  {!hasEnvVars ? <EnvVarWarning /> : <HeaderAuth />}
+                  <div className="flex items-center gap-4">
+                    {!hasEnvVars ? <EnvVarWarning /> : <HeaderAuth />}
+                  </div>
                 </div>
               </nav>
 
@@ -66,11 +68,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
 
               {/* Footer */}
-              <footer className="w-full h-13 md:h-16 
-                border-t border-t-orange-200 dark:border-t-orange-800 
-                bg-orange-50 dark:bg-gray-600
-                flex items-center justify-center gap-4 px-5">
-                <p className="text-orange-600 dark:text-orange-400 text-sm">2025 Boomerang.</p>
+              <footer className="w-full h-16 md:h-20 
+                border-t border-t-orange-300/30 dark:border-t-gray-700/30 
+                bg-transparent
+                flex items-center justify-center gap-4 px-6">
+                <p className="text-gray-600 dark:text-gray-400 text-sm font-medium">© 2025 Boomerang.</p>
                 <ThemeSwitcher />
               </footer>
             </main>

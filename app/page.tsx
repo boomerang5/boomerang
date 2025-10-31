@@ -13,27 +13,25 @@ export default function Home() {
     if (session) router.push('/dashboard')
   }, [session])
 
+  const handleSmoothScroll = (e: React.MouseEvent<HTMLAnchorElement>, targetId: string) => {
+    e.preventDefault()
+    const element = document.getElementById(targetId)
+    if (element) {
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    }
+  }
+
   return (
     <>
       {/* HERO */}
-      <section className="relative py-32 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-orange-50 via-orange-100 to-orange-50 dark:from-gray-800 dark:via-gray-700 dark:to-gray-800"></div>
-        
+      <section className="relative py-20 md:py-32 overflow-hidden">
         <div className="relative w-full max-w-[1400px] mx-auto px-6">
           <div className="text-center space-y-8 mb-16">
-            {/* Logo grande */}
-            <div className="flex justify-center mb-8 animate-fade-in">
-              <Image
-                src="/boomerang.png"
-                alt="Boomerang"
-                width={600}
-                height={400}
-                priority
-                className="h-20 md:h-28 w-auto object-contain drop-shadow-2xl"
-              />
-            </div>
-            <h1 className="text-6xl md:text-7xl font-extrabold leading-tight">
-              <span className="bg-gradient-to-r from-orange-600 via-orange-500 to-orange-600 bg-clip-text text-transparent">
+            <h1 className="text-5xl md:text-7xl font-extrabold leading-tight animate-fade-in">
+              <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
                 Comunicación sin barreras
               </span>
             </h1>
@@ -50,7 +48,8 @@ export default function Home() {
               </a>
               <a
                 href="#como-funciona"
-                className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl border-2 border-orange-300 dark:border-orange-600 hover:border-orange-500 dark:hover:border-orange-500 transition-all"
+                onClick={(e) => handleSmoothScroll(e, 'como-funciona')}
+                className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl border-2 border-orange-300 dark:border-orange-600 hover:border-orange-500 dark:hover:border-orange-500 transition-all cursor-pointer"
               >
                 Ver cómo funciona
               </a>
@@ -76,13 +75,15 @@ export default function Home() {
       </section>
 
       {/* FEATURES */}
-      <section id="features" className="py-24 bg-white dark:bg-gray-800">
+      <section id="features" className="py-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-16">
-            <h2 className="text-5xl font-bold mb-4 text-gray-900 dark:text-white">
-              Lo que hace única a Boomerang
+            <h2 className="text-5xl md:text-5xl font-extrabold mb-4">
+              <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
+                Lo que hace única a Boomerang
+              </span>
             </h2>
-            <p className="text-xl text-gray-600 dark:text-gray-400">
+            <p className="text-xl md:text-2xl text-gray-700 dark:text-gray-300">
               Tecnología de vanguardia para conectar personas
             </p>
           </div>
@@ -109,14 +110,16 @@ export default function Home() {
             ].map(({ icon, title, desc, gradient }, i) => (
               <div
                 key={i}
-                className="group relative bg-gradient-to-br from-orange-50 to-white dark:from-gray-700 dark:to-gray-800 p-8 rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border border-orange-200 dark:border-gray-600"
+                className="group relative bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-10 rounded-[2rem] shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-3 border border-orange-200/50 dark:border-gray-600/50 overflow-hidden"
               >
-                <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${gradient} rounded-t-3xl`}></div>
-                <div className="text-5xl mb-4">{icon}</div>
-                <h3 className="text-2xl font-bold mb-3 text-gray-900 dark:text-white">
-                  {title}
-                </h3>
-                <p className="text-gray-600 dark:text-gray-300 leading-relaxed">{desc}</p>
+                <div className={`absolute -top-20 -right-20 w-40 h-40 bg-gradient-to-br ${gradient} rounded-full opacity-10 group-hover:opacity-20 transition-opacity duration-300`}></div>
+                <div className="relative z-10">
+                  <div className="text-6xl mb-6">{icon}</div>
+                  <h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
+                    {title}
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-300 leading-relaxed text-base">{desc}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -124,44 +127,69 @@ export default function Home() {
       </section>
 
       {/* CÓMO FUNCIONA */}
-      <section id="como-funciona" className="py-24 bg-gradient-to-br from-orange-50 via-orange-100 to-orange-50 dark:from-gray-900 dark:to-gray-800">
+      <section id="como-funciona" className="py-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-20">
-            <h2 className="text-5xl font-bold mb-4 text-gray-900 dark:text-white">
-              Comenzá en segundos
+            <h2 className="text-5xl md:text-5xl font-extrabold mb-4">
+              <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
+                Comenzá en segundos
+              </span>
             </h2>
-            <p className="text-xl text-gray-600 dark:text-gray-400">
+            <p className="text-xl md:text-2xl text-gray-700 dark:text-gray-300">
               Simple, rápido y sin complicaciones
             </p>
           </div>
 
           <div className="relative">
-            {/* Línea conectora */}
-            <div className="hidden md:block absolute top-1/2 left-0 right-0 h-1 bg-gradient-to-r from-orange-300 via-orange-500 to-orange-300 transform -translate-y-1/2 opacity-30"></div>
-            
-            <div className="grid md:grid-cols-4 gap-8 relative">
+            <div className="flex items-center justify-center gap-4 md:gap-6">
               {[
                 { icon: "👤", title: "Registrate", desc: "Creá tu cuenta gratis" },
                 { icon: "➕", title: "Añadí contactos", desc: "Invitá a tus amigos" },
                 { icon: "📹", title: "Conectá", desc: "Iniciá la videollamada" },
                 { icon: "🌍", title: "Hablá sin barreras", desc: "Traducción automática" },
-              ].map(({ icon, title, desc }, i) => (
-                <div key={i} className="relative">
-                  <div className="bg-white dark:bg-gray-700 rounded-2xl p-6 shadow-xl text-center hover:shadow-2xl transition-all duration-300 hover:-translate-y-2 border border-orange-200 dark:border-gray-600">
-                    <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full flex items-center justify-center text-3xl shadow-lg">
-                      {icon}
+              ].map(({ icon, title, desc }, i, arr) => (
+                <>
+                  <div key={i} className="relative group flex-1 max-w-xs">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-2 border border-orange-200 dark:border-gray-600 text-center flex flex-col items-center justify-start" style={{height: '100%', minHeight: '200px'}}>
+                      {/* Número de paso */}
+                      <div className="absolute -top-3 -right-3 w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md ring-2 ring-white dark:ring-gray-800">
+                        {i + 1}
+                      </div>
+                      
+                      {/* Icono */}
+                      <div className="w-16 h-16 mx-auto mb-4 bg-orange-200 dark:bg-orange-800/40 rounded-full flex items-center justify-center text-3xl shadow-sm">
+                        {icon}
+                      </div>
+                      
+                      {/* Contenido */}
+                      <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">
+                        {title}
+                      </h3>
+                      <p className="text-gray-600 dark:text-gray-300 text-sm">
+                        {desc}
+                      </p>
                     </div>
-                    <div className="absolute -top-3 -right-3 w-8 h-8 bg-gradient-to-br from-orange-600 to-red-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-lg">
-                      {i + 1}
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">
-                      {title}
-                    </h3>
-                    <p className="text-gray-600 dark:text-gray-300 text-sm">
-                      {desc}
-                    </p>
                   </div>
-                </div>
+                  
+                  {/* Flecha sutil entre cards (excepto después de la última) */}
+                  {i < arr.length - 1 && (
+                    <div className="hidden md:flex items-center justify-center flex-shrink-0">
+                      <svg 
+                        className="w-8 h-8 text-orange-400/40 dark:text-orange-500/30" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          strokeWidth={2} 
+                          d="M13 7l5 5m0 0l-5 5m5-5H6" 
+                        />
+                      </svg>
+                    </div>
+                  )}
+                </>
               ))}
             </div>
           </div>

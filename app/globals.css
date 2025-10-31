@@ -66,6 +66,11 @@
   body {
     @apply bg-background text-foreground;
   }
+  
+  /* Smooth scroll para toda la página */
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 /* Centrado perfecto del contenedor de Sonner */

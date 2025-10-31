@@ -18,38 +18,40 @@ export default async function Login(props: { searchParams: Promise<Message> }) {
   const searchParams = await props.searchParams;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-100 via-white to-orange-50 px-4">
-      <div className="w-full max-w-2xl mx-auto py-16">
-        <form className="bg-white/70 backdrop-blur-xl rounded-2xl p-12 shadow-2xl border border-orange-200">
-          <h1 className="text-4xl font-bold text-orange-600 mb-4 text-center">
-            Iniciar sesión
+    <div className="min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-md mx-auto py-8">
+        <form className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-orange-200/50">
+          <h1 className="text-4xl font-extrabold mb-3 text-center">
+            <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
+              Iniciar sesión
+            </span>
           </h1>
-          <p className="text-base text-muted-foreground mb-8 text-center">
+          <p className="text-sm text-gray-700 mb-6 text-center">
             ¿Aún no tienes cuenta?{" "}
             <Link
-              className="text-orange-600 font-medium underline"
+              className="text-orange-600 font-medium underline hover:text-orange-700 transition-colors"
               href="/sign-up"
             >
               Registrate
             </Link>
           </p>
 
-          <div className="flex flex-col gap-6 text-base">
+          <div className="flex flex-col gap-4 text-sm">
             <div>
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-gray-900 font-medium">Email</Label>
               <Input
                 name="email"
                 placeholder="you@example.com"
                 required
-                className="mt-2 text-base py-2.5"
+                className="mt-1.5 text-sm py-2.5 bg-white border-gray-300 focus:border-orange-500 focus:ring-orange-500"
               />
             </div>
 
             <div>
               <div className="flex justify-between items-center">
-                <Label htmlFor="password">Contraseña</Label>
+                <Label htmlFor="password" className="text-gray-900 font-medium">Contraseña</Label>
                 <Link
-                  className="text-sm text-orange-600 underline"
+                  className="text-xs text-orange-600 underline hover:text-orange-700 transition-colors"
                   href="/forgot-password"
                 >
                   ¿Olvidaste tu contraseña?
@@ -60,14 +62,14 @@ export default async function Login(props: { searchParams: Promise<Message> }) {
                 name="password"
                 placeholder="Tu contraseña"
                 required
-                className="mt-2 text-base py-2.5"
+                className="mt-1.5 text-sm py-2.5 bg-white border-gray-300 focus:border-orange-500 focus:ring-orange-500"
               />
             </div>
 
             <SubmitButton
               pendingText="Ingresando..."
               formAction={signInAction}
-              className="bg-gradient-to-r from-orange-500 to-orange-600 text-white font-semibold px-4 py-3 rounded-full mt-2 hover:from-orange-600 hover:to-orange-700 transition text-base"
+              className="bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold px-4 py-3 rounded-full mt-2 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all text-sm"
             >
               Iniciar Sesión
             </SubmitButton>
