@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Search, Phone, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useNotifications } from '../hooks/useNotifications';
+import CallConfigModal from '../../../components/CallConfigModal';
 
 
 // Hook centralizado para agenda confirmada
@@ -456,7 +457,7 @@ export default function ContactosPage() {
   }
 
   // Función principal para navegar a videollamada
-  async function gotoCall(c: ContactoAgenda, kind: 'audio' | 'video') {
+  async function gotoCall(c: ContactoAgenda, kind: 'audio' | 'video', shouldSaveTranscript: boolean = false, title?: string, description?: string) {
     console.log('🔍 gotoCall - Contacto completo:', c);
     console.log('🔍 id_usuario_contacto:', c.id_usuario_contacto);
     console.log('🔍 id directo:', c.id);
@@ -500,11 +501,52 @@ export default function ContactosPage() {
     const params = new URLSearchParams();
     params.set('to', peer);
     params.set('autocall', '1');
+    if (shouldSaveTranscript) params.set('transcript', '1');
     if (kind === 'video') params.set('type', 'video');
+    
+    // Guardar información de la llamada en sessionStorage
+    if (title) {
+      try {
+        sessionStorage.setItem('vc_call_title', title);
+        if (description) {
+          sessionStorage.setItem('vc_call_description', description);
+        }
+        if (shouldSaveTranscript) {
+          sessionStorage.setItem('vc_transcript', '1');
+          sessionStorage.setItem('vc_transcript_title', title);
+        }
+      } catch (e) { 
+        console.warn('sessionStorage set failed', e); 
+      }
+    }
+    
     router.push(`/protected/videollamada?${params.toString()}`);
   }
 
-  const handleCall = (c: ContactoAgenda) => { void gotoCall(c, 'audio'); };
+  const handleCall = (c: ContactoAgenda) => { void gotoCall(c, 'audio', false); };
+
+  // Nuevo flujo: abrir modal de configuración antes de ejecutar la llamada
+  const [showCallConfigModal, setShowCallConfigModal] = useState(false);
+  const [pendingCallContact, setPendingCallContact] = useState<ContactoAgenda | null>(null);
+
+  const handleCallOpenModal = (c: ContactoAgenda) => {
+    setPendingCallContact(c);
+    setShowCallConfigModal(true);
+  };
+
+  const handleCallConfirm = (title: string, description: string, transcriptionEnabled: boolean) => {
+    // Ejecutar la llamada con la configuración proporcionada
+    if (pendingCallContact) {
+      try {
+        console.log('[contactos] handleCallConfirm title=', title, 'description=', description, 'transcription=', transcriptionEnabled, 'contact=', pendingCallContact);
+        void gotoCall(pendingCallContact, 'audio', transcriptionEnabled, title, description);
+      } catch (e) { 
+        console.warn('handleCallConfirm error', e);
+      }
+    }
+    setPendingCallContact(null);
+    setShowCallConfigModal(false);
+  };
 
   /* ====== Realtime: mis solicitudes enviadas + contactos aceptados ====== */
   useEffect(() => {
@@ -759,7 +801,7 @@ const combinedAgenda = useMemo(
                   // 👉 Contacto confirmado: botones de llamada habilitados
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleCall(c)}
+                      onClick={() => handleCallOpenModal(c)}
                       disabled={!canCall}
                       aria-label={canCall ? 'Llamar' : 'Solicitud pendiente'}
                       title={canCall ? 'Llamar' : 'Solicitud pendiente'}
@@ -851,6 +893,15 @@ const combinedAgenda = useMemo(
           </div>
         </div>
       </div>
+    )}
+
+    {/* ====== Modal Configurar llamada ====== */}
+    {showCallConfigModal && (
+      <CallConfigModal
+        open={showCallConfigModal}
+        onClose={() => { setPendingCallContact(null); setShowCallConfigModal(false); }}
+        onConfirm={handleCallConfirm}
+      />
     )}
   </>
 );

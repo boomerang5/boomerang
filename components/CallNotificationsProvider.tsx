@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useSupabaseClient } from '@supabase/auth-helpers-react';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
-type IncomingCall = { callId: string; fromId: string; fromName?: string };
+type IncomingCall = { callId: string; fromId: string; fromName?: string; transcript?: boolean };
 
 // Mejor tipar explícito el canal
 async function ensureSubscribed(ch: RealtimeChannel): Promise<void> {
@@ -136,9 +136,17 @@ export default function CallNotificationsProvider({
         const ch = sb.channel(`user:${key}`, { config: { broadcast: { self: false } } });
 
         ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
-          const callId = String(payload?.callId ?? '');
-          const fromId = String(payload?.from?.id ?? '');
-          const fromName = String(payload?.from?.name ?? 'Invitado');
+          // Soportar varias formas de payload (desde distintos clientes/backends):
+          //  - payload.callId + payload.from: { id, name }
+          //  - payload.callId + payload.fromId + payload.fromName
+          //  - payload.room as alias de callId
+          const callId = String(payload?.callId ?? payload?.room ?? '');
+          const fromId = String(
+            payload?.from?.id ?? payload?.fromId ?? payload?.from_uuid ?? payload?.from_id ?? ''
+          );
+          const fromName = String(
+            payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado'
+          );
           if (!callId || !fromId) return;
 
           // ignorar rings míos (uuid o id numérico)
@@ -154,9 +162,16 @@ export default function CallNotificationsProvider({
           }
           seenCallIdsRef.current.add(callId);
 
+          const transcriptFlag = Boolean(
+            payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe || payload?.from?.transcription
+          );
           currentCallIdRef.current = callId;
           peerIdRef.current = fromId;
-          setIncoming({ callId, fromId, fromName });
+          const incomingData = { callId, fromId, fromName, transcript: transcriptFlag };
+          setIncoming(incomingData);
+          
+          log(`✅ Incoming call set: ${callId} from ${fromId} (${fromName}) transcript:${transcriptFlag}`);
+          try { console.log('[CallNotif] full payload:', payload) } catch {}
           try {
             navigator.vibrate?.(200);
           } catch {}
@@ -184,7 +199,7 @@ export default function CallNotificationsProvider({
         log('✓ SUBSCRIBED', `user:${key}`);
       };
 
-      // uuid “real”
+      // uuid "real"
       if (meUuid) await setup(meUuid);
       // uuid por pestaña
       try {
@@ -214,27 +229,33 @@ export default function CallNotificationsProvider({
   // 3) Acciones
   const onAccept = async () => {
     const callId = currentCallIdRef.current;
-    const fromRaw = peerIdRef.current;
+    const fromRaw = peerIdRef.current; // quien llamó (caller)
     if (!callId || !fromRaw) return;
-  
+
     const peerUuid = await resolvePeerUuidByAnyId(sb, fromRaw);
     if (!peerUuid) {
       log('! could not resolve peer uuid on accept', { fromRaw });
       return;
     }
-  
-    try { sessionStorage.setItem(`aa:${callId}`, '1'); } catch {}
-  
+
+    try {
+      sessionStorage.setItem(`aa:${callId}`, '1');
+    } catch {}
+
+    // Navegar a la página de llamada como callee. La page espera ?incoming=<id>&from=<caller>&autoaccept=1&aa=<token>
     const url = new URL(window.location.origin + callRoute);
     url.searchParams.set('incoming', callId);
     url.searchParams.set('room', callId);
-    url.searchParams.set('to', peerUuid);
-    url.searchParams.set('from', peerUuid);
-    url.searchParams.set('peer', peerUuid);
-    url.searchParams.set('role', 'callee');
+    url.searchParams.set('from', peerUuid); // quien nos llamó
     url.searchParams.set('autoaccept', '1');
     url.searchParams.set('aa', callId);
-  
+    
+    // Si la llamada entrante tiene transcript, pasarlo como parámetro
+    if (incoming?.transcript) {
+      url.searchParams.set('transcript', '1');
+      log('📝 Passing transcript=1 to videollamada page');
+    }
+
     setIncoming(null);
     router.push(url.toString());
   };
@@ -269,11 +290,15 @@ export default function CallNotificationsProvider({
     };
   }, []);
 
+
+
+
+
   return (
     <>
       {children}
-      {incoming && inboxReady && (
-        <Toast fromName={incoming.fromName || 'Invitado'} onAccept={onAccept} onReject={onReject} />
+      {incoming && (
+        <Toast fromName={incoming.fromName || 'Invitado'} onAccept={onAccept} onReject={onReject} transcript={incoming.transcript} />
       )}
     </>
   );
@@ -283,10 +308,12 @@ function Toast({
   fromName,
   onAccept,
   onReject,
+  transcript,
 }: {
   fromName: string;
   onAccept: () => void;
   onReject: () => void;
+  transcript?: boolean;
 }) {
   return (
     <div className="fixed right-4 bottom-6 z-[100] max-w-md w-[92vw] sm:w-auto">
@@ -306,6 +333,9 @@ function Toast({
           <div className="min-w-0">
             <div className="text-sm text-black/60 dark:text-white/70">Llamada entrante</div>
             <div className="font-semibold truncate">{fromName}</div>
+            {transcript && (
+              <div className="text-xs text-gray-500 mt-1 font-semibold">*Aviso: Transcripción Activada</div>
+            )}
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={onAccept}
