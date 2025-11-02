@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 // @ts-ignore
 import feather from 'feather-icons'
-import clsx from 'clsx'
-import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 
 
@@ -16,24 +14,22 @@ type Participant = {
   nombre: string
   apellido: string
   apodo?: string | null
-  es_iniciador?: boolean
+  es_iniciador?: boolean // Mapea a 'host' del SP
 }
 
 type CallItem = {
-  id_llamada: number
-  tipo: CallType
-  estado: CallState
-  fecha_inicio: string        // ISO
-  fecha_fin?: string | null   // ISO
-  duracion_segundos?: number | null
-  participantes: Participant[]
-  id_chat?: number | null
-  tiene_grabacion?: boolean
-  id_archivo_grabacion?: number | null
-  tiene_transcripcion?: boolean // Indica si la llamada guardó transcripción para consultas al chatbot
-  resumen?: string | null     // breve resumen si lo hubiere
-  titulo?: string | null      // UUID del otro usuario
-  otro_usuario_nombre?: string // Nombre del otro usuario (lo obtendremos después)
+  id: number                  
+  fecha_inicio: string        
+  fecha_fin?: string | null   
+  duracion_calculada?: number | null  
+  titulo?: string | null      
+  descripcion?: string | null
+  id_grupo?: number | null
+  otro_usuario_nombre?: string | null
+  participantes: Participant[] | null  
+  es_host?: boolean
+  fecha_solo?: string         // Campo agregado por el backend
+  hora_solo?: string          // Campo agregado por el backend
 }
 
 type Filters = {
@@ -65,6 +61,21 @@ function formatTime(ts: string) {
   const hours = String(d.getHours()).padStart(2, '0')
   const minutes = String(d.getMinutes()).padStart(2, '0')
   return `${day}/${month}/${year}, ${hours}:${minutes}`
+}
+
+function formatDateOnly(ts: string) {
+  const d = new Date(ts)
+  const day = String(d.getDate()).padStart(2, '0')
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const year = d.getFullYear()
+  return `${day}/${month}/${year}`
+}
+
+function formatTimeOnly(ts: string) {
+  const d = new Date(ts)
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
 }
 
 function formatDuration(sec?: number | null) {
@@ -101,7 +112,11 @@ export default function CallHistoryPage() {
   const [filters, setFilters] = useState<Filters>(initialFilters)
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<CallItem[]>([])
-  const [selected, setSelected] = useState<CallItem | null>(null)
+  const [expandedCall, setExpandedCall] = useState<number | null>(null)
+
+  const toggleExpanded = (callId: number) => {
+    setExpandedCall(expandedCall === callId ? null : callId)
+  }
   const [error, setError] = useState<string | null>(null)
   const [dateWarning, setDateWarning] = useState<{ from?: string; to?: string }>({})
 
@@ -126,7 +141,7 @@ export default function CallHistoryPage() {
         supabase
           .from('Usuario')
           .select('id')
-          .eq('uuid', user.id)
+          .eq('User_id', user.id)
           .single()
           .then(({ data, error }) => {
             if (data && !error) {
@@ -190,11 +205,21 @@ export default function CallHistoryPage() {
     // Filtro adicional en cliente (útil mientras cerramos el backend)
     return items.filter((it) => {
       const q = filters.search.trim().toLowerCase()
-      const matchQ =
-        !q ||
-        (it.otro_usuario_nombre || '').toLowerCase().includes(q) ||
-        (it.participantes || []).some((p) => `${p.nombre} ${p.apellido} ${p.apodo ?? ''}`.toLowerCase().includes(q)) ||
-        (it.resumen ?? '').toLowerCase().includes(q)
+      
+      if (!q) return true
+      
+      // Búsqueda prioritaria por nombre de usuario y título de llamada
+      const matchUserName = (it.otro_usuario_nombre || '').toLowerCase().includes(q)
+      const matchCallTitle = (it.titulo || '').toLowerCase().includes(q)
+      
+      // Búsqueda secundaria en participantes y descripción
+      const matchParticipants = (it.participantes || []).some((p) => 
+        `${p.nombre} ${p.apellido} ${p.apodo ?? ''}`.toLowerCase().includes(q)
+      )
+      const matchDescription = (it.descripcion || '').toLowerCase().includes(q)
+      
+      const matchQ = matchUserName || matchCallTitle || matchParticipants || matchDescription
+      
       const matchFrom = !filters.dateFrom || new Date(it.fecha_inicio) >= new Date(filters.dateFrom)
       const matchTo = !filters.dateTo || new Date(it.fecha_inicio) <= new Date(filters.dateTo + 'T23:59:59')
       return matchQ && matchFrom && matchTo
@@ -203,7 +228,7 @@ export default function CallHistoryPage() {
 
   useEffect(() => {
     feather.replace()
-  }, [filtered, selected, loading])
+  }, [filtered, loading])
 
     return (
     <main className="flex-1 px-4 md:px-8 py-6">
@@ -224,7 +249,7 @@ export default function CallHistoryPage() {
             <input
               type="text"
               className={`${filterInputCls} w-full pl-10`}
-              placeholder="Buscar por nombre o apodo"
+              placeholder="Buscar por nombre, título o apodo"
               value={filters.search ?? ""}
               onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
             />
@@ -418,10 +443,11 @@ export default function CallHistoryPage() {
         {/* Lista */}
         <div className="rounded-3xl border border-white/20 bg-white/5 backdrop-blur p-2">
           <div className="grid grid-cols-12 px-3 py-2 text-xs uppercase tracking-wide opacity-60">
-            <div className="col-span-6 md:col-span-6">Llamada</div>
-            <div className="col-span-3 md:col-span-2">Fecha</div>
-            <div className="col-span-2 md:col-span-2">Duración</div>
-            <div className="col-span-1 md:col-span-2 text-center">Transcripción</div>
+            <div className="col-span-4">Llamada</div>
+            <div className="col-span-2">Fecha</div>
+            <div className="col-span-2">Hora</div>
+            <div className="col-span-3">Duración</div>
+            <div className="col-span-1"></div>
           </div>
 
         <div className="divide-y divide-white/10">
@@ -432,127 +458,106 @@ export default function CallHistoryPage() {
           )}
 
           {!loading && !error && filtered.map((it) => {
-            // Mostrar el titulo (UUID) hasta que tengamos la forma correcta de obtener el nombre
             const userName = it.otro_usuario_nombre || it.titulo || 'Usuario desconocido'
+            const duration = it.duracion_calculada || 0
+            const isExpanded = expandedCall === it.id
+            
             return (
-              <div key={it.id_llamada} className="grid grid-cols-12 items-center px-3 py-3 hover:bg-white/5 transition">
-                <div className="col-span-6 md:col-span-6 flex items-center gap-3">
-                  <div className={clsx(
-                    'w-10 h-10 rounded-2xl flex items-center justify-center border',
-                    it.tipo === 'video' ? 'border-orange-300/40 bg-orange-200/10' : 'border-sky-300/40 bg-sky-200/10'
-                  )}>
-                    <i data-feather={typeIcon(it.tipo)} className="opacity-80" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-base truncate">{userName}</div>
-                    <div className="text-xs opacity-70 truncate">
-                      {it.tipo === 'video' ? 'Videollamada' : 'Llamada de voz'}
+              <div key={it.id} className="border border-zinc-200/20 rounded-xl bg-gradient-to-r from-white/5 to-white/10 backdrop-blur-sm hover:shadow-lg transition-all duration-200 mb-3">
+                {/* Fila principal */}
+                <div 
+                  className="grid grid-cols-12 items-center px-4 py-4 hover:bg-white/10 transition cursor-pointer rounded-xl"
+                  onClick={() => toggleExpanded(it.id)}
+                >
+                  <div className="col-span-4 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center border-2 border-orange-400/50 bg-gradient-to-br from-orange-200/20 to-orange-300/30 shadow-sm">
+                      <i data-feather="phone" className="opacity-90 text-orange-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-base truncate text-zinc-900 dark:text-zinc-100">{userName}</div>
+                      <div className="text-xs opacity-70 truncate text-zinc-600 dark:text-zinc-400">
+                        {it.titulo || 'Llamada'}
+                        {it.es_host && (
+                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+                            Host
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  {(it.estado === 'completed' || it.estado === 'missed') && (
-                    <span className={clsx('ml-2 text-xs px-2 py-0.5 rounded-full border whitespace-nowrap', chipClass(it.estado))}>
-                      {it.estado === 'completed' ? 'Completada' : 'Perdida'}
-                    </span>
-                  )}
-                  {it.tiene_grabacion && (
-                    <span className="ml-2 text-xs px-2 py-0.5 rounded-full border border-white/20 bg-white/10 whitespace-nowrap">Grabada</span>
-                  )} 
+
+                  <div className="col-span-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    {it.fecha_solo ? formatDateOnly(it.fecha_solo) : formatDateOnly(it.fecha_inicio)}
+                  </div>
+                  <div className="col-span-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    {it.hora_solo || formatTimeOnly(it.fecha_inicio)}
+                  </div>
+                  <div className="col-span-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">{formatDuration(duration)}</div>
+                  
+                  <div className="col-span-1 flex justify-end">
+                    <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                      <i 
+                        data-feather={isExpanded ? "chevron-up" : "chevron-down"} 
+                        className="w-4 h-4 opacity-70 transition-transform text-zinc-600 dark:text-zinc-400" 
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                <div className="col-span-3 md:col-span-2 text-sm opacity-80 border-0">{formatTime(it.fecha_inicio)}</div>
-                <div className="col-span-2 md:col-span-2 text-sm opacity-80 border-0">{formatDuration(it.duracion_segundos)}</div>
+                {/* Panel expandido */}
+                {isExpanded && (
+                  <div className="border-t border-zinc-200/30 dark:border-zinc-700/30 bg-gradient-to-br from-zinc-50/80 to-white/50 dark:from-zinc-900/50 dark:to-zinc-800/30 rounded-b-xl">
+                    <div className="px-4 py-5 space-y-5">
+                      {/* Descripción */}
+                      {it.descripcion && (
+                        <div className="bg-white/60 dark:bg-zinc-800/60 rounded-lg p-4 border border-zinc-200/40 dark:border-zinc-700/40">
+                          <h4 className="text-sm font-semibold text-orange-600 dark:text-orange-400 mb-3 flex items-center gap-2">
+                            <i data-feather="file-text" className="w-4 h-4" />
+                            Descripción
+                          </h4>
+                          <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">{it.descripcion}</p>
+                        </div>
+                      )}
 
-                <div className="col-span-1 md:col-span-2 flex items-center justify-center">
-                  {it.tiene_transcripcion ? (
-                    <span className="text-xs px-2 py-0.5 rounded-full border border-emerald-300/40 bg-emerald-200/10 text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
-                      Sí
-                    </span>
-                  ) : (
-                    <span className="text-xs px-2 py-0.5 rounded-full border border-zinc-300/40 bg-zinc-200/10 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
-                      No
-                    </span>
-                  )}
-                </div>
+                      {/* Participantes */}
+                      {it.participantes && it.participantes.length > 0 && (
+                        <div className="bg-white/60 dark:bg-zinc-800/60 rounded-lg p-4 border border-zinc-200/40 dark:border-zinc-700/40">
+                          <h4 className="text-sm font-semibold text-orange-600 dark:text-orange-400 mb-3 flex items-center gap-2">
+                            <i data-feather="users" className="w-4 h-4" />
+                            Participantes ({it.participantes.length})
+                          </h4>
+                          <div className="grid gap-3">
+                            {it.participantes.map((p, idx) => (
+                              <div key={p.id_usuario || idx} className="flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-zinc-100/80 to-zinc-50/80 dark:from-zinc-700/50 dark:to-zinc-800/50 border border-zinc-200/50 dark:border-zinc-600/30 hover:shadow-md transition-all">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-200/40 to-orange-300/60 dark:from-orange-600/30 dark:to-orange-700/40 flex items-center justify-center text-sm font-semibold text-orange-800 dark:text-orange-200 border-2 border-orange-300/40 dark:border-orange-500/30">
+                                  {p.nombre?.[0]}{p.apellido?.[0]}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-semibold truncate text-zinc-800 dark:text-zinc-200">
+                                    {p.nombre} {p.apellido}
+                                  </div>
+                                  {p.apodo && (
+                                    <div className="text-xs text-zinc-600 dark:text-zinc-400 truncate">@{p.apodo}</div>
+                                  )}
+                                </div>
+                                {p.es_iniciador && (
+                                  <span className="text-xs px-3 py-1 rounded-full bg-gradient-to-r from-emerald-500/20 to-emerald-600/30 text-emerald-700 dark:text-emerald-300 border border-emerald-400/40 font-medium">
+                                    Host
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
       </div>
-
-      {/* Drawer/Modal de detalle */}
-      {selected && (
-        <div className="fixed inset-0 z-40">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setSelected(null)} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white/90 backdrop-blur text-black shadow-2xl p-6 overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">Detalle de llamada</h2>
-              <button className="p-2 rounded-xl hover:bg-black/5" onClick={() => setSelected(null)}>
-                <i data-feather="x" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-2xl border border-black/10 bg-white">
-                  <div className="text-xs opacity-60">Tipo</div>
-                  <div className="font-medium">{selected.tipo === 'video' ? 'Videollamada' : 'Llamada'}</div>
-                </div>
-                <div className="p-3 rounded-2xl border border-black/10 bg-white">
-                  <div className="text-xs opacity-60">Estado</div>
-                  <div className="font-medium capitalize">{selected.estado}</div>
-                </div>
-                <div className="p-3 rounded-2xl border border-black/10 bg-white">
-                  <div className="text-xs opacity-60">Inicio</div>
-                  <div className="font-medium">{formatTime(selected.fecha_inicio)}</div>
-                </div>
-                <div className="p-3 rounded-2xl border border-black/10 bg-white">
-                  <div className="text-xs opacity-60">Duración</div>
-                  <div className="font-medium">{formatDuration(selected.duracion_segundos)}</div>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-2xl border border-black/10 bg-white">
-                <div className="text-xs opacity-60 mb-1">Participantes</div>
-                <ul className="space-y-1">
-                  {(selected.participantes || []).map((p) => (
-                    <li key={p.id_usuario} className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-black/10 flex items-center justify-center">
-                        <i data-feather="user" className="w-3 h-3" />
-                      </div>
-                      <span className="text-sm">
-                        {p.nombre} {p.apellido} {p.es_iniciador ? <em className="opacity-60">(iniciador)</em> : null}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {selected.tiene_grabacion && (
-                <div className="p-3 rounded-2xl border border-black/10 bg-white">
-                  <div className="text-xs opacity-60 mb-2">Grabación</div>
-                  <div className="flex gap-2">
-                    <a className="px-3 py-2 rounded-xl border border-black/10 hover:bg-black/5 text-sm"
-                        href={`/api/llamadas/recording?id_archivo=${selected.id_archivo_grabacion}`} target="_blank">
-                      Descargar
-                    </a>
-                    <a className="px-3 py-2 rounded-xl border border-black/10 hover:bg-black/5 text-sm"
-                        href={`/api/llamadas/transcript?id_llamada=${selected.id_llamada}`} target="_blank">
-                      Ver transcripción
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {selected.resumen && (
-                <div className="p-3 rounded-2xl border border-black/10 bg-white">
-                  <div className="text-xs opacity-60 mb-1">Resumen</div>
-                  <p className="text-sm leading-6">{selected.resumen}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>  
-      )}
     </main>
   )
 }

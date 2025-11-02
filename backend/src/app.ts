@@ -13,6 +13,21 @@ const swaggerJsdoc = require('swagger-jsdoc');
 
 const app = express();
 
+// Configuración de CORS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  // Manejar preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+  
+  next();
+});
+
 // Middleware de logging ANTES de express.json()
 app.use((req, res, next) => {
   if (req.method === 'PATCH') {

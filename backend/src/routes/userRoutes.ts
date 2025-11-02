@@ -2,7 +2,7 @@ import express from 'express';
 
 const router = express.Router();
 
-import { get_all_contacts, create_usuario_profile, update_usuario_profile, get_usuario_uuid, get_user_by_id_usuario, change_state_user, get_state_user, update_user_profile_photo, get_user_language} from '../controllers/userController';
+import { get_all_contacts, create_usuario_profile, update_usuario_profile, get_usuario_uuid, get_user_by_id_usuario, change_state_user, get_state_user, update_user_profile_photo, get_user_language, get_all_idiomas, get_all_generos} from '../controllers/userController';
 
 // GET GET_ALL_CONTACTS
 /**
@@ -415,24 +415,66 @@ router.get("/uuid/:uuid", get_usuario_uuid);
  *                   example: 1
  *                 nombre_genero:
  *                   type: string
- *                   example: Masculino
- *                 id_foto_perfil:
- *                   type: integer
- *                   nullable: true
- *                   example: 15
- *                 path_foto_perfil:
- *                   type: string
- *                   nullable: true
- *                   example: uploads/perfiles/15.png
- *                 pais:
- *                   type: string
- *                   example: Argentina
- *                 id_estado:
- *                   type: integer
- *                   example: 1
+ *                   example: Femenino
  */
+
+//-----------------------------------------------------------------------------------------------------------------
+// GET GET_ALL_IDIOMAS
+/**
+ * @swagger
+ * /api/users/idiomas:
+ *   get:
+ *     summary: Obtener todos los idiomas disponibles
+ *     tags: [Usuarios]
+ *     responses:
+ *       200:
+ *         description: Lista de idiomas disponibles
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id_idioma:
+ *                     type: integer
+ *                     example: 1
+ *                   nombre_idioma:
+ *                     type: string
+ *                     example: Español
+ *                   codigo_iso:
+ *                     type: string
+ *                     example: es-ES
+ */
+router.get('/idiomas', get_all_idiomas);
+
+//-----------------------------------------------------------------------------------------------------------------
+// GET GET_ALL_GENEROS
+/**
+ * @swagger
+ * /api/users/generos:
+ *   get:
+ *     summary: Obtener todos los géneros disponibles
+ *     tags: [Usuarios]
+ *     responses:
+ *       200:
+ *         description: Lista de géneros disponibles
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id_genero:
+ *                     type: integer
+ *                     example: 1
+ *                   nombre_genero:
+ *                     type: string
+ *                     example: Masculino
+ */
+router.get('/generos', get_all_generos);
+
 router.get('/:id', get_user_by_id_usuario);
-
-
 
 export default router;
