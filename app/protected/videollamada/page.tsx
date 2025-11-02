@@ -13,6 +13,8 @@ import clsx from 'clsx'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 // @ts-ignore — solo en cliente
 import feather from 'feather-icons'
+import { useTranscriptChat } from '../transcription/useTranscriptChat'
+import type { TranscriptEntry } from '../transcription/TranscriptionService'
 
 type Panel = 'none' | 'chat' | 'people' | 'settings'
 type Role = 'idle' | 'caller' | 'callee'
@@ -237,6 +239,20 @@ export default function VideoCallPage() {
   const [callRowId, setCallRowId] = useState<number | null>(null)
   const [ending, setEnding] = useState(false)
 
+
+
+  // Hook de transcripción con chat colaborativo
+  const { 
+    transcriptEntries, 
+    isTranscribing, 
+    error: transcriptionError
+  } = useTranscriptChat({
+    isActive: callTranscriptActive,
+    localUserId: meId,
+    localUserName: meName || 'Yo',
+    callChannel: callCh
+  })
+
   // Clear chat when call ends (callId becomes null)
   useEffect(() => {
     if (!callId) {
@@ -245,7 +261,8 @@ export default function VideoCallPage() {
     }
   }, [callId])
 
-  // Detectar transcripción desde URL cuando haya una llamada
+  // Solo activar transcripción manualmente (comentado auto-activación)
+  /*
   useEffect(() => {
     console.log('🔵 useEffect transcripción ejecutándose - callId=', callId)
     if (!callId) {
@@ -288,6 +305,7 @@ export default function VideoCallPage() {
       console.log('❌ NO se activa transcripción')
     }
   }, [callId])
+  */
 
   const callerUserIdRef = useRef<string | null>(null)
   const calleeUserIdRef = useRef<string | null>(null)
@@ -1219,6 +1237,15 @@ useEffect(() => {
 
 
 
+  // Debug: verificar nombres en payload
+  console.log('🏷️ [DEBUG] Ring payload recibido:', {
+    'from.name': payload?.from?.name,
+    'fromName': payload?.fromName,  
+    'from_name': payload?.from_name,
+    'name': payload?.name,
+    'fromId': fromId
+  })
+  
   const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
   const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
   log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
@@ -1456,10 +1483,11 @@ useEffect(() => {
     for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)
       await ensureSubscribed(ch)
+      const ringPayload = { callId: id, room: id, from: { id: meId, name: nameToSend, transcript: !!sendTranscript }, transcript: !!sendTranscript }
       await ch.send({
         type: 'broadcast',
         event: 'ring',
-        payload: { callId: id, room: id, from: { id: meId, name: nameToSend, transcript: !!sendTranscript }, transcript: !!sendTranscript },
+        payload: ringPayload,
       })
       await ch.unsubscribe()
     }
@@ -2128,6 +2156,7 @@ useEffect(() => {
           translateOn={translateOn}
           transcriptActive={callTranscriptActive}
           translationError={translationError}
+          transcriptionError={transcriptionError}
           onToggleMic={toggleLocalMic}
           onToggleCam={toggleLocalCam}
           onToggleShare={toggleShare}
@@ -2261,11 +2290,11 @@ function VideoTile({
 /* =================== Barra de controles flotante =================== */
 
 function CallControls({
-  micOn, camOn, shareOn, translateOn, transcriptActive, translationError,
+  micOn, camOn, shareOn, translateOn, transcriptActive, translationError, transcriptionError,
   onToggleMic, onToggleCam, onToggleShare, onToggleTranslate, onToggleTranscript,
   onOpenChat, onOpenWhiteboard, onHangup,
 }: {
-  micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; transcriptActive: boolean; translationError: string | null;
+  micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; transcriptActive: boolean; translationError: string | null; transcriptionError: string | null;
   onToggleMic: () => void; onToggleCam: () => void; onToggleShare: () => void; onToggleTranslate: () => void; onToggleTranscript: () => void;
   onOpenChat: () => void; onOpenWhiteboard: () => void; onHangup: () => void;
 }) {
@@ -2317,6 +2346,9 @@ function CallControls({
         >
           <i data-feather="file-text" className={clsx("w-4 h-4", transcriptActive && "animate-pulse")} />
           <span className="text-xs">{transcriptActive ? "ON" : "Transcript"}</span>
+          {transcriptActive && transcriptionError && (
+            <span className="ml-1 text-xs">⚠️</span>
+          )}
         </button>
 
         <button
@@ -2401,6 +2433,7 @@ function ChatPanel({ callCh, meName, meId, callId, messages, setMessages, seenMs
       try { callCh.off('broadcast', { event: 'chat' }, handler) } catch (e) { /* ignore */ }
     }
   }, [callCh])
+
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
