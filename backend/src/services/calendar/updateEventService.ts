@@ -122,13 +122,7 @@ export async function updateEventService(
             organizador: editorNombre
           };
 
-          console.log('🔍 Debug UPDATE - enviando notificación de invitación:', {
-            id_usuario: invitado.id_usuario,
-            tipo: 'meeting_invite',
-            meta: metaData,
-            idEvento: idEvento,
-            titulo: eventoCompleto.titulo
-          });
+          
 
           // 2. Nueva invitación (tipo meeting_invite) - CON botones para confirmar
           const mensajeInvitacion = `El día ${fechaFormateada} a las ${horaFormateada}` +

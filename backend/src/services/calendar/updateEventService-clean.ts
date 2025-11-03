@@ -102,5 +102,4 @@ export async function updateEventService(
     }
   }
 
-  console.log("✅ Evento actualizado correctamente");
 }

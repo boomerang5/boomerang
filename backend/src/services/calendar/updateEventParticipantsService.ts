@@ -6,12 +6,7 @@ export const updateEventParticipantsService = async (
   idEditor: number,
   participantes: number[]
 ): Promise<void> => {
-  console.log('🔄 Actualizando participantes del evento:', {
-    idEvento,
-    idEditor,
-    participantes,
-    cantidadParticipantes: participantes?.length || 0
-  });
+  
 
   try {
     // Llamar a la función PostgreSQL update_event_participants

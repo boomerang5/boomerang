@@ -5,7 +5,6 @@ export async function getUserEventsService(
   fechaDesde?: Date,
   fechaHasta?: Date
 ) {
-  console.log(`🚀 getUserEventsService iniciado para usuario: ${idUsuario}`);
   
   // Primero obtenemos los eventos usando la función RPC original
   const { data: eventos, error } = await supabase.rpc("get_user_events", {
@@ -20,7 +19,6 @@ export async function getUserEventsService(
   }
 
   if (!eventos || eventos.length === 0) {
-    console.log(`📭 No hay eventos para usuario ${idUsuario}`);
     return eventos;
   }
 
@@ -28,11 +26,9 @@ export async function getUserEventsService(
   // Ahora agregamos la información de confirmación para cada evento
   const eventosConConfirmacion = await Promise.all(
     eventos.map(async (evento: any) => {
-      console.log(`🔄 Procesando evento ${evento.id} (creado por: ${evento.creado_por})`);
       try {
         // Si el usuario es el creador, siempre está confirmado
         if (evento.creado_por === idUsuario) {
-          console.log(`👑 Usuario ${idUsuario} es creador del evento ${evento.id}`);
           return {
             ...evento,
             mi_confirmacion: 'confirmado'

@@ -1440,6 +1440,7 @@ function ModalEvento({
   const [busquedaContacto, setBusquedaContacto] = useState('');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [colorSeleccionado, setColorSeleccionado] = useState(evento?.color || 'blue');
+  const [errorFecha, setErrorFecha] = useState<string | null>(null);
 
   // Efecto para actualizar campos cuando se abre modal de edición
   useEffect(() => {
@@ -1485,6 +1486,18 @@ function ModalEvento({
   const manejarGuardar = (e: React.FormEvent) => {
     e.preventDefault();
     if (!titulo.trim()) return;
+
+    // Validación de fecha pasada
+    const fechaSeleccionada = new Date(fecha);
+    const ahora = new Date();
+    
+    if (fechaSeleccionada <= ahora) {
+      setErrorFecha('No se puede crear un evento con fecha y hora anterior al momento actual');
+      return;
+    }
+
+    // Limpiar error si estaba presente
+    setErrorFecha(null);
 
     // Obtener los IDs de usuario de los contactos seleccionados
     const invitadosIds = invitadosSeleccionados.map(contactoId => {
@@ -1569,6 +1582,13 @@ function ModalEvento({
     };
   }, [showTimePicker]);
 
+  // Limpiar error cuando cambie la fecha
+  useEffect(() => {
+    if (errorFecha) {
+      setErrorFecha(null);
+    }
+  }, [fecha]);
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-md max-h-[85vh] overflow-y-auto">
@@ -1649,6 +1669,8 @@ function ModalEvento({
                   onChange={(e) => {
                     const horaActual = fecha.split('T')[1] || '09:00';
                     setFecha(`${e.target.value}T${horaActual}`);
+                    // Limpiar error al cambiar fecha
+                    if (errorFecha) setErrorFecha(null);
                   }}
                   className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   required
@@ -1740,6 +1762,16 @@ function ModalEvento({
                 </div>
               </div>
             </div>
+
+            {/* Mensaje de error para fecha pasada */}
+            {errorFecha && (
+              <div className="text-red-600 dark:text-red-400 text-xs mt-1 flex items-center gap-1">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                {errorFecha}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

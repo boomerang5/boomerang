@@ -3,7 +3,7 @@ import supabase from "../../lib/supabase";
 export async function createEventService(
   idCreador: number,
   titulo: string,
-  fecha: Date,
+  fecha: Date,  
   descripcion?: string,
   color?: string,
   invitados?: number[]
