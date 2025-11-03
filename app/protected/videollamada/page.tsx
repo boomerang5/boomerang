@@ -15,6 +15,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import feather from 'feather-icons'
 import { useTranscriptChat } from '../transcription/useTranscriptChat'
 import type { TranscriptEntry } from '../transcription/TranscriptionService'
+import SaveTranscriptModal from '../../../components/SaveTranscriptModal'
 
 type Panel = 'none' | 'chat' | 'people' | 'settings'
 type Role = 'idle' | 'caller' | 'callee'
@@ -206,6 +207,12 @@ export default function VideoCallPage() {
   const [chatMessages, setChatMessages] = useState<Array<{id: string; from: string; fromId?: string; text: string; ts: number}>>([])
   const chatSeenRef = useRef<Set<string>>(new Set())
 
+  // ---- Estados para guardar transcripción
+  const [showSaveTranscriptModal, setShowSaveTranscriptModal] = useState(false)
+  const [wasTranscriptionUsed, setWasTranscriptionUsed] = useState(false)
+  const [isRemoteHangup, setIsRemoteHangup] = useState(false)
+  const [hasTranscriptData, setHasTranscriptData] = useState(false) // Estado más persistente
+
   
 
   // ---- Refs de video
@@ -258,8 +265,26 @@ export default function VideoCallPage() {
     if (!callId) {
       setChatMessages([])
       try { chatSeenRef.current.clear() } catch {}
+      // Reset transcript usage flag when call ends
+      setWasTranscriptionUsed(false)
+      setIsRemoteHangup(false) // Reset remote hangup flag
+      setHasTranscriptData(false) // Reset transcript data flag
     }
   }, [callId])
+
+  // Marcar que se usó transcripción cuando se active
+  useEffect(() => {
+    if (callTranscriptActive) {
+      setWasTranscriptionUsed(true)
+    }
+  }, [callTranscriptActive])
+
+  // Marcar que hay datos de transcripción cuando lleguen entradas
+  useEffect(() => {
+    if (transcriptEntries.length > 0) {
+      setHasTranscriptData(true)
+    }
+  }, [transcriptEntries.length])
 
   // Solo activar transcripción manualmente (comentado auto-activación)
   /*
@@ -1665,9 +1690,14 @@ useEffect(() => {
         try { await pcRef.current!.addIceCandidate(m.candidate) } catch (e) { log('! addIceCandidate: ' + (e as Error).message) }
       } else if (m.type === 'hangup') {
         log('← hangup')
-        console.log('📞 [HANGUP] Peer colgó la llamada, redirigiendo...')
+        console.log('📞 [HANGUP] Peer colgó la llamada')
+        
+        // Mostrar modal para que el usuario pueda guardar transcripción
+        console.log('📝 [HANGUP-REMOTE] Mostrando modal de transcripción...')
+        setIsRemoteHangup(true)
+        setShowSaveTranscriptModal(true)
+        return
         await endLocalCall('remote_hangup')
-        // Redirigir a pantalla principal
         redirectToMainPage()
       }
     })
@@ -1847,12 +1877,298 @@ useEffect(() => {
 
   const hangup = async () => {
     console.log('📞 [HANGUP] Usuario colgando la llamada...')
+    
+    // Verificar si se usó transcripción durante la llamada
+    if (wasTranscriptionUsed && transcriptEntries.length > 0) {
+      console.log('📝 [HANGUP] Se detectó uso de transcripción, mostrando modal para guardar...')
+      setShowSaveTranscriptModal(true)
+      return // No colgar aún, esperar decisión del usuario
+    }
+    
+    // Si no se usó transcripción, colgar normalmente
+    await performHangup()
+  }
+
+  const performHangup = async () => {
+    console.log('📞 [HANGUP] Ejecutando colgado definitivo...')
     if (callChRef.current && callIdRef.current) {
       try { await sendSignal({ type: 'hangup', from: meId }) } catch {}
     }
     await endLocalCall('local_hangup')
     // Redirigir a pantalla principal
     redirectToMainPage()
+  }
+
+  const saveTranscription = async (callTitle: string) => {
+    console.log('📝 [SAVE] Guardando transcripción con título:', callTitle)
+    
+    // Sanitizar título para evitar problemas con caracteres especiales
+    const sanitizedTitle = callTitle
+      .normalize('NFD') // Descomponer caracteres acentuados
+      .replace(/[\u0300-\u036f]/g, '') // Eliminar marcas diacríticas (tildes, acentos)
+      .replace(/[^\w\s-]/g, '') // Eliminar caracteres especiales excepto palabras, espacios y guiones
+      .replace(/\s+/g, '_') // Reemplazar espacios con guiones bajos
+      .trim()
+    
+    // Validación temprana: si no hay entradas, no hay nada que guardar
+    if (transcriptEntries.length === 0) {
+      console.log('⚠️ [SAVE] No hay entradas de transcripción para guardar')
+      return { success: false, message: 'No hay transcripción para guardar' }
+    }
+    
+    if (!sb || !transcriptEntries.length) {
+      throw new Error('No hay datos de transcripción para guardar')
+    }
+
+    // Usar meId que ya está disponible y autenticado en el componente
+    if (!meId) {
+      throw new Error('Usuario no identificado en la sesión')
+    }
+
+    console.log('📝 [SAVE] Usuario actual meId:', meId)
+
+    // **NUEVA ESTRATEGIA: Usar API para convertir UUID a ID numérico**
+    console.log('📝 [SAVE] Convirtiendo UUID a ID numérico usando API')
+    
+    // Función helper para convertir UUID a ID usando tu API
+    const convertUuidToNumericId = async (uuid: string): Promise<number | null> => {
+      try {
+        console.log(`📝 [SAVE] Convirtiendo UUID ${uuid} a ID numérico...`)
+        const response = await fetch(`/api/users/uuid/${uuid}`)
+        
+        if (!response.ok) {
+          console.error(`📝 [SAVE] Error API para UUID ${uuid}:`, response.status, response.statusText)
+          return null
+        }
+        
+        const data = await response.json()
+        console.log(`📝 [SAVE] Respuesta API para UUID ${uuid}:`, data)
+        
+        return data.id || null
+      } catch (error) {
+        console.error(`📝 [SAVE] Error convirtiendo UUID ${uuid}:`, error)
+        return null
+      }
+    }
+
+    // Obtener ID numérico del usuario actual
+    let currentUserId: number
+    
+
+    
+    // Preferir meNumericId si está disponible (usuario autenticado)
+    if (meNumericId !== null) {
+      currentUserId = meNumericId
+    } else if (meId.includes('-')) {
+      // Es UUID, verificar si es válido en BD
+      const validUuids = [
+        '685a4741-f1d4-4c03-8ec6-4d200ff67682', // ID=2
+        '4b268139-258c-4dc4-9a0f-12b536dfc637'  // ID=3
+      ]
+      
+      if (!validUuids.includes(meId)) {
+        // UUID temporal/anónimo - generar ID temporal basado en hash
+        const tempId = Math.abs(meId.split('-').join('').slice(0, 8).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0))
+        currentUserId = tempId
+      } else {
+        // UUID válido, convertir a ID numérico usando API
+        const numericId = await convertUuidToNumericId(meId)
+        if (!numericId) {
+          throw new Error(`No se pudo convertir UUID válido ${meId} a ID numérico`)
+        }
+        currentUserId = numericId
+      }
+    } else {
+      // Ya es ID numérico
+      currentUserId = parseInt(meId)
+      if (isNaN(currentUserId)) {
+        throw new Error('ID de usuario inválido')
+      }
+    }
+    
+    console.log('📝 [SAVE] ID numérico del usuario actual:', currentUserId)
+
+    // Obtener todos los usuarios únicos que participaron en la transcripción
+    const uniqueUserIds = new Set(transcriptEntries.map(entry => entry.userId))
+    const participantUserIds = Array.from(uniqueUserIds)
+    console.log('📝 [SAVE] Usuarios participantes (raw):', participantUserIds)
+    
+    // Debug: Mostrar TODAS las entradas de transcripción para entender de dónde vienen los UUIDs
+    console.log('📝 [SAVE] TODAS las transcriptEntries para debug:', 
+      transcriptEntries.map((entry, index) => ({
+        index,
+        userId: entry.userId,
+        userName: entry.userName,
+        timestamp: entry.timestamp,
+        text: entry.text.substring(0, 30) + '...',
+        isValidUuid: ['685a4741-f1d4-4c03-8ec6-4d200ff67682', '4b268139-258c-4dc4-9a0f-12b536dfc637'].includes(entry.userId)
+      }))
+    )
+    
+    // Mostrar qué UUIDs únicos están presentes
+    const uniqueUuids = new Set(transcriptEntries.map(entry => entry.userId))
+    const allUuids = Array.from(uniqueUuids)
+    console.log('📝 [SAVE] UUIDs únicos encontrados en transcriptEntries:', allUuids)
+    console.log('📝 [SAVE] Análisis de UUIDs:')
+    allUuids.forEach(uuid => {
+      const isValid = ['685a4741-f1d4-4c03-8ec6-4d200ff67682', '4b268139-258c-4dc4-9a0f-12b536dfc637'].includes(uuid)
+      const count = transcriptEntries.filter(e => e.userId === uuid).length
+      console.log(`  - ${uuid}: ${isValid ? '✅ VÁLIDO' : '❌ INVÁLIDO'} (${count} entradas)`)
+    })
+
+    // Convertir participantes a IDs numéricos
+    const validUuids = [
+      '685a4741-f1d4-4c03-8ec6-4d200ff67682', // ID=2
+      '4b268139-258c-4dc4-9a0f-12b536dfc637'  // ID=3
+    ]
+    
+    const numericParticipantIds: number[] = []
+    
+    for (const userId of participantUserIds) {
+      let numericId: number | null = null
+      
+      if (userId.includes('-')) {
+        // Es UUID, verificar si es válido antes de llamar API
+        if (!validUuids.includes(userId)) {
+          // UUID temporal/anónimo - generar ID temporal consistente
+          const tempId = Math.abs(userId.split('-').join('').slice(0, 8).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0))
+          numericId = tempId
+        } else {
+          // UUID válido, convertir usando API
+          numericId = await convertUuidToNumericId(userId)
+          if (!numericId) {
+            continue // Omitir si no se puede convertir
+          }
+        }
+      } else {
+        // Ya es ID numérico
+        const parsed = parseInt(userId)
+        if (isNaN(parsed)) {
+          console.warn(`⚠️ [SAVE] ID inválido ${userId}, omitiendo...`)
+          continue
+        }
+        numericId = parsed
+      }
+      
+      numericParticipantIds.push(numericId)
+      console.log(`📝 [SAVE] Participante ${userId} → ID numérico ${numericId}`)
+    }
+    
+    console.log('📝 [SAVE] Participantes con IDs numéricos finales:', numericParticipantIds)
+
+    // Convertir transcriptEntries a formato legible pero JSON válido
+    const readableContent = transcriptEntries
+      .map(entry => `{"${entry.userName}": "${entry.text.replace(/"/g, '\\"')}"}`)
+      .join('\n')
+
+    // Crear timestamp para el nombre del archivo
+    const now = new Date()
+    const timestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '').replace('T', '_')
+    const filename = `transcript_${timestamp}.ndjson`
+    
+    // Crear un blob con el contenido legible en formato NDJSON
+    const blob = new Blob([readableContent], { type: 'application/x-ndjson' })
+    
+    const savedPaths: string[] = []
+    
+    // Guardar archivo para el usuario actual
+    const folderPath = `${currentUserId}/${sanitizedTitle}/${filename}`
+    
+    try {
+      const { data: storageData, error: storageError } = await sb.storage
+        .from('calls')
+        .upload(folderPath, blob, {
+          cacheControl: '3600',
+          upsert: false // No sobrescribir si existe
+        })
+
+      if (storageError) {
+        if (!storageError.message.includes('already exists')) {
+          console.warn(`⚠️ [SAVE] Error subiendo archivo:`, storageError.message)
+        }
+      }
+      
+      if (storageData) {
+        savedPaths.push(storageData.path)
+        console.log(`✅ [SAVE] Transcripción guardada exitosamente`)
+      }
+      
+    } catch (error) {
+      console.error(`❌ [SAVE] Error guardando archivo:`, error)
+      // No parar el proceso - continuar con colgado
+    }
+    
+    // **ÉXITO GARANTIZADO**: Aunque no se guarde en storage, la llamada debe continuar
+    if (savedPaths.length === 0) {
+      console.warn('⚠️ [SAVE] No se pudo guardar en storage, pero continuamos con el colgado')
+    } else {
+      console.log(`✅ [SAVE] Transcripción guardada en storage para ${savedPaths.length} usuarios`)
+    }
+    
+    // **OPCIONAL**: Intentar guardar en BD solo si es posible (no crítico para el colgado)
+    try {
+      // Intentar guardar registro en tabla Transcripcion
+      const { data, error } = await sb
+        .from('Transcripcion')
+        .insert({
+          id_usuario: currentUserId, // Ahora tenemos el ID numérico correcto
+          titulo: callTitle, // Título original para mostrar
+          path_archivo: `${currentUserId}/${sanitizedTitle}/${filename}` // Ruta sanitizada para el chatbot
+        })
+        .select()
+        .single()
+
+      if (!error && data) {
+        console.log('✅ [SAVE] Registro guardado en BD exitosamente')
+        return data
+      }
+    } catch (dbError) {
+      console.warn('⚠️ [SAVE] Error guardando en BD:', dbError)
+    }
+
+    console.log('✅ [SAVE] Proceso completado (archivos en storage)')
+    return { success: true, message: 'Archivos guardados en storage' }
+  }
+
+  const handleSaveTranscriptChoice = async (saveTranscript: boolean, title?: string) => {
+    setShowSaveTranscriptModal(false)
+    
+    if (saveTranscript && title) {
+      console.log('📝 [SAVE] Guardando transcripción con título:', title)
+      console.log('📝 [SAVE] Número de entradas de transcripción:', transcriptEntries.length)
+      console.log('📝 [SAVE] Estado de Supabase (sb):', !!sb)
+      console.log('📝 [SAVE] ID del usuario (meId):', meId)
+      
+      // **CRÍTICO**: El guardado NO puede impedir que la llamada se cuelgue
+      try {
+        await Promise.race([
+          saveTranscription(title),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout guardando transcripción')), 5000)
+          )
+        ])
+        console.log('✅ [SAVE] Transcripción guardada exitosamente')
+      } catch (error) {
+        console.error('❌ [SAVE] Error guardando transcripción (no crítico):', error)
+        // NO mostrar alert que bloquee el colgado - solo log
+        console.warn('⚠️ [SAVE] Continuando con colgado a pesar del error de guardado')
+      }
+    } else {
+      console.log('❌ [SAVE] Usuario decidió no guardar la transcripción')
+    }
+    
+    // **NUEVO**: Verificar si es hangup local o remoto
+    if (isRemoteHangup) {
+      // Es hangup remoto - limpiar y redirigir
+      console.log('📞 [HANGUP-REMOTE] Finalizando después de modal transcripción...')
+      setIsRemoteHangup(false) // Reset del estado
+      await endLocalCall('remote_hangup')
+      redirectToMainPage()
+    } else {
+      // Es hangup local - proceder con colgado
+      console.log('📞 [HANGUP-LOCAL] Procediendo con colgado definitivo...')
+      await performHangup()
+    }
   }
 
   const endLocalCall = async (reason: string = 'normal') => {
@@ -2176,6 +2492,15 @@ useEffect(() => {
               transcript={incoming!.transcript}
             />
         )}
+
+        {/* === Modal para guardar transcripción === */}
+        <SaveTranscriptModal
+          open={showSaveTranscriptModal}
+          onClose={() => setShowSaveTranscriptModal(false)}
+          onChoose={handleSaveTranscriptChoice}
+          question="¿Querés guardar la transcripción de esta llamada?"
+          submitButtonText="Guardar"
+        />
       </main>
     </div>
   )
