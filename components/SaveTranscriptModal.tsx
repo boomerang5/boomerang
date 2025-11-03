@@ -7,9 +7,10 @@ type Props = {
   // onChoose(saveTranscript, title?) - title is provided when saveTranscript is true
   onChoose: (saveTranscript: boolean, title?: string) => void;
   question?: string;
+  submitButtonText?: string;
 };
 
-export default function SaveTranscriptModal({ open, onClose, onChoose, question = '¿Querés guardar la transcripción de esta llamada?' }: Props) {
+export default function SaveTranscriptModal({ open, onClose, onChoose, question = '¿Querés guardar la transcripción de esta llamada?', submitButtonText = 'Guardar' }: Props) {
   if (!open) return null;
 
   const [showTitleInput, setShowTitleInput] = React.useState(false);
@@ -78,7 +79,7 @@ export default function SaveTranscriptModal({ open, onClose, onChoose, question 
                   className={`px-4 py-2 rounded-md font-semibold text-white ${title.trim() ? 'bg-gradient-to-r from-orange-400 to-orange-600 hover:brightness-105' : 'bg-gray-300 cursor-not-allowed'}`}
                   disabled={!title.trim()}
                 >
-                  Llamar
+                  {submitButtonText}
                 </button>
               </div>
             </div>
