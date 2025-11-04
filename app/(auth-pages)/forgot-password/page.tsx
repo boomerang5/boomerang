@@ -25,7 +25,7 @@ export default async function ForgotPassword(props: {
 
           <h1 className="text-4xl md:text-5xl font-extrabold mb-4 text-center">
             <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
-              Reiniciá tu contraseña
+              Restablece tu contraseña
             </span>
           </h1>
           <p className="text-base text-gray-700 mb-8 text-center max-w-md mx-auto">

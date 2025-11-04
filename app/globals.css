@@ -4,6 +4,11 @@
 
 @layer base {
   :root {
+    /* Exact Boomerang palette sampled from public/boomerang.png */
+    --boom-dark: #792b0a;    /* DarkVibrant from image */
+    --boom-mid:  #ec642c;    /* Vibrant from image */
+    --boom-light: #f47426;   /* LightVibrant from image */
+
     --background: 0 0% 100%;
     --foreground: 0 0% 3.9%;
     --card: 0 0% 100%;
@@ -32,6 +37,11 @@
   }
 
   .dark {
+    /* Dark-mode variants (slightly deeper) */
+    --boom-dark: #591f06;
+    --boom-mid:  #c84f20;
+    --boom-light: #b8441d;
+
     --background: 0 0% 3.9%;
     --foreground: 0 0% 98%;
     --card: 0 0% 3.9%;
@@ -65,12 +75,73 @@
   }
   body {
     @apply bg-background text-foreground;
+   /* Single continuous background gradient across the whole page
+     (keeps left->right color progression uniform so sections blend). */
+   background-image: linear-gradient(90deg, var(--boom-dark) 0%, var(--boom-mid) 45%, var(--boom-light) 100%);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+   background-size: 200% 100%;
+   animation: gradientShift 15s ease infinite;
   }
   
   /* Smooth scroll para toda la página */
   html {
     scroll-behavior: smooth;
   }
+}
+
+/* Animación sutil del gradiente */
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Animaciones para el Hero */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.8s ease-out;
+}
+
+.animate-fade-in-right {
+  animation: fade-in-right 1s ease-out;
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 3s ease-in-out infinite;
 }
 
 /* Centrado perfecto del contenedor de Sonner */

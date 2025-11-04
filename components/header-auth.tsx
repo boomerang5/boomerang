@@ -45,15 +45,17 @@ export default async function AuthButton() {
     <div className="flex gap-3 items-center">
       <Link 
         href="/sign-in"
-        className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-6 py-3 rounded-full font-bold text-base shadow-lg hover:shadow-xl border-2 border-orange-300 dark:border-orange-600 hover:border-orange-500 dark:hover:border-orange-500 transition-all"
+        className="group relative bg-white/10 backdrop-blur-md border-2 border-white hover:bg-white hover:scale-105 text-white hover:text-orange-600 px-6 py-3 rounded-full font-bold text-base transition-all duration-300 shadow-lg hover:shadow-xl overflow-hidden"
       >
-        Iniciar Sesión
+        <span className="relative z-10">Iniciar Sesión</span>
+        <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300"></div>
       </Link>
       <Link
         href="/sign-up"
-        className="bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white px-6 py-3 rounded-full font-bold text-base shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all"
+        className="group relative bg-white/10 backdrop-blur-md border-2 border-white hover:bg-white hover:scale-105 text-white hover:text-orange-600 px-6 py-3 rounded-full font-bold text-base transition-all duration-300 shadow-xl hover:shadow-2xl overflow-hidden"
       >
-        Registrate
+        <span className="relative z-10">Registrate</span>
+        <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300"></div>
       </Link>
     </div>
   );

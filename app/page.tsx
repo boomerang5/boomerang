@@ -1,9 +1,208 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@supabase/auth-helpers-react'
 import Image from 'next/image'
+
+const features = [
+  {
+    id: 0,
+    icon: "🎤",
+    title: "Traducción en vivo",
+    desc: "Rompé las barreras del idioma con voz en tiempo real.",
+    color: "from-orange-400 to-red-500"
+  },
+  {
+    id: 1,
+    icon: "💻",
+    title: "Sin instalaciones",
+    desc: "Accedé desde cualquier dispositivo, sin descargas.",
+    color: "from-blue-400 to-purple-500"
+  },
+  {
+    id: 2,
+    icon: "🔒",
+    title: "Seguridad total",
+    desc: "Cifrado extremo a extremo que protege tus conversaciones.",
+    color: "from-green-400 to-emerald-600"
+  },
+]
+
+const steps = [
+  { icon: "👤", title: "Registrate", desc: "Creá tu cuenta gratis", color: "from-blue-500 to-cyan-500" },
+  { icon: "➕", title: "Añadí contactos", desc: "Invitá a tus amigos", color: "from-purple-500 to-pink-500" },
+  { icon: "📹", title: "Conectá", desc: "Iniciá la videollamada", color: "from-orange-500 to-red-500" },
+  { icon: "🌍", title: "Hablá sin barreras", desc: "Traducción automática", color: "from-green-500 to-emerald-500" },
+]
+
+function FeatureShowcase() {
+  const [activeFeature, setActiveFeature] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveFeature((prev) => (prev + 1) % features.length)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <div className="grid md:grid-cols-2 gap-16 items-center">
+      {/* Icono grande a la izquierda */}
+      <div className="relative flex items-center justify-center">
+        <div className="relative w-80 h-80 md:w-96 md:h-96">
+          {features.map((feature, i) => (
+            <div
+              key={feature.id}
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-700 ${
+                activeFeature === i 
+                  ? 'opacity-100 scale-100 rotate-0' 
+                  : 'opacity-0 scale-50 rotate-12'
+              }`}
+            >
+              <div className={`w-full h-full rounded-[3rem] bg-gradient-to-br ${feature.color} flex items-center justify-center shadow-2xl`}>
+                <span className="text-[10rem] md:text-[12rem] filter drop-shadow-lg">
+                  {feature.icon}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Lista de características a la derecha */}
+      <div className="space-y-4">
+        {features.map((feature, i) => (
+          <div
+            key={feature.id}
+            onClick={() => setActiveFeature(i)}
+            onMouseEnter={() => setActiveFeature(i)}
+            className={`cursor-pointer p-6 rounded-2xl transition-all duration-300 ${
+              activeFeature === i
+                ? 'bg-white/20 backdrop-blur-md scale-105 shadow-xl border-2 border-white/40'
+                : 'bg-white/5 backdrop-blur-sm hover:bg-white/10 border-2 border-transparent'
+            }`}
+          >
+            <div className="flex items-start gap-4">
+              <div className={`text-5xl transition-transform duration-300 ${
+                activeFeature === i ? 'scale-110' : 'scale-100'
+              }`}>
+                {feature.icon}
+              </div>
+              <div className="flex-1">
+                <h3 className={`text-2xl font-bold mb-2 transition-colors ${
+                  activeFeature === i ? 'text-white' : 'text-white/80'
+                }`}>
+                  {feature.title}
+                </h3>
+                <p className={`leading-relaxed transition-colors ${
+                  activeFeature === i ? 'text-white/90' : 'text-white/60'
+                }`}>
+                  {feature.desc}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StepsShowcase() {
+  const [activeStep, setActiveStep] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveStep((prev) => (prev + 1) % steps.length)
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <div className="relative max-w-6xl mx-auto">
+      <div className="flex items-center justify-center gap-4 md:gap-6 flex-wrap md:flex-nowrap">
+        {steps.map((step, i) => (
+          <>
+            <div
+              key={i}
+              onClick={() => setActiveStep(i)}
+              onMouseEnter={() => setActiveStep(i)}
+              className={`relative cursor-pointer transition-all duration-500 ${
+                activeStep === i ? 'scale-110 z-10' : 'scale-100'
+              }`}
+              style={{ width: '220px', flexShrink: 0 }}
+            >
+              <div
+                className={`rounded-3xl p-8 shadow-lg transition-all duration-500 text-center flex flex-col items-center justify-center border-4 ${
+                  activeStep === i
+                    ? 'bg-white shadow-2xl border-white transform'
+                    : 'bg-white/80 backdrop-blur-sm border-white/40 hover:bg-white/90'
+                }`}
+                style={{ width: '220px', height: '260px' }}
+              >
+                {/* Número de paso */}
+                <div
+                  className={`absolute -top-4 -right-4 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-xl transition-all duration-500 ${
+                    activeStep === i ? 'scale-125' : 'scale-100'
+                  } bg-gradient-to-br ${step.color}`}
+                >
+                  {i + 1}
+                </div>
+
+                {/* Icono */}
+                <div
+                  className={`w-20 h-20 mx-auto mb-4 rounded-2xl flex items-center justify-center shadow-md transition-all duration-500 bg-gradient-to-br ${step.color} ${
+                    activeStep === i ? 'scale-110 rotate-0' : 'scale-100 rotate-3'
+                  }`}
+                >
+                  <span className="text-4xl">{step.icon}</span>
+                </div>
+
+                {/* Contenido */}
+                <h3
+                  className={`text-xl font-bold mb-2 transition-all duration-300 ${
+                    activeStep === i ? 'text-gray-900' : 'text-gray-700'
+                  }`}
+                >
+                  {step.title}
+                </h3>
+                <p
+                  className={`text-sm transition-all duration-300 ${
+                    activeStep === i ? 'text-gray-600' : 'text-gray-500'
+                  }`}
+                >
+                  {step.desc}
+                </p>
+              </div>
+            </div>
+
+            {/* Flecha animada entre cards (excepto después de la última) */}
+            {i < steps.length - 1 && (
+              <div className="hidden md:flex items-center justify-center flex-shrink-0">
+                <svg
+                  className={`w-8 h-8 transition-all duration-500 ${
+                    activeStep === i ? 'text-white scale-125' : 'text-white/40 scale-100'
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={3}
+                    d="M13 7l5 5m0 0l-5 5m5-5H6"
+                  />
+                </svg>
+              </div>
+            )}
+          </>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export default function Home() {
   const session = useSession()
@@ -27,172 +226,103 @@ export default function Home() {
   return (
     <>
       {/* HERO */}
-      <section className="relative py-20 md:py-32 overflow-hidden">
-        <div className="relative w-full max-w-[1400px] mx-auto px-6">
-          <div className="text-center space-y-8 mb-16">
-            <h1 className="text-5xl md:text-7xl font-extrabold leading-tight animate-fade-in">
-              <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
-                Comunicación sin barreras
-              </span>
-            </h1>
-            <p className="text-xl md:text-2xl text-gray-700 dark:text-gray-300 max-w-3xl mx-auto">
-              Videollamadas con traducción automática en tiempo real.<br />
-              Hablá en tu idioma, ellos escuchan en el suyo.
-            </p>
-            <div className="flex flex-wrap justify-center gap-4 pt-4">
-              <a
-                href="/sign-up"
-                className="bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white px-8 py-4 rounded-full font-bold text-lg shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all"
-              >
-                Comenzar gratis
-              </a>
-              <a
-                href="#como-funciona"
-                onClick={(e) => handleSmoothScroll(e, 'como-funciona')}
-                className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-8 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-xl border-2 border-orange-300 dark:border-orange-600 hover:border-orange-500 dark:hover:border-orange-500 transition-all cursor-pointer"
-              >
-                Ver cómo funciona
-              </a>
-            </div>
-          </div>
+      <section className="relative py-20 md:py-32 overflow-hidden bg-transparent">
+        {/* Elementos decorativos flotantes */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-10 w-72 h-72 bg-white/5 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute bottom-20 right-10 w-96 h-96 bg-orange-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+        </div>
 
-          {/* Demo Visual */}
-          <div className="relative max-w-5xl mx-auto mt-8">
-            <div className="relative rounded-2xl overflow-hidden shadow-2xl border-4 border-white dark:border-gray-700 bg-gray-900">
-              <img
-                src="/videollamada.png"
-                alt="Videollamada con traducción"
-                className="w-full h-auto object-contain"
-              />
-              {/* Overlay decorativo */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none"></div>
+        <div className="relative w-full max-w-[1400px] mx-auto px-6">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            {/* Contenido de texto */}
+            <div className="text-left space-y-6 animate-fade-in">
+              <h1 className="text-5xl md:text-7xl font-bold leading-tight text-white drop-shadow-2xl">
+                Conectá el mundo
+                <br />
+                <span className="text-white bg-gradient-to-r from-orange-400 via-orange-500 to-red-500 bg-clip-text text-transparent animate-gradient">
+                  en tiempo real.
+                </span>
+              </h1>
+              <p className="text-xl md:text-2xl text-white/90 drop-shadow-lg">
+                Videollamadas con traducción automática.
+                <br />
+                Hablá en tu idioma, ellos escuchan en el suyo.
+              </p>
+              <div className="flex flex-wrap gap-4 pt-4">
+                <a
+                  href="/sign-up"
+                  className="group relative bg-white/10 backdrop-blur-md border-2 border-white hover:bg-white hover:scale-105 text-white hover:text-orange-600 px-8 py-4 rounded-full font-bold text-lg transition-all duration-300 shadow-xl hover:shadow-2xl overflow-hidden"
+                >
+                  <span className="relative z-10">Comenzar gratis</span>
+                  <div className="absolute inset-0 bg-white transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300"></div>
+                </a>
+                <a
+                  href="#como-funciona"
+                  onClick={(e) => handleSmoothScroll(e, 'como-funciona')}
+                  className="group relative bg-transparent border-2 border-white/80 hover:border-white hover:bg-white/10 text-white px-8 py-4 rounded-full font-bold text-lg transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
+                >
+                  Ver cómo funciona
+                </a>
+              </div>
             </div>
-            {/* Elementos decorativos flotantes */}
-            <div className="absolute -top-6 -right-6 w-32 h-32 bg-gradient-to-br from-orange-300 to-orange-400 rounded-full opacity-20 blur-2xl"></div>
-            <div className="absolute -bottom-6 -left-6 w-40 h-40 bg-gradient-to-br from-orange-400 to-orange-500 rounded-full opacity-20 blur-2xl"></div>
+
+            {/* Demo Visual */}
+            <div className="relative animate-fade-in-right">
+              {/* Glow effect detrás de la imagen */}
+              <div className="absolute inset-0 bg-gradient-to-br from-orange-400/20 to-red-500/20 rounded-3xl blur-2xl scale-105"></div>
+              
+              {/* Marco con efecto glassmorphism */}
+              <div className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 backdrop-blur-sm bg-white/5 p-3 hover:scale-105 transition-transform duration-500">
+                <img
+                  src="/videollamada.png"
+                  alt="Videollamada con traducción"
+                  className="w-full h-auto object-contain rounded-2xl"
+                />
+                
+                {/* Badge flotante */}
+                <div className="absolute top-6 right-6 bg-gradient-to-r from-orange-500 to-red-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg animate-bounce-slow">
+                  ✨ Traducción IA
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       {/* FEATURES */}
       <section id="features" className="py-24">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-5xl md:text-5xl font-extrabold mb-4">
-              <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-20">
+            <h2 className="text-5xl md:text-6xl font-extrabold mb-4">
+              <span className="text-white">
                 Lo que hace única a Boomerang
               </span>
             </h2>
-            <p className="text-xl md:text-2xl text-gray-700 dark:text-gray-300">
+            <p className="text-xl md:text-2xl text-white">
               Tecnología de vanguardia para conectar personas
             </p>
           </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: "🎤",
-                title: "Traducción en vivo",
-                desc: "Rompé las barreras del idioma con voz en tiempo real.",
-                gradient: "from-orange-500 to-orange-600"
-              },
-              {
-                icon: "💻",
-                title: "Sin instalaciones",
-                desc: "Accedé desde cualquier dispositivo, sin descargas.",
-                gradient: "from-orange-600 to-orange-700"
-              },
-              {
-                icon: "🔒",
-                title: "Seguridad total",
-                desc: "Cifrado extremo a extremo que protege tus conversaciones.",
-                gradient: "from-orange-500 to-red-600"
-              },
-            ].map(({ icon, title, desc, gradient }, i) => (
-              <div
-                key={i}
-                className="group relative bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-10 rounded-[2rem] shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-3 border border-orange-200/50 dark:border-gray-600/50 overflow-hidden"
-              >
-                <div className={`absolute -top-20 -right-20 w-40 h-40 bg-gradient-to-br ${gradient} rounded-full opacity-10 group-hover:opacity-20 transition-opacity duration-300`}></div>
-                <div className="relative z-10">
-                  <div className="text-6xl mb-6">{icon}</div>
-                  <h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
-                    {title}
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-300 leading-relaxed text-base">{desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          
+          <FeatureShowcase />
         </div>
       </section>
 
       {/* CÓMO FUNCIONA */}
       <section id="como-funciona" className="py-24">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-20">
-            <h2 className="text-5xl md:text-5xl font-extrabold mb-4">
-              <span className="bg-gradient-to-r from-orange-700 via-orange-600 to-orange-500 bg-clip-text text-transparent">
+            <h2 className="text-5xl md:text-6xl font-extrabold mb-4">
+              <span className="text-white">
                 Comenzá en segundos
               </span>
             </h2>
-            <p className="text-xl md:text-2xl text-gray-700 dark:text-gray-300">
+            <p className="text-xl md:text-2xl text-white">
               Simple, rápido y sin complicaciones
             </p>
           </div>
 
-          <div className="relative">
-            <div className="flex items-center justify-center gap-4 md:gap-6">
-              {[
-                { icon: "👤", title: "Registrate", desc: "Creá tu cuenta gratis" },
-                { icon: "➕", title: "Añadí contactos", desc: "Invitá a tus amigos" },
-                { icon: "📹", title: "Conectá", desc: "Iniciá la videollamada" },
-                { icon: "🌍", title: "Hablá sin barreras", desc: "Traducción automática" },
-              ].map(({ icon, title, desc }, i, arr) => (
-                <>
-                  <div key={i} className="relative group flex-1 max-w-xs">
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-2 border border-orange-200 dark:border-gray-600 text-center flex flex-col items-center justify-start" style={{height: '100%', minHeight: '200px'}}>
-                      {/* Número de paso */}
-                      <div className="absolute -top-3 -right-3 w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full flex items-center justify-center text-white font-semibold text-sm shadow-md ring-2 ring-white dark:ring-gray-800">
-                        {i + 1}
-                      </div>
-                      
-                      {/* Icono */}
-                      <div className="w-16 h-16 mx-auto mb-4 bg-orange-200 dark:bg-orange-800/40 rounded-full flex items-center justify-center text-3xl shadow-sm">
-                        {icon}
-                      </div>
-                      
-                      {/* Contenido */}
-                      <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-white">
-                        {title}
-                      </h3>
-                      <p className="text-gray-600 dark:text-gray-300 text-sm">
-                        {desc}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  {/* Flecha sutil entre cards (excepto después de la última) */}
-                  {i < arr.length - 1 && (
-                    <div className="hidden md:flex items-center justify-center flex-shrink-0">
-                      <svg 
-                        className="w-8 h-8 text-orange-400/40 dark:text-orange-500/30" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        viewBox="0 0 24 24"
-                      >
-                        <path 
-                          strokeLinecap="round" 
-                          strokeLinejoin="round" 
-                          strokeWidth={2} 
-                          d="M13 7l5 5m0 0l-5 5m5-5H6" 
-                        />
-                      </svg>
-                    </div>
-                  )}
-                </>
-              ))}
-            </div>
-          </div>
+          <StepsShowcase />
         </div>
       </section>
     </>
