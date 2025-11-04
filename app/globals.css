@@ -73,15 +73,20 @@
   * {
     @apply border-border;
   }
+  
+  /* Fondo blanco por defecto (light mode) */
   body {
     @apply bg-background text-foreground;
-   /* Single continuous background gradient across the whole page
-     (keeps left->right color progression uniform so sections blend). */
-   background-image: linear-gradient(90deg, var(--boom-dark) 0%, var(--boom-mid) 45%, var(--boom-light) 100%);
+    background-color: white;
+  }
+  
+  /* Gradiente naranja solo en dark mode */
+  .dark body {
+    background-image: linear-gradient(90deg, var(--boom-dark) 0%, var(--boom-mid) 45%, var(--boom-light) 100%);
     background-repeat: no-repeat;
     background-attachment: fixed;
-   background-size: 200% 100%;
-   animation: gradientShift 15s ease infinite;
+    background-size: 200% 100%;
+    animation: gradientShift 15s ease infinite;
   }
   
   /* Smooth scroll para toda la página */
