@@ -7,7 +7,6 @@ export async function getCallInfoService(idUsuario: number, idLlamada: number) {
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar get_call_info:", error);
     throw new Error(error.message);
   }
 

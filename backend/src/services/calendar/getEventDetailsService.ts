@@ -7,8 +7,7 @@ export async function getEventDetailsService(idEvento: number, idUsuario: number
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
-    throw new Error(error.message);
+    throw error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
   }
 
   return data;

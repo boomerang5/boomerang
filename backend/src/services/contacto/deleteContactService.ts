@@ -7,7 +7,6 @@ export async function deleteContactService(idUsuario: number, idUsuarioContacto:
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message);
   }
 

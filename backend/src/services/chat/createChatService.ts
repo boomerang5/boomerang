@@ -16,15 +16,15 @@ export async function createChatService({ idUsuario, idContacto, nombreGrupo, id
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
-    process.exit(1);
+    // No terminar el proceso desde un servicio: propagar el error para que el caller lo maneje.
+    // Normalizar por si `error` no es una instancia de Error.
+    const err = error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
+    throw err;
   }
 
   if (!data) {
-    console.log("ℹ️ No se logró crear el chat.");
     return null;
   }
 
-  console.log("✅ Chat creado correctamente. ID:", data);
   return data as number;
 }

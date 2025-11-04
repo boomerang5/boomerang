@@ -45,7 +45,6 @@ export async function updateEventService(
 
   // Solo si cambió la fecha: resetear confirmaciones y notificar
   if (fechaCambio) {
-    console.log('📅 Cambio de fecha detectado - reseteando confirmaciones y enviando notificaciones');
 
     // 1. Resetear confirmaciones (excepto creador)
     await supabase
@@ -102,8 +101,6 @@ export async function updateEventService(
 
       for (const invitado of invitados) {
         try {
-          console.log(`🔄 Enviando notificaciones a usuario ${invitado.id_usuario}...`);
-          
           // 1. Notificación de cambio (tipo system) - SIN botones
           const notificationSystem = await NotificationService.createNotification({
             id_usuario: invitado.id_usuario,
@@ -117,8 +114,6 @@ export async function updateEventService(
               organizador: editorNombre
             }
           });
-          
-          console.log(`✅ Notificación SYSTEM creada para usuario ${invitado.id_usuario}:`, notificationSystem);
 
           const metaData = {
             id_evento: idEvento,
@@ -127,13 +122,7 @@ export async function updateEventService(
             organizador: editorNombre
           };
 
-          console.log('🔍 Debug UPDATE - enviando notificación de invitación:', {
-            id_usuario: invitado.id_usuario,
-            tipo: 'meeting_invite',
-            meta: metaData,
-            idEvento: idEvento,
-            titulo: eventoCompleto.titulo
-          });
+          
 
           // 2. Nueva invitación (tipo meeting_invite) - CON botones para confirmar
           const mensajeInvitacion = `El día ${fechaFormateada} a las ${horaFormateada}` +
@@ -146,12 +135,10 @@ export async function updateEventService(
             meta: metaData
           });
           
-          console.log(`✅ Notificación MEETING_INVITE creada para usuario ${invitado.id_usuario}:`, notificationInvite);
         } catch (error) {
           console.error(`Error enviando notificaciones a usuario ${invitado.id_usuario}:`, error);
         }
       }
-      console.log('✅ Nuevas invitaciones enviadas');
     }
   }
 

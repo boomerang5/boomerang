@@ -31,14 +31,11 @@ export class NotificationService {
         .single();
 
       if (error) {
-        console.error('Error al crear notificación:', error);
         throw error;
       }
 
-      console.log('Notificación creada exitosamente:', data);
       return data;
     } catch (error) {
-      console.error('Error en NotificationService.createNotification:', error);
       throw error;
     }
   }
@@ -88,7 +85,6 @@ export class NotificationService {
           mensaje += `\n📝 ${descripcion}`;
         }
       } catch (error) {
-        console.error('Error al formatear fecha:', error);
         mensaje = descripcion || '';
       }
     } else {
@@ -122,7 +118,6 @@ export class NotificationService {
       meta
     });
 
-    console.log('✅ createEventInviteNotification completado:', result);
     return result;
   }
 
@@ -136,13 +131,6 @@ export class NotificationService {
     id_evento: number,
     fechaEvento?: string
   ) {
-    console.log('🔄 NotificationService.createEventCancelledNotification iniciado:', {
-      id_usuario,
-      nombreEvento,
-      organizador,
-      id_evento,
-      fechaEvento
-    });
     
     // Formatear mensaje con fecha y hora del evento
     let mensaje = `El evento "${nombreEvento}" ha sido cancelado`;
@@ -174,13 +162,6 @@ export class NotificationService {
       fecha_evento: fechaEvento
     };
 
-    console.log('📝 Datos para crear notificación de cancelación:', {
-      id_usuario,
-      tipo: 'event_cancelled',
-      mensaje,
-      meta
-    });
-
     const result = await this.createNotification({
       id_usuario,
       tipo: 'event_cancelled',
@@ -188,7 +169,6 @@ export class NotificationService {
       meta
     });
 
-    console.log('✅ createEventCancelledNotification completado:', result);
     return result;
   }
 
@@ -202,19 +182,11 @@ export class NotificationService {
     id_evento: number,
     fechaEvento?: string
   ) {
-    console.log('🔄 NotificationService.createMultipleEventCancelledNotifications iniciado:', {
-      userIds,
-      nombreEvento,
-      organizador,
-      id_evento,
-      fechaEvento
-    });
     
     const notifications = [];
     
     for (const userId of userIds) {
       try {
-        console.log(`📤 Creando notificación de cancelación para usuario ${userId}...`);
         const notification = await this.createEventCancelledNotification(
           userId,
           nombreEvento,
@@ -223,13 +195,10 @@ export class NotificationService {
           fechaEvento
         );
         notifications.push(notification);
-        console.log(`✅ Notificación de cancelación creada para usuario ${userId}:`, notification);
       } catch (error) {
         console.error(`❌ Error al crear notificación de cancelación para usuario ${userId}:`, error);
       }
     }
-
-    console.log(`🎉 Proceso de cancelación completado. Total notificaciones creadas: ${notifications.length}`);
     return notifications;
   }
 
@@ -244,20 +213,10 @@ export class NotificationService {
     fechaEvento?: string,
     descripcion?: string // 🆕 NUEVO: Descripción del evento
   ) {
-    console.log('🔄 NotificationService.createMultipleEventInviteNotifications iniciado:', {
-      userIds,
-      nombreEvento,
-      organizador,
-      id_evento,
-      fechaEvento,
-      descripcion
-    });
-    
     const notifications = [];
     
     for (const userId of userIds) {
       try {
-        console.log(`📤 Creando notificación para usuario ${userId}...`);
         const notification = await this.createEventInviteNotification(
           userId,
           nombreEvento,
@@ -267,13 +226,10 @@ export class NotificationService {
           descripcion // 🆕 NUEVO: Pasar descripción del evento
         );
         notifications.push(notification);
-        console.log(`✅ Notificación creada para usuario ${userId}:`, notification);
       } catch (error) {
         console.error(`❌ Error al crear notificación para usuario ${userId}:`, error);
       }
     }
-
-    console.log(`🎉 Proceso completado. Total notificaciones creadas: ${notifications.length}`);
     return notifications;
   }
 
@@ -345,7 +301,6 @@ export class NotificationService {
         throw error;
       }
 
-      console.log(`✅ Notificación ${notificationId} marcada como respondida con respuesta: ${response}`);
       return data;
     } catch (error) {
       console.error('Error en NotificationService.markAsResponded:', error);
@@ -381,10 +336,8 @@ export class NotificationService {
    */
   static async deleteEventInviteNotificationsForUsers(id_evento: number, userIds: number[]) {
     try {
-      console.log(`🗑️ Eliminando notificaciones de invitación para evento ${id_evento} y usuarios:`, userIds);
       
       if (!userIds || userIds.length === 0) {
-        console.log('ℹ️ No hay usuarios especificados para eliminar notificaciones');
         return { count: 0 };
       }
 
@@ -401,7 +354,6 @@ export class NotificationService {
         throw error;
       }
 
-      console.log(`✅ Eliminadas ${data?.length || 0} notificaciones de invitación`);
       return { count: data?.length || 0, deletedNotifications: data };
     } catch (error) {
       console.error('Error en NotificationService.deleteEventInviteNotificationsForUsers:', error);
@@ -414,8 +366,6 @@ export class NotificationService {
    */
   static async deleteAllEventInviteNotifications(id_evento: number) {
     try {
-      console.log(`🗑️ Eliminando todas las notificaciones de invitación para evento ${id_evento}`);
-
       const { data, error } = await supabase
         .from('Notificacion')
         .delete()
@@ -427,8 +377,6 @@ export class NotificationService {
         console.error('Error al eliminar todas las notificaciones de invitación:', error);
         throw error;
       }
-
-      console.log(`✅ Eliminadas ${data?.length || 0} notificaciones de invitación del evento`);
       return { count: data?.length || 0, deletedNotifications: data };
     } catch (error) {
       console.error('Error en NotificationService.deleteAllEventInviteNotifications:', error);

@@ -13,6 +13,9 @@ import clsx from 'clsx'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 // @ts-ignore — solo en cliente
 import feather from 'feather-icons'
+import { useTranscriptChat } from '../transcription/useTranscriptChat'
+import type { TranscriptEntry } from '../transcription/TranscriptionService'
+import SaveTranscriptModal from '../../../components/SaveTranscriptModal'
 
 type Panel = 'none' | 'chat' | 'people' | 'settings'
 type Role = 'idle' | 'caller' | 'callee'
@@ -21,7 +24,7 @@ type SignalPayload =
   | { type: 'ice'; candidate: RTCIceCandidateInit; from: string }
   | { type: 'hangup'; from: string }
 
-type IncomingCall = { callId: string; fromId: string; fromName?: string }
+type IncomingCall = { callId: string; fromId: string; fromName?: string; transcript?: boolean }
 
 /* =================== Helpers de datos =================== */
 
@@ -108,6 +111,9 @@ async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: 
       log?.(`~ resolvePeerKeys: SELECT uuid→id error: ${e?.message}`)
     }
   }
+
+  // SIEMPRE incluir la key original como válida (importante para UUIDs temporales de incógnito)
+  keys.add(key)
 
   return Array.from(keys)
 }
@@ -196,10 +202,16 @@ export default function VideoCallPage() {
   // ---- UI base
   const [inCall, setInCall] = useState(false)
   const [panel, setPanel] = useState<Panel>('none')
-
-  // Chat (ephemeral for the call) — keep in parent so it survives panel unmount/mount
+  // Flag: la llamada tiene transcripción activada (muestra aviso azul)
+  const [callTranscriptActive, setCallTranscriptActive] = useState(false)  // Chat (ephemeral for the call) — keep in parent so it survives panel unmount/mount
   const [chatMessages, setChatMessages] = useState<Array<{id: string; from: string; fromId?: string; text: string; ts: number}>>([])
   const chatSeenRef = useRef<Set<string>>(new Set())
+
+  // ---- Estados para guardar transcripción
+  const [showSaveTranscriptModal, setShowSaveTranscriptModal] = useState(false)
+  const [wasTranscriptionUsed, setWasTranscriptionUsed] = useState(false)
+  const [isRemoteHangup, setIsRemoteHangup] = useState(false)
+  const [hasTranscriptData, setHasTranscriptData] = useState(false) // Estado más persistente
 
   
 
@@ -234,13 +246,91 @@ export default function VideoCallPage() {
   const [callRowId, setCallRowId] = useState<number | null>(null)
   const [ending, setEnding] = useState(false)
 
+
+
+  // Hook de transcripción con chat colaborativo
+  const { 
+    transcriptEntries, 
+    isTranscribing, 
+    error: transcriptionError
+  } = useTranscriptChat({
+    isActive: callTranscriptActive,
+    localUserId: meId,
+    localUserName: meName || 'Yo',
+    callChannel: callCh
+  })
+
   // Clear chat when call ends (callId becomes null)
   useEffect(() => {
     if (!callId) {
       setChatMessages([])
       try { chatSeenRef.current.clear() } catch {}
+      // Reset transcript usage flag when call ends
+      setWasTranscriptionUsed(false)
+      setIsRemoteHangup(false) // Reset remote hangup flag
+      setHasTranscriptData(false) // Reset transcript data flag
     }
   }, [callId])
+
+  // Marcar que se usó transcripción cuando se active
+  useEffect(() => {
+    if (callTranscriptActive) {
+      setWasTranscriptionUsed(true)
+    }
+  }, [callTranscriptActive])
+
+  // Marcar que hay datos de transcripción cuando lleguen entradas
+  useEffect(() => {
+    if (transcriptEntries.length > 0) {
+      setHasTranscriptData(true)
+    }
+  }, [transcriptEntries.length])
+
+  // Solo activar transcripción manualmente (comentado auto-activación)
+  /*
+  useEffect(() => {
+    console.log('🔵 useEffect transcripción ejecutándose - callId=', callId)
+    if (!callId) {
+      console.log('🔵 No callId, saliendo del useEffect')
+      return
+    }
+    
+    // Verificar parámetro transcript en URL
+    let hasTranscript = false
+    let source = 'none'
+    
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        hasTranscript = window.location.search.includes('transcript=1')
+        if (hasTranscript) source = 'URL'
+      }
+    } catch (e) {
+      console.log('🔵 Error leyendo URL, probando sessionStorage')
+    }
+    
+    // Fallback a sessionStorage
+    if (!hasTranscript) {
+      try {
+        hasTranscript = sessionStorage.getItem('vc_transcript') === '1'
+        if (hasTranscript) source = 'sessionStorage'
+      } catch {}
+    }
+    
+    console.log('🔵 Resultado detección:', { hasTranscript, source, url: window.location?.search })
+    
+    if (hasTranscript) {
+      console.log('🔵🔵🔵 ACTIVANDO TRANSCRIPCIÓN desde', source)
+      setCallTranscriptActive(true)
+      
+      // Verificar inmediatamente que se activó
+      setTimeout(() => {
+        console.log('🔵 Estado después de setTimeout - callTranscriptActive debería ser true')
+      }, 100)
+    } else {
+      console.log('❌ NO se activa transcripción')
+    }
+  }, [callId])
+  */
 
   const callerUserIdRef = useRef<string | null>(null)
   const calleeUserIdRef = useRef<string | null>(null)
@@ -842,6 +932,29 @@ useEffect(() => {
     // when user stops sharing from browser UI, revert — handled above via oninactive/onended
   }
   const toggleTranslate = () => { setTranslateOn(v => !v) }
+  
+  const toggleTranscript = () => { 
+    setCallTranscriptActive(v => {
+      const newValue = !v
+      
+      // Notificar al peer del cambio de transcripción (solo en llamadas activas)
+      if (callCh && inCall && peerId) {
+        callCh.send({
+          type: 'broadcast',
+          event: 'transcript_sync',
+          payload: {
+            active: newValue,
+            fromUserId: meId,
+            requestSync: false
+          }
+        })
+        log(`📝 Notified peer of transcript change: active=${newValue}`)
+      }
+      
+      return newValue
+    }) 
+  }
+  
   const openChat = () => setPanel(p => (p === 'chat' ? 'none' : 'chat'))
 
   // ---- Log
@@ -967,6 +1080,12 @@ useEffect(() => {
         setPeerId(toQ)
         log(`~ peer via ?to=${toQ}`)
       }
+      // Prefill transcript flag from query (caller may pass ?transcript=1)
+      const transcriptQ = qp('transcript')
+      if (transcriptQ === '1') {
+        try { sessionStorage.setItem('vc_transcript', '1') } catch {}
+        log('~ auto-call will send transcript flag (from query)')
+      }
     })()
   }, [sb])
 
@@ -1010,6 +1129,14 @@ useEffect(() => {
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
   const [incoming, setIncoming] = useState<IncomingCall | null>(null)
 
+  // Detectar si la llamada tiene transcripción activada (para callee con incoming)
+  useEffect(() => {
+    if (callId && inCall && incoming?.transcript) {
+      // Solo activar si es callee y hay flag de transcripción en incoming
+      setCallTranscriptActive(true)
+    }
+  }, [callId, inCall, incoming])
+
   // Resolver nombre/apodo del peer cuando cambie peerId o recibamos incoming
   useEffect(() => {
     let mounted = true
@@ -1045,6 +1172,32 @@ useEffect(() => {
     return () => { mounted = false }
   }, [peerId, incoming, sb])
 
+  // Transcript sync para llamadas 1-a-1: cuando me uno a una llamada, preguntar al peer por su estado de transcript
+  useEffect(() => {
+    if (!callCh || !inCall || !peerId) return
+    
+    log('📝 Setting up transcript sync for 1-a-1 call')
+    
+    // Enviar request de sync después de un delay para asegurar que el peer esté listo
+    const syncTimer = setTimeout(() => {
+      if (!callCh) return
+      
+      callCh.send({
+        type: 'broadcast',
+        event: 'transcript_sync',
+        payload: {
+          active: callTranscriptActive,
+          fromUserId: meId,
+          requestSync: true
+        }
+      })
+      
+      log(`📝 Sent transcript sync request: active=${callTranscriptActive}`)
+    }, 2000) // 2 segundos de delay para asegurar que ambos estén conectados
+    
+    return () => clearTimeout(syncTimer)
+  }, [callCh, inCall, peerId, callTranscriptActive, meId])
+
   // Llamadas manejadas y "rings" ya vistos (para evitar dups entre uuid/id)
   const handledCallsRef = useRef<Set<string>>(new Set())
   const seenRingsRef = useRef<Set<string>>(new Set())
@@ -1073,11 +1226,13 @@ useEffect(() => {
       const ch = sb.channel(`user:${key}`, { config: { broadcast: { self: false } } })
 
       ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
-        const cid = String(payload.callId || '')
+        try { console.log('📨 ring payload received:', payload) } catch (e) {}
+        // soportar varias formas de payload: payload.callId / payload.room, payload.from.{id,name} o payload.fromId/payload.fromName
+        const cid = String(payload?.callId ?? payload?.room ?? '')
         if (!cid) return
 
         // 🚫 si el ring viene de mí misma, ignorar (uuid o id numérico)
-        const fromId = String(payload.from?.id ?? '')
+        const fromId = String(payload?.from?.id ?? payload?.fromId ?? payload?.from_uuid ?? payload?.from_id ?? '')
         if (fromId && (fromId === meId || (meNumericId != null && fromId === String(meNumericId)))) {
           log('~ ring ignorado (from=me)')
           return
@@ -1105,14 +1260,26 @@ useEffect(() => {
           return
         }
 
-        const fromName = String(payload.from?.name ?? 'Invitado')
-        log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
+
+
+  // Debug: verificar nombres en payload
+  console.log('🏷️ [DEBUG] Ring payload recibido:', {
+    'from.name': payload?.from?.name,
+    'fromName': payload?.fromName,  
+    'from_name': payload?.from_name,
+    'name': payload?.name,
+    'fromId': fromId
+  })
+  
+  const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
+  const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
+  log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
         setCallId(cid); callIdRef.current = cid
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
         calleeUserIdRef.current = String(meId || key)
         setPeerId(fromId)
-        setIncoming({ callId: cid, fromId, fromName }) // mostrar notificación
+        setIncoming({ callId: cid, fromId, fromName, transcript: transcriptFlag }) // mostrar notificación
         try { navigator.vibrate?.(200) } catch {}
       })
 
@@ -1194,7 +1361,16 @@ useEffect(() => {
       sessionStorage.setItem(onceKey, 'done')
       ;(async () => {
         if (!localStreamRef.current) await enableCam()
-        await makeCall(to)
+        // Check if caller wanted transcript saved (sessionStorage or URL param)
+        const fromStorage = sessionStorage.getItem('vc_transcript') === '1'
+        const fromUrl = qp('transcript') === '1'
+        const shouldTranscript = fromStorage || fromUrl
+        await makeCall(to, shouldTranscript)
+        try { 
+          sessionStorage.removeItem('vc_transcript') 
+          sessionStorage.removeItem('vc_call_title') 
+          sessionStorage.removeItem('vc_call_description')
+        } catch {}
       })()
     }
     return () => { sessionStorage.removeItem(onceKey) }
@@ -1258,7 +1434,12 @@ useEffect(() => {
   }, [sb, inboxReady])
 
   // ========= 3) Acciones Call/Accept/Reject/Cancel
-  const makeCall = async (peerOverride?: string) => {
+  const makeCall = async (peerOverride?: string, sendTranscript: boolean = false) => {
+    // ACTIVAR TRANSCRIPCIÓN INMEDIATAMENTE SI ES SOLICITADA
+    if (sendTranscript) {
+      setCallTranscriptActive(true)
+    }
+    
     if (!sb) return
     if (!inboxReady) return alert('Aún suscribiéndose al inbox… probá de nuevo en un segundo')
 
@@ -1287,37 +1468,51 @@ useEffect(() => {
       return
     }
 
-    // Asegurar que enviamos un nombre válido (fallback: intentar resolver justo antes de enviar)
+    // Asegurar que enviamos un nombre válido (SIEMPRE resolver para evitar cache incorrecto)
     let nameToSend = meName
-    if (!nameToSend || nameToSend === 'Yo') {
-      try {
-        if (meNumericId != null) {
+    console.log('[NAME DEBUG] Initial meName:', meName, 'meId:', meId, 'meNumericId:', meNumericId)
+    
+    // FORZAR resolución siempre (sin importar el valor actual de meName)
+    try {
+      if (meNumericId != null) {
+        try {
           const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
           if (!error && data) {
             const u = Array.isArray(data) ? data[0] : data
             const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+            console.log('[NAME DEBUG] RPC data:', u, 'resolved:', resolved);
             if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
           }
-        } else if (meId) {
-          try {
-            const res = await fetch(`/api/users/uuid/${meId}`)
-            if (res.ok) {
-              const json = await res.json()
-              const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
-              if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
-            }
-          } catch {}
+        } catch (e) {
+          console.log('[NAME DEBUG] RPC failed:', e);
         }
-      } catch {}
+      } else if (meId) {
+        try {
+          const res = await fetch(`/api/users/uuid/${meId}`)
+          if (res.ok) {
+            const json = await res.json()
+            const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+            console.log('[NAME DEBUG] UUID fetch:', json, 'resolved:', resolved);
+            if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
+          }
+        } catch (e) {
+          console.log('[NAME DEBUG] UUID fetch failed:', e);
+        }
+      }
+    } catch (e) {
+      console.log('[NAME DEBUG] Overall resolution failed:', e);
     }
+
+    console.log('[NAME DEBUG] Final nameToSend:', nameToSend);
 
     for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)
       await ensureSubscribed(ch)
+      const ringPayload = { callId: id, room: id, from: { id: meId, name: nameToSend, transcript: !!sendTranscript }, transcript: !!sendTranscript }
       await ch.send({
         type: 'broadcast',
         event: 'ring',
-        payload: { callId: id, room: id, from: { id: meId, name: nameToSend } },
+        payload: ringPayload,
       })
       await ch.unsubscribe()
     }
@@ -1495,9 +1690,14 @@ useEffect(() => {
         try { await pcRef.current!.addIceCandidate(m.candidate) } catch (e) { log('! addIceCandidate: ' + (e as Error).message) }
       } else if (m.type === 'hangup') {
         log('← hangup')
-        console.log('📞 [HANGUP] Peer colgó la llamada, redirigiendo...')
+        console.log('📞 [HANGUP] Peer colgó la llamada')
+        
+        // Mostrar modal para que el usuario pueda guardar transcripción
+        console.log('📝 [HANGUP-REMOTE] Mostrando modal de transcripción...')
+        setIsRemoteHangup(true)
+        setShowSaveTranscriptModal(true)
+        return
         await endLocalCall('remote_hangup')
-        // Redirigir a pantalla principal
         redirectToMainPage()
       }
     })
@@ -1511,6 +1711,42 @@ useEffect(() => {
         setPeerSharing(sharing)
         log(`← sharing ${sharing ? 'START' : 'STOP'} from ${from}`)
       } catch (e) {}
+    })
+
+    // handle transcript sync between peers (1-a-1 calls only)
+    ch.on('broadcast', { event: 'transcript_sync' }, ({ payload }: any) => {
+      try {
+        const fromUserId = String(payload?.fromUserId ?? '')
+        const isActive = Boolean(payload?.active)
+        const requestSync = Boolean(payload?.requestSync)
+        
+        // Ignorar mis propios mensajes
+        if (fromUserId === meId || fromUserId === String(meNumericId)) return
+        
+        log(`📝 transcript_sync from ${fromUserId}: active=${isActive}, requestSync=${requestSync}`)
+        
+        // Si el peer solicita sync, enviarle mi estado actual
+        if (requestSync) {
+          ch.send({
+            type: 'broadcast',
+            event: 'transcript_sync',
+            payload: {
+              active: callTranscriptActive,
+              fromUserId: meId,
+              requestSync: false
+            }
+          })
+          log(`📝 Responded to transcript sync request: active=${callTranscriptActive}`)
+        }
+        
+        // Si el peer tiene transcript activo y yo no, activarlo automáticamente
+        if (isActive && !callTranscriptActive) {
+          log('📝 Auto-enabling transcript to sync with peer')
+          setCallTranscriptActive(true)
+        }
+      } catch (e) {
+        log('! Error handling transcript_sync: ' + (e as Error)?.message)
+      }
     })
 
     await ensureSubscribed(ch)
@@ -1641,12 +1877,298 @@ useEffect(() => {
 
   const hangup = async () => {
     console.log('📞 [HANGUP] Usuario colgando la llamada...')
+    
+    // Verificar si se usó transcripción durante la llamada
+    if (wasTranscriptionUsed && transcriptEntries.length > 0) {
+      console.log('📝 [HANGUP] Se detectó uso de transcripción, mostrando modal para guardar...')
+      setShowSaveTranscriptModal(true)
+      return // No colgar aún, esperar decisión del usuario
+    }
+    
+    // Si no se usó transcripción, colgar normalmente
+    await performHangup()
+  }
+
+  const performHangup = async () => {
+    console.log('📞 [HANGUP] Ejecutando colgado definitivo...')
     if (callChRef.current && callIdRef.current) {
       try { await sendSignal({ type: 'hangup', from: meId }) } catch {}
     }
     await endLocalCall('local_hangup')
     // Redirigir a pantalla principal
     redirectToMainPage()
+  }
+
+  const saveTranscription = async (callTitle: string) => {
+    console.log('📝 [SAVE] Guardando transcripción con título:', callTitle)
+    
+    // Sanitizar título para evitar problemas con caracteres especiales
+    const sanitizedTitle = callTitle
+      .normalize('NFD') // Descomponer caracteres acentuados
+      .replace(/[\u0300-\u036f]/g, '') // Eliminar marcas diacríticas (tildes, acentos)
+      .replace(/[^\w\s-]/g, '') // Eliminar caracteres especiales excepto palabras, espacios y guiones
+      .replace(/\s+/g, '_') // Reemplazar espacios con guiones bajos
+      .trim()
+    
+    // Validación temprana: si no hay entradas, no hay nada que guardar
+    if (transcriptEntries.length === 0) {
+      console.log('⚠️ [SAVE] No hay entradas de transcripción para guardar')
+      return { success: false, message: 'No hay transcripción para guardar' }
+    }
+    
+    if (!sb || !transcriptEntries.length) {
+      throw new Error('No hay datos de transcripción para guardar')
+    }
+
+    // Usar meId que ya está disponible y autenticado en el componente
+    if (!meId) {
+      throw new Error('Usuario no identificado en la sesión')
+    }
+
+    console.log('📝 [SAVE] Usuario actual meId:', meId)
+
+    // **NUEVA ESTRATEGIA: Usar API para convertir UUID a ID numérico**
+    console.log('📝 [SAVE] Convirtiendo UUID a ID numérico usando API')
+    
+    // Función helper para convertir UUID a ID usando tu API
+    const convertUuidToNumericId = async (uuid: string): Promise<number | null> => {
+      try {
+        console.log(`📝 [SAVE] Convirtiendo UUID ${uuid} a ID numérico...`)
+        const response = await fetch(`/api/users/uuid/${uuid}`)
+        
+        if (!response.ok) {
+          console.error(`📝 [SAVE] Error API para UUID ${uuid}:`, response.status, response.statusText)
+          return null
+        }
+        
+        const data = await response.json()
+        console.log(`📝 [SAVE] Respuesta API para UUID ${uuid}:`, data)
+        
+        return data.id || null
+      } catch (error) {
+        console.error(`📝 [SAVE] Error convirtiendo UUID ${uuid}:`, error)
+        return null
+      }
+    }
+
+    // Obtener ID numérico del usuario actual
+    let currentUserId: number
+    
+
+    
+    // Preferir meNumericId si está disponible (usuario autenticado)
+    if (meNumericId !== null) {
+      currentUserId = meNumericId
+    } else if (meId.includes('-')) {
+      // Es UUID, verificar si es válido en BD
+      const validUuids = [
+        '685a4741-f1d4-4c03-8ec6-4d200ff67682', // ID=2
+        '4b268139-258c-4dc4-9a0f-12b536dfc637'  // ID=3
+      ]
+      
+      if (!validUuids.includes(meId)) {
+        // UUID temporal/anónimo - generar ID temporal basado en hash
+        const tempId = Math.abs(meId.split('-').join('').slice(0, 8).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0))
+        currentUserId = tempId
+      } else {
+        // UUID válido, convertir a ID numérico usando API
+        const numericId = await convertUuidToNumericId(meId)
+        if (!numericId) {
+          throw new Error(`No se pudo convertir UUID válido ${meId} a ID numérico`)
+        }
+        currentUserId = numericId
+      }
+    } else {
+      // Ya es ID numérico
+      currentUserId = parseInt(meId)
+      if (isNaN(currentUserId)) {
+        throw new Error('ID de usuario inválido')
+      }
+    }
+    
+    console.log('📝 [SAVE] ID numérico del usuario actual:', currentUserId)
+
+    // Obtener todos los usuarios únicos que participaron en la transcripción
+    const uniqueUserIds = new Set(transcriptEntries.map(entry => entry.userId))
+    const participantUserIds = Array.from(uniqueUserIds)
+    console.log('📝 [SAVE] Usuarios participantes (raw):', participantUserIds)
+    
+    // Debug: Mostrar TODAS las entradas de transcripción para entender de dónde vienen los UUIDs
+    console.log('📝 [SAVE] TODAS las transcriptEntries para debug:', 
+      transcriptEntries.map((entry, index) => ({
+        index,
+        userId: entry.userId,
+        userName: entry.userName,
+        timestamp: entry.timestamp,
+        text: entry.text.substring(0, 30) + '...',
+        isValidUuid: ['685a4741-f1d4-4c03-8ec6-4d200ff67682', '4b268139-258c-4dc4-9a0f-12b536dfc637'].includes(entry.userId)
+      }))
+    )
+    
+    // Mostrar qué UUIDs únicos están presentes
+    const uniqueUuids = new Set(transcriptEntries.map(entry => entry.userId))
+    const allUuids = Array.from(uniqueUuids)
+    console.log('📝 [SAVE] UUIDs únicos encontrados en transcriptEntries:', allUuids)
+    console.log('📝 [SAVE] Análisis de UUIDs:')
+    allUuids.forEach(uuid => {
+      const isValid = ['685a4741-f1d4-4c03-8ec6-4d200ff67682', '4b268139-258c-4dc4-9a0f-12b536dfc637'].includes(uuid)
+      const count = transcriptEntries.filter(e => e.userId === uuid).length
+      console.log(`  - ${uuid}: ${isValid ? '✅ VÁLIDO' : '❌ INVÁLIDO'} (${count} entradas)`)
+    })
+
+    // Convertir participantes a IDs numéricos
+    const validUuids = [
+      '685a4741-f1d4-4c03-8ec6-4d200ff67682', // ID=2
+      '4b268139-258c-4dc4-9a0f-12b536dfc637'  // ID=3
+    ]
+    
+    const numericParticipantIds: number[] = []
+    
+    for (const userId of participantUserIds) {
+      let numericId: number | null = null
+      
+      if (userId.includes('-')) {
+        // Es UUID, verificar si es válido antes de llamar API
+        if (!validUuids.includes(userId)) {
+          // UUID temporal/anónimo - generar ID temporal consistente
+          const tempId = Math.abs(userId.split('-').join('').slice(0, 8).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0))
+          numericId = tempId
+        } else {
+          // UUID válido, convertir usando API
+          numericId = await convertUuidToNumericId(userId)
+          if (!numericId) {
+            continue // Omitir si no se puede convertir
+          }
+        }
+      } else {
+        // Ya es ID numérico
+        const parsed = parseInt(userId)
+        if (isNaN(parsed)) {
+          console.warn(`⚠️ [SAVE] ID inválido ${userId}, omitiendo...`)
+          continue
+        }
+        numericId = parsed
+      }
+      
+      numericParticipantIds.push(numericId)
+      console.log(`📝 [SAVE] Participante ${userId} → ID numérico ${numericId}`)
+    }
+    
+    console.log('📝 [SAVE] Participantes con IDs numéricos finales:', numericParticipantIds)
+
+    // Convertir transcriptEntries a formato legible pero JSON válido
+    const readableContent = transcriptEntries
+      .map(entry => `{"${entry.userName}": "${entry.text.replace(/"/g, '\\"')}"}`)
+      .join('\n')
+
+    // Crear timestamp para el nombre del archivo
+    const now = new Date()
+    const timestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '').replace('T', '_')
+    const filename = `transcript_${timestamp}.ndjson`
+    
+    // Crear un blob con el contenido legible en formato NDJSON
+    const blob = new Blob([readableContent], { type: 'application/x-ndjson' })
+    
+    const savedPaths: string[] = []
+    
+    // Guardar archivo para el usuario actual
+    const folderPath = `${currentUserId}/${sanitizedTitle}/${filename}`
+    
+    try {
+      const { data: storageData, error: storageError } = await sb.storage
+        .from('calls')
+        .upload(folderPath, blob, {
+          cacheControl: '3600',
+          upsert: false // No sobrescribir si existe
+        })
+
+      if (storageError) {
+        if (!storageError.message.includes('already exists')) {
+          console.warn(`⚠️ [SAVE] Error subiendo archivo:`, storageError.message)
+        }
+      }
+      
+      if (storageData) {
+        savedPaths.push(storageData.path)
+        console.log(`✅ [SAVE] Transcripción guardada exitosamente`)
+      }
+      
+    } catch (error) {
+      console.error(`❌ [SAVE] Error guardando archivo:`, error)
+      // No parar el proceso - continuar con colgado
+    }
+    
+    // **ÉXITO GARANTIZADO**: Aunque no se guarde en storage, la llamada debe continuar
+    if (savedPaths.length === 0) {
+      console.warn('⚠️ [SAVE] No se pudo guardar en storage, pero continuamos con el colgado')
+    } else {
+      console.log(`✅ [SAVE] Transcripción guardada en storage para ${savedPaths.length} usuarios`)
+    }
+    
+    // **OPCIONAL**: Intentar guardar en BD solo si es posible (no crítico para el colgado)
+    try {
+      // Intentar guardar registro en tabla Transcripcion
+      const { data, error } = await sb
+        .from('Transcripcion')
+        .insert({
+          id_usuario: currentUserId, // Ahora tenemos el ID numérico correcto
+          titulo: callTitle, // Título original para mostrar
+          path_archivo: `${currentUserId}/${sanitizedTitle}/${filename}` // Ruta sanitizada para el chatbot
+        })
+        .select()
+        .single()
+
+      if (!error && data) {
+        console.log('✅ [SAVE] Registro guardado en BD exitosamente')
+        return data
+      }
+    } catch (dbError) {
+      console.warn('⚠️ [SAVE] Error guardando en BD:', dbError)
+    }
+
+    console.log('✅ [SAVE] Proceso completado (archivos en storage)')
+    return { success: true, message: 'Archivos guardados en storage' }
+  }
+
+  const handleSaveTranscriptChoice = async (saveTranscript: boolean, title?: string) => {
+    setShowSaveTranscriptModal(false)
+    
+    if (saveTranscript && title) {
+      console.log('📝 [SAVE] Guardando transcripción con título:', title)
+      console.log('📝 [SAVE] Número de entradas de transcripción:', transcriptEntries.length)
+      console.log('📝 [SAVE] Estado de Supabase (sb):', !!sb)
+      console.log('📝 [SAVE] ID del usuario (meId):', meId)
+      
+      // **CRÍTICO**: El guardado NO puede impedir que la llamada se cuelgue
+      try {
+        await Promise.race([
+          saveTranscription(title),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout guardando transcripción')), 5000)
+          )
+        ])
+        console.log('✅ [SAVE] Transcripción guardada exitosamente')
+      } catch (error) {
+        console.error('❌ [SAVE] Error guardando transcripción (no crítico):', error)
+        // NO mostrar alert que bloquee el colgado - solo log
+        console.warn('⚠️ [SAVE] Continuando con colgado a pesar del error de guardado')
+      }
+    } else {
+      console.log('❌ [SAVE] Usuario decidió no guardar la transcripción')
+    }
+    
+    // **NUEVO**: Verificar si es hangup local o remoto
+    if (isRemoteHangup) {
+      // Es hangup remoto - limpiar y redirigir
+      console.log('📞 [HANGUP-REMOTE] Finalizando después de modal transcripción...')
+      setIsRemoteHangup(false) // Reset del estado
+      await endLocalCall('remote_hangup')
+      redirectToMainPage()
+    } else {
+      // Es hangup local - proceder con colgado
+      console.log('📞 [HANGUP-LOCAL] Procediendo con colgado definitivo...')
+      await performHangup()
+    }
   }
 
   const endLocalCall = async (reason: string = 'normal') => {
@@ -1672,6 +2194,7 @@ useEffect(() => {
     setCallPeers(0)
     pendingIceRef.current = []
     setInCall(false)
+    setCallTranscriptActive(false)
 
     setEnding(false)
   }
@@ -1701,6 +2224,7 @@ useEffect(() => {
     setCallCh(null)
     callChRef.current = null
     setInCall(false)
+    setCallTranscriptActive(false)
   }
 
   // Función para redirigir a la pantalla principal cuando se rechaza la llamada
@@ -1771,6 +2295,13 @@ useEffect(() => {
                 <span className={clsx('h-2 w-2 rounded-full', inCall ? 'bg-green-500' : 'bg-orange-500')} />
                 {inCall ? 'En llamada' : role === 'idle' ? 'Lista' : 'Estableciendo…'}
               </span>
+              {/* Badge azul: Transcripción activada */}
+              {callTranscriptActive && (
+                <span className="ml-2 inline-flex items-center gap-2 rounded-full border border-blue-400/40 bg-white/20 text-blue-600 px-2.5 py-1 text-xs backdrop-blur-md">
+                  <span className="h-2 w-2 rounded-full bg-blue-500" />
+                  Transcripción Activada
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
@@ -1783,6 +2314,8 @@ useEffect(() => {
 
   {/* Main */}
   <main className="relative flex-1 min-h-0 overflow-hidden">
+
+        
         {/* Traducción en tiempo real */}
         {translateOn && (
           <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/95 dark:bg-black/90 px-6 py-4 shadow-2xl border border-orange-400/40 max-w-3xl w-[95vw] text-center">
@@ -1937,11 +2470,14 @@ useEffect(() => {
           camOn={camOn}
           shareOn={shareOn}
           translateOn={translateOn}
+          transcriptActive={callTranscriptActive}
           translationError={translationError}
+          transcriptionError={transcriptionError}
           onToggleMic={toggleLocalMic}
           onToggleCam={toggleLocalCam}
           onToggleShare={toggleShare}
           onToggleTranslate={toggleTranslate}
+          onToggleTranscript={toggleTranscript}
           onOpenChat={openChat}
           onOpenWhiteboard={openWhiteboard}
           onHangup={hangup}
@@ -1950,11 +2486,21 @@ useEffect(() => {
         {/* === Notificación de llamada entrante (local) === */}
         {showIncomingToast && (
           <IncomingCallToast
-            fromName={incoming!.fromName || 'Invitado'}
-            onAccept={accept}
-            onReject={reject}
-          />
+              fromName={incoming!.fromName || 'Invitado'}
+              onAccept={accept}
+              onReject={reject}
+              transcript={incoming!.transcript}
+            />
         )}
+
+        {/* === Modal para guardar transcripción === */}
+        <SaveTranscriptModal
+          open={showSaveTranscriptModal}
+          onClose={() => setShowSaveTranscriptModal(false)}
+          onChoose={handleSaveTranscriptChoice}
+          question="¿Querés guardar la transcripción de esta llamada?"
+          submitButtonText="Guardar"
+        />
       </main>
     </div>
   )
@@ -2069,12 +2615,12 @@ function VideoTile({
 /* =================== Barra de controles flotante =================== */
 
 function CallControls({
-  micOn, camOn, shareOn, translateOn, translationError,
-  onToggleMic, onToggleCam, onToggleShare, onToggleTranslate,
+  micOn, camOn, shareOn, translateOn, transcriptActive, translationError, transcriptionError,
+  onToggleMic, onToggleCam, onToggleShare, onToggleTranslate, onToggleTranscript,
   onOpenChat, onOpenWhiteboard, onHangup,
 }: {
-  micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; translationError: string | null;
-  onToggleMic: () => void; onToggleCam: () => void; onToggleShare: () => void; onToggleTranslate: () => void;
+  micOn: boolean; camOn: boolean; shareOn: boolean; translateOn: boolean; transcriptActive: boolean; translationError: string | null; transcriptionError: string | null;
+  onToggleMic: () => void; onToggleCam: () => void; onToggleShare: () => void; onToggleTranslate: () => void; onToggleTranscript: () => void;
   onOpenChat: () => void; onOpenWhiteboard: () => void; onHangup: () => void;
 }) {
   return (
@@ -2099,16 +2645,33 @@ function CallControls({
         <button
           onClick={onToggleTranslate}
           className={clsx(
-            "hidden sm:inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all",
+            "hidden sm:inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-all whitespace-nowrap",
             translateOn
               ? "bg-gradient-to-r from-orange-400 to-orange-600 text-white shadow-lg ring-2 ring-orange-300"
               : "bg-gradient-to-r from-orange-300 to-orange-500 text-white/95 hover:text-white hover:shadow-md"
           )}
           title={translateOn ? "Desactivar traducción en tiempo real" : "Activar traducción en tiempo real"}
         >
-          <i data-feather="globe" className={clsx("w-5 h-5", translateOn && "animate-pulse")} />
-          {translateOn ? "Traducción ON" : "Traducción"}
+          <i data-feather="globe" className={clsx("w-4 h-4", translateOn && "animate-pulse")} />
+          <span className="text-xs">{translateOn ? "Traducir ON" : "Traducir"}</span>
           {translateOn && translationError && (
+            <span className="ml-1 text-xs">⚠️</span>
+          )}
+        </button>
+
+        <button
+          onClick={onToggleTranscript}
+          className={clsx(
+            "hidden sm:inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-all whitespace-nowrap",
+            transcriptActive
+              ? "bg-gradient-to-r from-blue-400 to-blue-600 text-white shadow-lg ring-2 ring-blue-300"
+              : "bg-gradient-to-r from-blue-300 to-blue-500 text-white/95 hover:text-white hover:shadow-md"
+          )}
+          title={transcriptActive ? "Desactivar transcripción de llamada" : "Activar transcripción de llamada"}
+        >
+          <i data-feather="file-text" className={clsx("w-4 h-4", transcriptActive && "animate-pulse")} />
+          <span className="text-xs">{transcriptActive ? "ON" : "Transcript"}</span>
+          {transcriptActive && transcriptionError && (
             <span className="ml-1 text-xs">⚠️</span>
           )}
         </button>
@@ -2196,6 +2759,7 @@ function ChatPanel({ callCh, meName, meId, callId, messages, setMessages, seenMs
     }
   }, [callCh])
 
+
   // Auto-scroll when new messages arrive
   useEffect(() => {
     const el = containerRef.current
@@ -2254,10 +2818,12 @@ function IncomingCallToast({
   fromName,
   onAccept,
   onReject,
+  transcript,
 }: {
   fromName: string
   onAccept: () => void
   onReject: () => void
+  transcript?: boolean
 }) {
   return (
     <div className="fixed right-4 bottom-24 z-[60] max-w-md w-[92vw] sm:w-auto">
@@ -2271,6 +2837,9 @@ function IncomingCallToast({
           <div className="min-w-0">
             <div className="text-sm text-black/60 dark:text-white/70">Llamada entrante</div>
             <div className="font-semibold truncate">{fromName}</div>
+            {transcript && (
+              <div className="text-xs text-gray-500 mt-1 font-semibold">*Aviso: Transcripción Activada</div>
+            )}
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={onAccept}

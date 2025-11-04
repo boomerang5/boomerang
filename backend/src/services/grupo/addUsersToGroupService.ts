@@ -7,10 +7,8 @@ export async function addUserToGroupService(idUsuario: number, idGrupo: number) 
   });
 
   if (error) {
-    console.error("❌ Supabase error:", error);
     throw new Error(error.message); 
   }
 
-  console.log("✅ Usuario agregado correctamente. Resultado:", data);
   return data;
 }

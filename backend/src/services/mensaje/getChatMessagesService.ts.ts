@@ -26,7 +26,6 @@ export async function getChatMessageService(
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar get_chat_messages:", error);
     throw new Error(error.message); // no mates el server
   }
 

@@ -6,12 +6,7 @@ export const updateEventParticipantsService = async (
   idEditor: number,
   participantes: number[]
 ): Promise<void> => {
-  console.log('🔄 Actualizando participantes del evento:', {
-    idEvento,
-    idEditor,
-    participantes,
-    cantidadParticipantes: participantes?.length || 0
-  });
+  
 
   try {
     // Llamar a la función PostgreSQL update_event_participants
@@ -22,7 +17,6 @@ export const updateEventParticipantsService = async (
     });
 
     if (error) {
-      console.error('❌ Error en update_event_participants:', error);
       
       // Verificar si es el error específico de permisos
       if (error.message.includes('Solo el creador puede actualizar')) {
@@ -32,11 +26,6 @@ export const updateEventParticipantsService = async (
       throw error;
     }
 
-    console.log('✅ Participantes actualizados correctamente');
-
-    // NOTA: No enviamos notificaciones aquí porque updateEventService ya maneja 
-    // todas las notificaciones cuando se actualiza un evento (incluyendo cambios de participantes)
-    
   } catch (error: any) {
     console.error('❌ Error en updateEventParticipantsService:', error);
     throw new Error(error.message || 'Error al actualizar participantes del evento');

@@ -7,9 +7,7 @@ export async function deleteEventService(idEvento: number, idEditor: number) {
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
-    throw new Error(error.message);
+    throw error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
   }
 
-  console.log("✅ Evento eliminado correctamente. Resultado:", data);
 }

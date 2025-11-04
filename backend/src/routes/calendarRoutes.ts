@@ -415,15 +415,10 @@ router.put('/confirmacion', update_event_confirmation);
  */
 // Ruta de prueba temporal
 router.patch('/test-update', (req, res) => {
-  console.log('🧪 [TEST] Ruta de prueba ejecutada');
-  console.log('📦 [TEST] Body:', req.body);
   res.json({ message: "Ruta de prueba funcionando" });
 });
 
 router.patch('/update', (req, res, next) => {
-  console.log('🛣️ [ROUTE] PATCH /update - Middleware ejecutado');
-  console.log('📦 [ROUTE] Body recibido:', req.body);
-  console.log('🔗 [ROUTE] Headers:', req.headers);
   next();
 }, update_event);
 

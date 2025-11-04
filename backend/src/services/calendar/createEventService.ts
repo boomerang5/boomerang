@@ -3,7 +3,7 @@ import supabase from "../../lib/supabase";
 export async function createEventService(
   idCreador: number,
   titulo: string,
-  fecha: Date,
+  fecha: Date,  
   descripcion?: string,
   color?: string,
   invitados?: number[]
@@ -18,11 +18,8 @@ export async function createEventService(
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
     throw new Error(error.message);
   }
-
-  console.log("✅ Evento creado correctamente. Resultado:", data);
   return data;
 }
 

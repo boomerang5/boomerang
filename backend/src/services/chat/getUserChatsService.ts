@@ -6,8 +6,7 @@ export async function getUserChatsService(idUsuario: number) {
   });
 
   if (error) {
-    console.error("❌ Error al ejecutar la función:", error);
-    process.exit(1);
+    throw error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
   }
 
   if (Array.isArray(data)) return data;        

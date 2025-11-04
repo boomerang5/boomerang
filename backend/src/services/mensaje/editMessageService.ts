@@ -8,9 +8,6 @@ export async function editMessageService(idEmisor: number, idMensaje: number, nu
   });
 
   if (error) {
-    console.error("❌ Error al editar el mensaje:", error);
     process.exit(1);
   }
-
-  console.log("✅ Mensaje editado correctamente.");
 }
