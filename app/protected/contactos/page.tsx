@@ -595,7 +595,7 @@ export default function ContactosPage() {
             apellido: userInfo.apellido,
             apodo: userInfo.apodo,
             fecha_registro: userInfo.fecha_registro,
-            idioma: userInfo.Idioma?.nombre || null,
+            idioma: userInfo.Idioma?.[0]?.nombre || null,
             favorito: contactInfo.favorito,
             fh_alta: contactInfo.fh_alta,
           };
