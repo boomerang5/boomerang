@@ -4,7 +4,7 @@ import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { toast } from 'sonner';
-import { Search, Phone, X, Check } from 'lucide-react';
+import { Search, Phone, X, Check, User, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useNotifications } from '../hooks/useNotifications';
 import CallConfigModal from '../../../components/CallConfigModal';
@@ -28,6 +28,8 @@ type ContactoAgenda = {
   inbound?: boolean;                 // true si es una solicitud entrante (vos sos receptor)
   id_solicitante?: number | null;    // para RPC
   id_receptor?: number | null;       // para RPC
+  fecha_registro?: string | null;    // fecha de registro del usuario
+  idioma?: string | null;            // idioma del usuario
 };
 
 type UsuarioBusqueda = {
@@ -529,6 +531,14 @@ export default function ContactosPage() {
   const [showCallConfigModal, setShowCallConfigModal] = useState(false);
   const [pendingCallContact, setPendingCallContact] = useState<ContactoAgenda | null>(null);
 
+  // Modal de perfil del contacto
+  const [showContactProfileModal, setShowContactProfileModal] = useState(false);
+  const [selectedContactForProfile, setSelectedContactForProfile] = useState<ContactoAgenda | null>(null);
+
+  // Modal de confirmación para eliminar contacto
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [contactToDelete, setContactToDelete] = useState<ContactoAgenda | null>(null);
+
   const handleCallOpenModal = (c: ContactoAgenda) => {
     setPendingCallContact(c);
     setShowCallConfigModal(true);
@@ -546,6 +556,144 @@ export default function ContactosPage() {
     }
     setPendingCallContact(null);
     setShowCallConfigModal(false);
+  };
+
+  // Abrir modal de perfil del contacto
+  const handleContactClick = async (c: ContactoAgenda) => {
+    if (c.pendiente) return; // No mostrar perfil si está pendiente
+    
+    // Obtener información completa del contacto
+    if (c.id_usuario_contacto) {
+      try {
+        // 1. Obtener datos del usuario (nombre, apellido, apodo, fecha_registro)
+        const { data: userInfo, error: userError } = await supabase
+          .from('Usuario')
+          .select(`
+            id, 
+            nombre, 
+            apellido, 
+            apodo, 
+            fecha_registro,
+            Idioma!inner(nombre)
+          `)
+          .eq('id', Number(c.id_usuario_contacto))
+          .single();
+
+        // 2. Obtener datos de la relación ContactoUsuario (favorito, fh_alta)
+        const { data: contactInfo, error: contactError } = await supabase
+          .from('ContactoUsuario')
+          .select('favorito, fh_alta')
+          .eq('id_usuario', idUsuario)
+          .eq('id_usuario_contacto', Number(c.id_usuario_contacto))
+          .single();
+
+        if (!userError && userInfo && !contactError && contactInfo) {
+          // Combinar la información del contacto con la información del usuario
+          const completeContactInfo = {
+            ...c,
+            nombre: userInfo.nombre,
+            apellido: userInfo.apellido,
+            apodo: userInfo.apodo,
+            fecha_registro: userInfo.fecha_registro,
+            idioma: userInfo.Idioma?.nombre || null,
+            favorito: contactInfo.favorito,
+            fh_alta: contactInfo.fh_alta,
+          };
+          setSelectedContactForProfile(completeContactInfo);
+        } else {
+          console.error('Error obteniendo datos:', { userError, contactError });
+          setSelectedContactForProfile(c);
+        }
+      } catch (err) {
+        console.error('Error obteniendo info del usuario:', err);
+        setSelectedContactForProfile(c);
+      }
+    } else {
+      setSelectedContactForProfile(c);
+    }
+    
+    setShowContactProfileModal(true);
+  };
+
+  // Eliminar contacto
+  const handleDeleteContact = async (c: ContactoAgenda) => {
+    if (!idUsuario || !c.id_usuario_contacto) {
+      toast.error('No se pudo obtener la información necesaria para eliminar el contacto');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.rpc('sp_eliminar_contacto', {
+        p_id_usuario: idUsuario,
+        p_id_contacto: Number(c.id_usuario_contacto),
+      });
+
+      if (error) {
+        console.error('Error eliminando contacto:', error);
+        toast.error('Error al eliminar el contacto');
+        return;
+      }
+
+      toast.success(`Contacto ${fullName(c.nombre, c.apellido)} eliminado correctamente`);
+      setShowContactProfileModal(false);
+      setSelectedContactForProfile(null);
+      setShowDeleteConfirmModal(false);
+      setContactToDelete(null);
+      
+      // Recargar la lista de contactos
+      refreshAgenda();
+    } catch (err) {
+      console.error('Error inesperado:', err);
+      toast.error('Error inesperado al eliminar el contacto');
+    }
+  };
+
+  // Mostrar modal de confirmación
+  const handleDeleteConfirmation = (c: ContactoAgenda) => {
+    setContactToDelete(c);
+    setShowDeleteConfirmModal(true);
+  };
+
+  // Toggle favorito
+  const toggleFavorite = async (c: ContactoAgenda) => {
+    if (!idUsuario || !c.id_usuario_contacto) {
+      toast.error('No se pudo obtener la información necesaria');
+      return;
+    }
+
+    try {
+      const newFavoriteState = !c.favorito;
+      
+      // Actualizar en la base de datos (tabla ContactoUsuario)
+      const { error } = await supabase
+        .from('ContactoUsuario')
+        .update({ favorito: newFavoriteState })
+        .eq('id_usuario', idUsuario)
+        .eq('id_usuario_contacto', Number(c.id_usuario_contacto));
+
+      if (error) {
+        console.error('Error actualizando favorito:', error);
+        toast.error('Error al actualizar favorito');
+        return;
+      }
+
+      // Actualizar el estado local
+      setSelectedContactForProfile(prev => 
+        prev ? { ...prev, favorito: newFavoriteState } : null
+      );
+
+      // Recargar la lista de contactos para reflejar el cambio
+      refreshAgenda();
+
+      toast.success(
+        newFavoriteState 
+          ? `${fullName(c.nombre, c.apellido)} agregado a favoritos ⭐` 
+          : `${fullName(c.nombre, c.apellido)} removido de favoritos`
+      );
+    } catch (err) {
+      console.error('Error inesperado:', err);
+      toast.error('Error inesperado al actualizar favorito');
+    }
   };
 
   /* ====== Realtime: mis solicitudes enviadas + contactos aceptados ====== */
@@ -758,16 +906,22 @@ const combinedAgenda = useMemo(
               key={String(c.id ?? c.id_usuario_contacto ?? idx)}
               className="flex justify-between items-center bg-white/20 dark:bg-white/5 p-4 rounded-lg hover:bg-white/30 transition"
             >
-              <div>
+              {/* Área clickeable del contacto (nombre y estado) */}
+              <div 
+                className={`flex-1 ${!isPending ? 'cursor-pointer hover:opacity-80' : ''}`}
+                onClick={() => !isPending && handleContactClick(c)}
+              >
                 <p className="font-semibold text-lg">
                   {fullName(c.nombre, c.apellido)}
                   {isPending && (
                     <span className="ml-2 text-xs text-orange-600">(pendiente)</span>
                   )}
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  Estado: {c.nombreEstado ?? '—'}
-                </p>
+                {!isPending && (
+                  <p className="text-sm text-muted-foreground">
+                    Toca para ver perfil
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -902,6 +1056,180 @@ const combinedAgenda = useMemo(
         onClose={() => { setPendingCallContact(null); setShowCallConfigModal(false); }}
         onConfirm={handleCallConfirm}
       />
+    )}
+
+    {/* ====== Modal Perfil del contacto ====== */}
+    {showContactProfileModal && selectedContactForProfile && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowContactProfileModal(false)} />
+        <div className="relative z-10 w-[90%] max-w-md rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
+          <div className="flex items-start justify-between mb-6">
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <User className="h-5 w-5 text-orange-600" />
+              Perfil del contacto
+            </h3>
+            <button 
+              className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10" 
+              onClick={() => setShowContactProfileModal(false)} 
+              aria-label="Cerrar" 
+              title="Cerrar"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Información del contacto */}
+          <div className="space-y-4 mb-6">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-white font-bold text-xl">
+                  {selectedContactForProfile.nombre?.charAt(0)?.toUpperCase() || '?'}
+                </span>
+              </div>
+              <h4 className="text-xl font-semibold text-foreground">
+                {fullName(selectedContactForProfile.nombre, selectedContactForProfile.apellido)}
+              </h4>
+              {selectedContactForProfile.apodo && (
+                <p className="text-sm text-muted-foreground">"{selectedContactForProfile.apodo}"</p>
+              )}
+            </div>
+
+            <div className="bg-white/10 dark:bg-white/5 rounded-lg p-4 space-y-3">
+              {selectedContactForProfile.fecha_registro && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Se unió:</span>
+                  <span className="text-sm text-foreground">
+                    {new Date(selectedContactForProfile.fecha_registro).toLocaleDateString('es-ES', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </span>
+                </div>
+              )}
+              {selectedContactForProfile.fh_alta && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Contacto desde:</span>
+                  <span className="text-sm text-foreground">
+                    {new Date(selectedContactForProfile.fh_alta).toLocaleDateString('es-ES', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </span>
+                </div>
+              )}
+              {selectedContactForProfile.idioma && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Idioma:</span>
+                  <span className="text-sm text-foreground">{selectedContactForProfile.idioma}</span>
+                </div>
+              )}
+              
+              {/* Toggle de favorito */}
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Favorito:</span>
+                <button
+                  onClick={() => toggleFavorite(selectedContactForProfile)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition ${
+                    selectedContactForProfile.favorito 
+                      ? 'bg-orange-500/20 text-orange-600' 
+                      : 'bg-gray-500/10 text-gray-600 hover:bg-gray-500/20'
+                  }`}
+                >
+                  <span className="text-lg">
+                    {selectedContactForProfile.favorito ? '⭐' : '☆'}
+                  </span>
+                  <span className="text-xs">
+                    {selectedContactForProfile.favorito ? 'Sí' : 'No'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Botones de acción */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setShowContactProfileModal(false);
+                handleCallOpenModal(selectedContactForProfile);
+              }}
+              className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white py-2.5 px-4 rounded-lg hover:brightness-105 transition flex items-center justify-center gap-2"
+            >
+              <Phone className="h-4 w-4" />
+              Llamar
+            </button>
+            
+            <button
+              onClick={() => handleDeleteConfirmation(selectedContactForProfile)}
+              className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              Eliminar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ====== Modal Confirmación Eliminar Contacto ====== */}
+    {showDeleteConfirmModal && contactToDelete && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowDeleteConfirmModal(false)} />
+        <div className="relative z-10 w-[90%] max-w-md rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
+          <div className="flex items-start justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-red-500/10 rounded-full flex items-center justify-center">
+                <Trash2 className="h-5 w-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">
+                Eliminar contacto
+              </h3>
+            </div>
+            <button 
+              className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10" 
+              onClick={() => setShowDeleteConfirmModal(false)} 
+              aria-label="Cerrar" 
+              title="Cerrar"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Contenido del modal */}
+          <div className="mb-6">
+            <p className="text-foreground mb-2">
+              ¿Estás seguro de que deseas eliminar a{' '}
+              <span className="font-semibold text-orange-600">
+                {fullName(contactToDelete.nombre, contactToDelete.apellido)}
+              </span>{' '}
+              de tus contactos?
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Esta acción no se puede deshacer. Debera volver a solicitar ser contacto si desea agregarlo nuevamente.
+            </p>
+          </div>
+
+          {/* Botones de acción */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowDeleteConfirmModal(false)}
+              className="flex-1 bg-gray-500/10 hover:bg-gray-500/20 text-gray-700 dark:text-gray-300 py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
+            >
+              Cancelar
+            </button>
+            
+            <button
+              onClick={() => handleDeleteContact(contactToDelete)}
+              className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              Eliminar
+            </button>
+          </div>
+        </div>
+      </div>
     )}
   </>
 );
