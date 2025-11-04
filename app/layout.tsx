@@ -33,7 +33,7 @@ const geistSans = Geist({
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={geistSans.className} suppressHydrationWarning>
-  <body className="text-foreground overflow-x-hidden">
+  <body className="text-foreground overflow-x-hidden bg-gradient-to-br from-orange-400 via-orange-500 to-red-600 animate-gradient-flow">
         {/* 👇 Toda la app envuelta con el SessionContextProvider */}
         <SupabaseProvider>
           <ThemeProvider
