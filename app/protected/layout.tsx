@@ -18,7 +18,7 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
     <ClientProviders initialSession={session}>
       <CallNotificationsProvider callRoute="/protected/videollamada">
         <ProfileChecker>
-          <div className="flex min-h-screen bg-transparent">
+          <div className="protected-layout flex min-h-screen bg-transparent">
             <ProtectedSidebar />
             <main className="flex-1 overflow-visible flex flex-col">
               <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-10 w-full">
