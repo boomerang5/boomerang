@@ -45,7 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <main className="min-h-screen flex flex-col">
               {/* Header - Estilo Duolingo */}
               <nav className="w-full h-18 md:h-20 bg-transparent shadow-sm">
-                <div className="w-full h-full flex items-center justify-between px-6 md:px-12 lg:px-16">
+                <div className="w-full h-full flex items-center px-6 md:px-12 lg:pl-24 lg:pr-6">
                   <Link href="/" className="flex items-center gap-2 shrink-0 hover:opacity-80 transition-opacity">
                     <Image
                       src="/boomerang.png"
@@ -56,6 +56,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                       className="h-10 md:h-14 w-auto object-contain brightness-0 invert"
                     />
                   </Link>
+                  <div className="flex-1"></div>
                   <div className="flex items-center gap-3">
                     <LanguageSelector />
                     {!hasEnvVars ? <EnvVarWarning /> : <HeaderAuth />}
@@ -64,16 +65,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </nav>
 
               {/* Contenido */}
-              <div className="flex-1 w-full pb-24 overflow-visible">
+              <div className="flex-1 w-full pb-4 overflow-visible">
                 {children}
               </div>
-
-              {/* Footer */}
-              <footer className="w-full h-16 md:h-20 
-                bg-transparent
-                flex items-center justify-center gap-4 px-6">
-                <p className="text-gray-600 dark:text-gray-400 text-sm font-medium">© 2025 Boomerang.</p>
-              </footer>
             </main>
           </ThemeProvider>
         </SupabaseProvider>

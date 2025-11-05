@@ -89,10 +89,93 @@
     animation: gradientShift 6s ease infinite;
   }
 
-  /* Background para páginas protegidas */
+  /* Background y theme colors para páginas protegidas */
   .protected-layout {
     min-height: 100vh;
-    background-color: #fef3e7;
+    background-color: #fff7ed !important; /* orange-50 de Tailwind - mismo que el sidebar */
+    background-image: none !important; /* Quitar cualquier gradiente */
+    
+    /* Light theme colors from front_nuevo branch */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
+  }
+  
+  /* Asegurar que el main dentro de protected también tenga el mismo fondo */
+  .protected-layout main {
+    background-color: #fff7ed !important;
+  }
+  
+  /* Cambiar body y nav cuando hay páginas protected */
+  body:has(.protected-layout) {
+    background-color: #fff7ed !important;
+    background-image: none !important;
+  }
+  
+  body:has(.protected-layout) nav {
+    background-color: #fff7ed !important; /* Mismo color beige/crema que el resto */
+  }
+  
+  /* Logo visible en páginas protected - quitar filtros */
+  body:has(.protected-layout) nav img[alt="Boomerang logo"] {
+    brightness: 1 !important;
+    filter: none !important;
+  }
+  
+  /* Selector de idiomas con borde naranja y fondo transparente en páginas protected */
+  body:has(.protected-layout) nav button:has(span) {
+    background: transparent !important;
+    border: 2px solid #ea580c !important; /* orange-600 */
+    color: #ea580c !important; /* orange-600 */
+    font-weight: 600 !important;
+  }
+  
+  body:has(.protected-layout) nav button:has(span):hover {
+    background: rgba(234, 88, 12, 0.1) !important; /* Fondo naranja sutil al hover */
+    border-color: #fb923c !important; /* orange-400 más claro */
+  }
+  
+  /* Ruedita de configuración con borde naranja y fondo transparente en páginas protected */
+  body:has(.protected-layout) nav button[aria-label*="configuración"],
+  body:has(.protected-layout) nav button:has(svg):not(:has(span)) {
+    background: transparent !important;
+    border: 2px solid #ea580c !important; /* orange-600 */
+    border-radius: 9999px !important;
+    padding: 0.5rem !important;
+    color: #ea580c !important; /* orange-600 */
+  }
+  
+  body:has(.protected-layout) nav button[aria-label*="configuración"]:hover,
+  body:has(.protected-layout) nav button:has(svg):not(:has(span)):hover {
+    background: rgba(234, 88, 12, 0.1) !important; /* Fondo naranja sutil al hover */
+    border-color: #fb923c !important; /* orange-400 más claro */
+  }
+  
+  /* Título de bienvenida naranja en páginas protected */
+  .protected-layout header h1 {
+    color: #ea580c !important; /* orange-600 */
+    font-weight: 700 !important; /* Bold */
+  }
+  
+  /* Logo BOOMERANG más pegado al borde izquierdo en páginas protected */
+  body:has(.protected-layout) nav > div {
+    padding-left: 1rem !important; /* Reducir padding izquierdo */
   }
   
   /* Smooth scroll para toda la página */
