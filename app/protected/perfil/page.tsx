@@ -110,14 +110,14 @@ export default function VerPerfilPage() {
       {/* Header mejorado */}
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-4xl font-bold text-transparent">
+          <h1 className="text-4xl font-bold" style={{ color: '#EA580C' }}>
             Mi perfil
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">Información de tu cuenta</p>
         </div>
         <Link
           href="/protected/perfil/editar"
-          className="rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-lg bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 transition-all duration-200 flex items-center gap-2"
+          className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-md font-semibold hover:brightness-105 transition flex items-center gap-2"
         >
           <i data-feather="edit-3" className="w-4 h-4" />
           Editar perfil

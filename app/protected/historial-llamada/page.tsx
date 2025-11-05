@@ -234,7 +234,7 @@ export default function CallHistoryPage() {
     <main className="flex-1 px-4 md:px-8 py-6">
       {/* Título */}
       <div className="flex items-center justify-between gap-3 mb-4">
-        <h1 className="text-2xl font-semibold">Historial de llamadas</h1>
+        <h1 className="text-2xl font-bold" style={{ color: '#EA580C' }}>Historial de llamadas</h1>
       </div>
 
       {/* Filtros (compactos) */}

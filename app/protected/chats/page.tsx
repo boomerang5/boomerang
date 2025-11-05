@@ -985,7 +985,7 @@ export default function ChatsPage() {
         <aside className="bg-white/70 dark:bg-gray-800 p-6 flex flex-col gap-4 shadow-lg rounded-2xl h-[600px]">
         {/* Header del Panel Izquierdo */}
         <div className="mb-4">
-          <h1 className="text-lg font-bold text-gray-700 mb-2">Mis chats</h1>
+          <h1 className="text-lg font-bold mb-2" style={{ color: '#EA580C' }}>Mis chats</h1>
 
           {/* Barra de Búsqueda */}
           <div className="mb-2 flex items-center gap-2">

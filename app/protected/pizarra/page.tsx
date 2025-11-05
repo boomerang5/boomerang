@@ -626,8 +626,7 @@ export default function PizarraPage() {
   }, [whiteboardOn, redrawAll]);
 
   return (
-    <div className="min-h-screen" style={{
-      background: `radial-gradient(1000px 600px at 80% -10%, rgba(246,138,60,.20) 0%, rgba(246,138,60,0) 60%), #fef6ec`,
+    <div className="min-h-screen bg-background" style={{
       overflow: 'hidden'
     }}>
       {/* Estilos CSS */}
@@ -658,26 +657,26 @@ export default function PizarraPage() {
 
         .sidebar {
           grid-area: sidebar;
-          background: var(--surface);
-          border: ${isCollapsed ? 'none' : '1px solid var(--border)'};
+          background: transparent;
+          border: none;
           border-radius: 16px;
           padding: ${isCollapsed ? '0' : '16px'};
           display: grid;
           align-content: start;
           gap: 14px;
           overflow: ${isCollapsed ? 'hidden' : 'auto'};
-          box-shadow: var(--shadow);
+          box-shadow: none;
           width: ${isCollapsed ? '0' : 'auto'};
           overscroll-behavior: contain;
         }
 
         .sidebar::-webkit-scrollbar { width: 10px; }
-        .sidebar::-webkit-scrollbar-track { background: var(--scrollbar); border-radius: 999px; }
-        .sidebar::-webkit-scrollbar-thumb { background: var(--scrollbarThumb); border-radius: 999px; }
+        .sidebar::-webkit-scrollbar-track { background: rgba(233, 226, 216, 0.3); border-radius: 999px; }
+        .sidebar::-webkit-scrollbar-thumb { background: rgba(240, 163, 111, 0.5); border-radius: 999px; }
 
         .panel {
-          background: #fff;
-          border: 1px solid var(--border);
+          background: rgba(255, 255, 255, 0.9);
+          border: 1px solid rgba(232, 224, 214, 0.5);
           border-radius: 14px;
           padding: 14px;
           box-shadow: var(--shadow);

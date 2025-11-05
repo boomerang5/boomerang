@@ -473,7 +473,7 @@ export default function DashboardPage() {
           <ActionBubble
             href="/protected/contactos"
             emoji="🎥"
-            title="Videollamá"
+            title="Iniciá una videollamada"
             subtitle="Cara a cara en segundos"
           />
           <ActionBubble
@@ -497,7 +497,7 @@ export default function DashboardPage() {
           <ActionBubble
             href="/protected/chats"
             emoji="💬"
-            title="Chatea con amigos"
+            title="Chateá con amigos"
             subtitle="De todo el mundo"
           />
         </div>

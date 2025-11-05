@@ -916,7 +916,7 @@ export default function CalendarioPage() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header del calendario */}
-      <div className="bg-white/20 dark:bg-white/10 backdrop-blur-md border-b border-white/20 p-4">
+      <div className="p-4">
         {/* Mensaje de error */}
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
@@ -929,13 +929,13 @@ export default function CalendarioPage() {
           </div>
         )}
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Calendario</h1>
+          <h1 className="text-2xl font-bold" style={{ color: '#EA580C' }}>Calendario</h1>
           <button
             onClick={() => abrirModal()}
-            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-md font-semibold hover:brightness-105 transition flex items-center gap-2"
           >
             <i data-feather="plus" className="w-4 h-4"></i>{' '}
-            Nueva Reunión
+            Nueva reunión
           </button>
         </div>
 
@@ -974,9 +974,9 @@ export default function CalendarioPage() {
               <button
                 key={v}
                 onClick={() => setVista(v as VistaCalendario)}
-                className={`px-3 py-1 rounded-md text-sm capitalize transition-colors ${
+                className={`px-3 py-1 rounded-md text-sm capitalize transition ${
                   vista === v
-                    ? 'bg-orange-500 text-white'
+                    ? 'bg-gradient-to-r from-orange-400 to-orange-600 text-white font-semibold'
                     : 'text-gray-700 dark:text-gray-300 hover:bg-white/20'
                 }`}
               >

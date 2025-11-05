@@ -168,7 +168,7 @@ export default function ReportesDashboard() {
     <div className="p-6">
       {/* Header del Dashboard */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground mb-2">Dashboard de Reportes</h1>
+        <h1 className="text-3xl font-bold mb-2" style={{ color: '#EA580C' }}>Dashboard de reportes</h1>
         <p className="text-muted-foreground">Análisis completo de actividad y métricas de llamadas</p>
       </div>
 
