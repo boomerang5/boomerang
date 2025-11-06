@@ -61,10 +61,19 @@ export const signInAction = async (formData: FormData) => {
     if (code === "email_not_confirmed" || msg === "Email not confirmed") {
       msg = "Aún no confirmaste tu correo. Revisá tu email y seguí el enlace de verificación.";
     } else if (code === "invalid_login_credentials" || msg === "Invalid login credentials") {
-      msg = "Email o contraseña inválidos.";
+      msg = "Email o contraseña incorrectos.";
+    } else if (msg.includes("Invalid login credentials")) {
+      msg = "Email o contraseña incorrectos.";
+    } else {
+      // Para cualquier otro error, traducir mensajes comunes
+      msg = msg
+        .replace("Email not confirmed", "Email no confirmado")
+        .replace("Invalid login credentials", "Email o contraseña incorrectos")
+        .replace("Invalid email or password", "Email o contraseña incorrectos")
+        .replace("User not found", "Usuario no encontrado");
     }
 
-    return encodedRedirect("error", "/sign-in", error.message);
+    return encodedRedirect("error", "/sign-in", msg);
   }
 
   return redirect("/protected");
@@ -80,16 +89,43 @@ export const forgotPasswordAction = async (formData: FormData) => {
     return encodedRedirect("error", "/forgot-password", "Email is required");
   }
 
+  // Verificar si el usuario existe llamando a una RPC function o consultando auth.users
+  // Usaremos la función rpc 'check_user_exists' si está disponible
+  let userExists = true; // Por defecto asumimos que existe
+  
+  try {
+    // Intentar consultar si existe alguna función RPC para verificar usuarios
+    const { data: rpcData, error: rpcError } = await supabase
+      .rpc('check_user_exists', { email_param: email });
+    
+    if (!rpcError && rpcData !== null) {
+      userExists = rpcData;
+    }
+  } catch (e) {
+    // Si la función RPC no existe, continuamos de todos modos
+    console.log('RPC function not available, continuing with default behavior');
+  }
+
+  // Si determinamos que el usuario no existe, retornar error
+  if (!userExists) {
+    return encodedRedirect(
+      "error",
+      "/forgot-password",
+      "El email ingresado no se encuentra registrado.",
+    );
+  }
+
+  // Supabase por defecto siempre retorna éxito pero solo envía email si el usuario existe
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${origin}/auth/callback?redirect_to=/protected/reset-password`,
   });
 
   if (error) {
-    console.error(error.message);
+    console.error('Reset password error:', error);
     return encodedRedirect(
       "error",
       "/forgot-password",
-      "Could not reset password",
+      "No se pudo enviar el correo de recuperación. Por favor, intenta más tarde.",
     );
   }
 
@@ -100,7 +136,7 @@ export const forgotPasswordAction = async (formData: FormData) => {
   return encodedRedirect(
     "success",
     "/forgot-password",
-    "Check your email for a link to reset your password.",
+    "Si el email está registrado, recibirás un enlace para restablecer tu contraseña.",
   );
 };
 

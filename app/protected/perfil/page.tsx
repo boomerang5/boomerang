@@ -106,15 +106,12 @@ export default function VerPerfilPage() {
       : '/avatar-placeholder.png';
 
   return (
-    <main className="flex-1 mx-auto max-w-6xl p-6">
+    <main className="flex-1 mx-auto max-w-6xl pl-2 pr-6 py-6">
       {/* Header mejorado */}
       <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl font-bold" style={{ color: '#EA580C' }}>
-            Mi perfil
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">Información de tu cuenta</p>
-        </div>
+        <h1 className="text-2xl font-semibold" style={{ color: '#EA580C' }}>
+          Mi perfil
+        </h1>
         <Link
           href="/protected/perfil/editar"
           className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-md font-semibold hover:brightness-105 transition flex items-center gap-2"

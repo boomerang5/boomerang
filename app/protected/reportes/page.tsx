@@ -165,10 +165,10 @@ export default function ReportesDashboard() {
   }
 
   return (
-    <div className="p-6">
+    <div className="pl-2 pr-6 py-6">
       {/* Header del Dashboard */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2" style={{ color: '#EA580C' }}>Dashboard de reportes</h1>
+        <h1 className="text-2xl font-semibold mb-2" style={{ color: '#EA580C' }}>Dashboard de reportes</h1>
         <p className="text-muted-foreground">Análisis completo de actividad y métricas de llamadas</p>
       </div>
 

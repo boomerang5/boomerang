@@ -229,14 +229,14 @@ export default function EditarPerfilPage() {
   }
 
   if (loading) return (
-    <main className="flex-1 p-6">Cargando…</main>
+    <main className="flex-1 pl-2 pr-6 py-6">Cargando…</main>
   );
 
   return (
-    <main className="flex-1 mx-auto max-w-4xl p-6">
+    <main className="flex-1 mx-auto max-w-4xl pl-2 pr-6 py-6">
       {/* Header mejorado */}
       <div className="mb-8">
-        <h1 className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-4xl font-bold text-transparent mb-2">
+        <h1 className="text-2xl font-semibold mb-2" style={{ color: '#EA580C' }}>
           Editar perfil
         </h1>
         <p className="text-gray-600 dark:text-gray-400">Actualizá tus datos personales</p>

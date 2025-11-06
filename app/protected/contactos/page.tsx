@@ -392,7 +392,7 @@ export default function ContactosPage() {
           );
         }
 
-        toast.success('Solicitud enviada ✅');
+        toast.success('Solicitud enviada');
         if (isModalOpen) handleCloseModal();
       } catch (e: any) {
         console.error(e);
@@ -413,10 +413,23 @@ export default function ContactosPage() {
     toast.error('No se pudo aceptar la solicitud.');
     return;
   }
+  
+  // Actualizar la notificación correspondiente
+  // Buscar la notificación de solicitud de amistad relacionada con este solicitante
+  const relatedNotif = notifications.find(
+    n => n.type === 'friend_request' && 
+         Number(n.meta?.id_solicitante) === Number(c.id_solicitante)
+  );
+  
+  if (relatedNotif && typeof relatedNotif.id === 'number') {
+    const meta = { ...(relatedNotif.meta ?? {}), respuesta: 'aceptada', responded_at: new Date().toISOString() };
+    await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', relatedNotif.id);
+  }
+  
   // Optimista: saco de la lista entrante y refresco agenda confirmada
   setInList(prev => prev.filter(x => x.id !== c.id));
   await refreshAgenda();
-  toast.success('Solicitud aceptada ✅');
+  toast.success('Solicitud aceptada');
   }
 
   async function rejectFromContacts(c: ContactoAgenda) {
@@ -430,6 +443,19 @@ export default function ContactosPage() {
       toast.error('No se pudo rechazar la solicitud.');
       return;
     }
+    
+    // Actualizar la notificación correspondiente
+    // Buscar la notificación de solicitud de amistad relacionada con este solicitante
+    const relatedNotif = notifications.find(
+      n => n.type === 'friend_request' && 
+           Number(n.meta?.id_solicitante) === Number(c.id_solicitante)
+    );
+    
+    if (relatedNotif && typeof relatedNotif.id === 'number') {
+      const meta = { ...(relatedNotif.meta ?? {}), respuesta: 'rechazada', responded_at: new Date().toISOString() };
+      await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', relatedNotif.id);
+    }
+    
     setInList(prev => prev.filter(x => x.id !== c.id));
     toast.success('Solicitud rechazada');
   }
@@ -589,15 +615,17 @@ export default function ContactosPage() {
 
         if (!userError && userInfo && !contactError && contactInfo) {
           // Combinar la información del contacto con la información del usuario
+          const user = userInfo as any; // Cast para acceder a propiedades
+          const contact = contactInfo as any;
           const completeContactInfo = {
             ...c,
-            nombre: userInfo.nombre,
-            apellido: userInfo.apellido,
-            apodo: userInfo.apodo,
-            fecha_registro: userInfo.fecha_registro,
-            idioma: userInfo.Idioma?.nombre || null,
-            favorito: contactInfo.favorito,
-            fh_alta: contactInfo.fh_alta,
+            nombre: user.nombre,
+            apellido: user.apellido,
+            apodo: user.apodo,
+            fecha_registro: user.fecha_registro,
+            idioma: user.Idioma?.nombre || null,
+            favorito: contact.favorito,
+            fh_alta: contact.fh_alta,
           };
           setSelectedContactForProfile(completeContactInfo);
         } else {
@@ -812,7 +840,7 @@ const combinedAgenda = useMemo(
 
   return (
   <>
-    <main className="flex-1 px-6 py-8 flex flex-col gap-8">
+    <main className="flex-1 pl-2 pr-6 py-8 flex flex-col gap-8">
       {/* Header + botón + buscador */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
 
@@ -913,9 +941,6 @@ const combinedAgenda = useMemo(
               >
                 <p className="font-semibold text-lg">
                   {fullName(c.nombre, c.apellido)}
-                  {isPending && (
-                    <span className="ml-2 text-xs text-orange-600">(pendiente)</span>
-                  )}
                 </p>
                 {!isPending && (
                   <p className="text-sm text-muted-foreground">
@@ -1008,18 +1033,34 @@ const combinedAgenda = useMemo(
             {!modalLoading && modalResults.map(u => (
               <button
                 key={u.id}
-                onClick={() => setSelectedUser(u)}
-                className={`w-full text-left bg-white/60 dark:bg-white/5 border border-white/30 rounded-lg p-3 hover:bg-white/80 dark:hover:bg-white/10 transition ${selectedUser?.id === u.id ? 'ring-2 ring-orange-400' : ''}`}
+                onClick={() => !u.en_agenda && !u.pendiente && setSelectedUser(u)}
+                disabled={u.en_agenda || u.pendiente}
+                className={`w-full text-left rounded-lg p-3 transition ${
+                  u.en_agenda || u.pendiente 
+                    ? 'bg-gray-100 dark:bg-white/5 cursor-not-allowed opacity-70' 
+                    : selectedUser?.id === u.id 
+                      ? 'bg-white/60 dark:bg-white/5 border-2 border-orange-500 hover:bg-white/80 dark:hover:bg-white/10' 
+                      : 'bg-white/60 dark:bg-white/5 border border-white/30 hover:bg-white/80 dark:hover:bg-white/10'
+                }`}
               >
-                <p className="font-medium">
-                  {u.nombre} {u.apellido}{u.apodo ? ` (${u.apodo})` : ''}
-                </p>
-                <p className="text-xs text-muted-foreground">{u.mail}</p>
-                {u.en_agenda && (
-                  <span className="text-[11px] inline-block mt-1 px-2 py-0.5 rounded-full bg-green-500/20 text-green-700 dark:text-green-400 border border-green-500/30">
-                    Ya en tu lista
-                  </span>
-                )}
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      {u.nombre} {u.apellido}{u.apodo ? ` (${u.apodo})` : ''}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{u.mail}</p>
+                  </div>
+                  {u.en_agenda && (
+                    <span className="text-xs px-3 py-1 rounded-full bg-green-500/20 text-green-700 dark:text-green-400 border border-green-500/30 font-medium">
+                      Amigos
+                    </span>
+                  )}
+                  {u.pendiente && !u.en_agenda && (
+                    <span className="text-xs px-3 py-1 rounded-full bg-orange-500/20 text-orange-700 dark:text-orange-400 border border-orange-500/30 font-medium">
+                      Pendiente
+                    </span>
+                  )}
+                </div>
               </button>
             ))}
           </div>

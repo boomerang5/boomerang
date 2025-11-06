@@ -256,5 +256,65 @@
 [data-sonner-toaster][data-position="top-center"]{
   left: 50% !important;
   top: 50% !important;
-  transform: translateX(-50%, -50%) !important;
+  transform: translate(-50%, -50%) !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+/* Centrar cada toast individualmente */
+[data-sonner-toast] {
+  margin: 0 auto !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+/* Estilos modernos para toasts */
+.toast-modern {
+  animation: slideInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideInScale {
+  from {
+    transform: translateY(-20px) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Iconos del toast con mejor estilo */
+[data-sonner-toast] [data-icon] {
+  width: 24px !important;
+  height: 24px !important;
+  margin-right: 8px;
+}
+
+/* Toast de éxito con estilo verde moderno */
+[data-sonner-toast][data-type="success"] {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%) !important;
+  border: 2px solid #86efac !important;
+  color: #166534 !important;
+}
+
+/* Toast de error con estilo rojo moderno */
+[data-sonner-toast][data-type="error"] {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important;
+  border: 2px solid #fca5a5 !important;
+  color: #991b1b !important;
+}
+
+/* Botón de cerrar más moderno */
+[data-sonner-toast] [data-close-button] {
+  background: rgba(0, 0, 0, 0.05) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease;
+}
+
+[data-sonner-toast] [data-close-button]:hover {
+  background: rgba(0, 0, 0, 0.1) !important;
+  transform: scale(1.1);
 }

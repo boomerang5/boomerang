@@ -916,7 +916,7 @@ export default function CalendarioPage() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header del calendario */}
-      <div className="p-4">
+      <div className="pl-2 pr-6 pt-4 pb-4">
         {/* Mensaje de error */}
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
@@ -929,7 +929,7 @@ export default function CalendarioPage() {
           </div>
         )}
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold" style={{ color: '#EA580C' }}>Calendario</h1>
+          <h1 className="text-2xl font-semibold" style={{ color: '#EA580C' }}>Calendario</h1>
           <button
             onClick={() => abrirModal()}
             className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-md font-semibold hover:brightness-105 transition flex items-center gap-2"

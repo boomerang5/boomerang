@@ -41,12 +41,14 @@ export default async function ForgotPassword(props: {
                 required 
                 className="mt-2 text-base py-3 bg-white border-gray-300 focus:border-orange-500 focus:ring-orange-500" 
               />
+              <div className="mt-2">
+                <FormMessage message={searchParams} />
+              </div>
             </div>
 
             <SubmitButton className="bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold px-6 py-4 rounded-full mt-2 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all text-base">
               Enviar link de recuperación
             </SubmitButton>
-            <FormMessage message={searchParams} />
           </form>
 
           <div className="mt-8 pt-6 border-t border-gray-200 text-center">
