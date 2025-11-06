@@ -165,7 +165,7 @@ export default function ReportesDashboard() {
   }
 
   return (
-    <div className="pl-2 pr-6 py-6">
+    <div>
       {/* Header del Dashboard */}
       <div className="mb-8">
         <h1 className="text-2xl font-semibold mb-2" style={{ color: '#EA580C' }}>Dashboard de reportes</h1>

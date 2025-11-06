@@ -231,7 +231,7 @@ export default function CallHistoryPage() {
   }, [filtered, loading])
 
     return (
-    <main className="flex-1 pl-2 pr-6 py-6">
+    <main className="flex-1">
       {/* Título */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-semibold" style={{ color: '#EA580C' }}>Historial de llamadas</h1>

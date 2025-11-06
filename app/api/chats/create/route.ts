@@ -1,4 +1,3 @@
-// app/api/chats/create/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 const API_BASE =

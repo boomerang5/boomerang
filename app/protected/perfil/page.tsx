@@ -106,7 +106,7 @@ export default function VerPerfilPage() {
       : '/avatar-placeholder.png';
 
   return (
-    <main className="flex-1 mx-auto max-w-6xl pl-2 pr-6 py-6">
+    <main className="flex-1 mx-auto max-w-6xl">
       {/* Header mejorado */}
       <div className="mb-8 flex items-center justify-between">
         <h1 className="text-2xl font-semibold" style={{ color: '#EA580C' }}>

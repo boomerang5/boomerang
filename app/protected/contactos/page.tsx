@@ -840,7 +840,7 @@ const combinedAgenda = useMemo(
 
   return (
   <>
-    <main className="flex-1 pl-2 pr-6 py-8 flex flex-col gap-8">
+    <main className="flex flex-col gap-8">
       {/* Header + botón + buscador */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
 

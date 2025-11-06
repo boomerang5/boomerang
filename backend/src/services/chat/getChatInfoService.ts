@@ -13,3 +13,4 @@ export async function getChatInfoService(idChat: number) {
   if (data == null) return [];                
   return [data]; 
 }
+

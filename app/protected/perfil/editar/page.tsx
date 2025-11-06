@@ -229,11 +229,11 @@ export default function EditarPerfilPage() {
   }
 
   if (loading) return (
-    <main className="flex-1 pl-2 pr-6 py-6">Cargando…</main>
+    <main className="flex-1">Cargando…</main>
   );
 
   return (
-    <main className="flex-1 mx-auto max-w-4xl pl-2 pr-6 py-6">
+    <main className="flex-1 mx-auto max-w-4xl">
       {/* Header mejorado */}
       <div className="mb-8">
         <h1 className="text-2xl font-semibold mb-2" style={{ color: '#EA580C' }}>

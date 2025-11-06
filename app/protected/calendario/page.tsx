@@ -914,9 +914,9 @@ export default function CalendarioPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden -mt-6 -mx-4 sm:-mx-6 lg:-mx-8">
       {/* Header del calendario */}
-      <div className="pl-2 pr-6 pt-4 pb-4">
+      <div className="px-4 sm:px-6 lg:px-8 pt-6 pb-4">
         {/* Mensaje de error */}
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">

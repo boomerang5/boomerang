@@ -53,6 +53,14 @@ export default function ChatsPage() {
   // Estado para el modal de participantes
   const [showParticipantsModal, setShowParticipantsModal] = useState(false)
   
+  // Estados para modales personalizados
+  const [customAlert, setCustomAlert] = useState<{show: boolean, title: string, message: string, type: 'success' | 'error' | 'info'}>({
+    show: false, title: '', message: '', type: 'info'
+  })
+  const [customConfirm, setCustomConfirm] = useState<{show: boolean, title: string, message: string, onConfirm: () => void}>({
+    show: false, title: '', message: '', onConfirm: () => {}
+  })
+  
   const newChatMenuRef = useRef<HTMLDivElement>(null)
 
   // Función para obtener datos del chat seleccionado
@@ -853,7 +861,12 @@ export default function ChatsPage() {
     const texto = messageText.trim()
     if (!texto) return
     if (!selectedChat) {
-      alert('Seleccioná un chat primero')
+      setCustomAlert({
+        show: true,
+        title: 'Atención',
+        message: 'Seleccioná un chat primero',
+        type: 'info'
+      });
       return
     }
 
@@ -863,7 +876,12 @@ export default function ChatsPage() {
       idUsuario = resolved.idUsuario
     } catch (err) {
       console.error('❌ No se pudo resolver usuario para enviar mensaje:', err)
-      alert('No estás autenticado')
+      setCustomAlert({
+        show: true,
+        title: 'Error',
+        message: 'No estás autenticado',
+        type: 'error'
+      });
       return
     }
 
@@ -877,7 +895,12 @@ export default function ChatsPage() {
 
       if (error) {
         console.error('❌ Error al enviar mensaje:', error)
-        alert('Error al enviar: ' + (error.message || 'desconocido'))
+        setCustomAlert({
+          show: true,
+          title: 'Error',
+          message: 'Error al enviar: ' + (error.message || 'desconocido'),
+          type: 'error'
+        });
         return
       }
 
@@ -985,7 +1008,7 @@ export default function ChatsPage() {
         <aside className="bg-white/70 dark:bg-gray-800 p-6 flex flex-col gap-4 shadow-lg rounded-2xl h-[600px]">
         {/* Header del Panel Izquierdo */}
         <div className="mb-4">
-          <h1 className="text-lg font-bold mb-2" style={{ color: '#EA580C' }}>Mis chats</h1>
+          <h1 className="text-lg font-bold text-gray-700 mb-2">Mis chats</h1>
 
           {/* Barra de Búsqueda */}
           <div className="mb-2 flex items-center gap-2">
@@ -1243,89 +1266,104 @@ export default function ChatsPage() {
                 <button
                   className="rounded-full p-2 hover:bg-red-50 text-red-500 hover:text-red-600"
                   title="Eliminar chat"
-                  onClick={async () => {
-                    if (window.confirm('¿Estás seguro de que quieres eliminar este chat?')) {
-                      try {
-                        const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
-                        
-                        // Obtener el ID correcto del chat y validar datos
-                        const chatId = Number((selectedChatData as any).id || 
-                                     (selectedChatData as any).id_chat || 
-                                     selectedChat);
-
-                        if (!chatId || isNaN(chatId)) {
-                          throw new Error('ID de chat inválido');
-                        }
-
-                        if (!idUsuario) {
-                          throw new Error('ID de usuario no disponible');
-                        }
-
-                        // 1. Primero eliminar todos los mensajes del chat usando Supabase directamente
+                  onClick={() => {
+                    setCustomConfirm({
+                      show: true,
+                      title: '¿Estás seguro?',
+                      message: '¿Estás seguro de que quieres eliminar este chat?',
+                      onConfirm: async () => {
                         try {
-                          console.log('🗑️ Eliminando mensajes del chat:', chatId);
-                          const { error: deleteMessagesError } = await supabase
-                            .from('Mensaje')
-                            .delete()
-                            .eq('id_chat', chatId);
+                          const { idUsuario, accessToken } = await resolveIdUsuarioAndToken();
+                          
+                          // Obtener el ID correcto del chat y validar datos
+                          const chatId = Number((selectedChatData as any).id || 
+                                       (selectedChatData as any).id_chat || 
+                                       selectedChat);
 
-                          if (deleteMessagesError) {
-                            console.error('❌ Error al eliminar mensajes:', deleteMessagesError);
-                            throw new Error('No se pudieron eliminar los mensajes del chat');
+                          if (!chatId || isNaN(chatId)) {
+                            throw new Error('ID de chat inválido');
                           }
 
-                          console.log('✅ Mensajes eliminados correctamente');
+                          if (!idUsuario) {
+                            throw new Error('ID de usuario no disponible');
+                          }
+
+                          // 1. Primero eliminar todos los mensajes del chat usando Supabase directamente
+                          try {
+                            console.log('🗑️ Eliminando mensajes del chat:', chatId);
+                            const { error: deleteMessagesError } = await supabase
+                              .from('Mensaje')
+                              .delete()
+                              .eq('id_chat', chatId);
+
+                            if (deleteMessagesError) {
+                              console.error('❌ Error al eliminar mensajes:', deleteMessagesError);
+                              throw new Error('No se pudieron eliminar los mensajes del chat');
+                            }
+
+                            console.log('✅ Mensajes eliminados correctamente');
+                          } catch (error) {
+                            console.error('❌ Error al eliminar mensajes:', error);
+                            throw new Error('Error al eliminar los mensajes del chat');
+                          }
+
+                          // 2. Luego eliminar el chat
+                          const deleteData = {
+                            id_chat: chatId,
+                            id_emisor: idUsuario
+                          };
+                          
+                          console.log('🗑️ Intentando eliminar chat:', deleteData);
+
+                          const response = await fetch('/api/chats/delete', {
+                            method: 'POST',
+                            headers: {
+                              'Authorization': `Bearer ${accessToken}`,
+                              'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(deleteData)
+                          });
+
+                          const responseText = await response.text();
+                          console.log('📡 Respuesta del servidor:', {
+                            status: response.status,
+                            text: responseText
+                          });
+
+                          if (!response.ok) {
+                            throw new Error(`Error ${response.status}: ${responseText}`);
+                          }
+
+                          // Si llegamos aquí, la eliminación fue exitosa
+                          console.log('✅ Chat eliminado correctamente');
+                          
+                          // Actualizar la lista de chats
+                          setUserChats(prevChats => 
+                            prevChats.filter(chat => {
+                              const currentChatId = (chat as any).id || (chat as any).id_chat;
+                              return currentChatId?.toString() !== chatId?.toString();
+                            })
+                          );
+                          setSelectedChat(null);
+                          
+                          // Notificar al usuario
+                          setCustomAlert({
+                            show: true,
+                            title: '¡Éxito!',
+                            message: 'Chat eliminado correctamente',
+                            type: 'success'
+                          });
                         } catch (error) {
-                          console.error('❌ Error al eliminar mensajes:', error);
-                          throw new Error('Error al eliminar los mensajes del chat');
+                          console.error('❌ Error detallado al eliminar el chat:', error);
+                          setCustomAlert({
+                            show: true,
+                            title: 'Error',
+                            message: error instanceof Error ? error.message : 'No se pudo eliminar el chat. Por favor intenta de nuevo.',
+                            type: 'error'
+                          });
                         }
-
-                        // 2. Luego eliminar el chat
-                        const deleteData = {
-                          id_chat: chatId,
-                          id_emisor: idUsuario
-                        };
-                        
-                        console.log('🗑️ Intentando eliminar chat:', deleteData);
-
-                        const response = await fetch('/api/chats/delete', {
-                          method: 'POST',
-                          headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Content-Type': 'application/json'
-                          },
-                          body: JSON.stringify(deleteData)
-                        });
-
-                        const responseText = await response.text();
-                        console.log('📡 Respuesta del servidor:', {
-                          status: response.status,
-                          text: responseText
-                        });
-
-                        if (!response.ok) {
-                          throw new Error(`Error ${response.status}: ${responseText}`);
-                        }
-
-                        // Si llegamos aquí, la eliminación fue exitosa
-                        console.log('✅ Chat eliminado correctamente');
-                        
-                        // Actualizar la lista de chats
-                        setUserChats(prevChats => 
-                          prevChats.filter(chat => {
-                            const currentChatId = (chat as any).id || (chat as any).id_chat;
-                            return currentChatId?.toString() !== chatId?.toString();
-                          })
-                        );
-                        setSelectedChat(null);
-                        
-                        // Notificar al usuario
-                        alert('Chat eliminado correctamente');
-                      } catch (error) {
-                        console.error('❌ Error detallado al eliminar el chat:', error);
-                        alert(error instanceof Error ? error.message : 'No se pudo eliminar el chat. Por favor intenta de nuevo.');
                       }
-                    }
+                    })
                   }}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -1389,14 +1427,14 @@ export default function ChatsPage() {
               {/* Input para Enviar Mensajes (realtime) */}
               <form
                 onSubmit={e => { e.preventDefault(); sendMessage() }}
-                className="w-full flex items-center gap-2 mt-2"
+                className="w-full flex items-center gap-2 mt-2 p-1"
               >
                 <input
                   type="text"
                   value={messageText}
                   onChange={e => setMessageText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-                  className="flex-1 rounded-full border border-orange-200 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                  className="flex-1 rounded-full border-2 border-orange-200 px-4 py-2 focus:outline-none focus:border-orange-500 bg-white transition-colors"
                   placeholder={`Mensaje para ${selectedChatData.nombre || 'este chat'}...`}
                 />
                 <button
@@ -1405,22 +1443,6 @@ export default function ChatsPage() {
                 >
                   Enviar
                 </button>
-                <div className="relative">
-                  <select
-                    id="prefLang"
-                    className="appearance-none bg-white border border-orange-200 text-gray-700 py-2 px-4 pr-8 rounded-full focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-                    defaultValue="es"
-                  >
-                    <option value="es">Español</option>
-                    <option value="en">English</option>
-                    <option value="pt">Português</option>
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
-                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
-                    </svg>
-                  </div>
-                </div>
               </form>
             </div>
           </div>
@@ -1512,7 +1534,12 @@ export default function ChatsPage() {
                           } catch (error) {
                             console.error('❌ Error al crear chat privado:', error)
                             // Mostrar error al usuario
-                            alert(`Error al crear chat: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+                            setCustomAlert({
+                              show: true,
+                              title: 'Error',
+                              message: `Error al crear chat: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+                              type: 'error'
+                            });
                           } finally {
                             setCreatingChat(false)
                           }
@@ -1600,10 +1627,10 @@ export default function ChatsPage() {
 
       {/* Modal para seleccionar contactos del grupo */}
       {showGroupContactsModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md max-h-96 overflow-hidden">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md max-h-[600px] flex flex-col overflow-hidden">
             {/* Header del modal */}
-            <div className="px-6 py-4 border-b border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-bold text-gray-800">Agregar miembros</h2>
@@ -1624,7 +1651,7 @@ export default function ChatsPage() {
             </div>
 
             {/* Lista de contactos con checkboxes */}
-            <div className="overflow-y-auto max-h-64 relative">
+            <div className="overflow-y-auto flex-1 relative">
               {creatingChat && (
                 <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-10">
                   <div className="text-center">
@@ -1709,7 +1736,7 @@ export default function ChatsPage() {
             </div>
 
             {/* Footer con botones */}
-            <div className="px-6 py-4 border-t border-gray-200">
+            <div className="px-6 py-4 border-t border-gray-200 flex-shrink-0">
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowGroupContactsModal(false)}
@@ -1726,7 +1753,12 @@ export default function ChatsPage() {
                         // El modal se cierra automáticamente en createGroupChat()
                       } catch (error) {
                         console.error('Error al crear grupo:', error)
-                        alert(`Error al crear grupo: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+                        setCustomAlert({
+                          show: true,
+                          title: 'Error',
+                          message: `Error al crear grupo: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+                          type: 'error'
+                        });
                       } finally {
                         setCreatingChat(false)
                       }
@@ -1873,6 +1905,89 @@ export default function ChatsPage() {
               >
                 Cerrar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Alerta Personalizado */}
+      {customAlert.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6">
+              {/* Icono según el tipo */}
+              <div className="flex items-center justify-center mb-4">
+                {customAlert.type === 'success' && (
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
+                {customAlert.type === 'error' && (
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </div>
+                )}
+                {customAlert.type === 'info' && (
+                  <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              
+              <h3 className="text-xl font-bold text-gray-800 text-center mb-2">{customAlert.title}</h3>
+              <p className="text-gray-600 text-center mb-6">{customAlert.message}</p>
+              
+              <button
+                onClick={() => setCustomAlert({show: false, title: '', message: '', type: 'info'})}
+                className="w-full px-4 py-3 bg-gradient-to-r from-orange-400 to-orange-500 text-white rounded-lg font-semibold hover:opacity-90 transition"
+              >
+                Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmación Personalizado */}
+      {customConfirm.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6">
+              {/* Icono de advertencia */}
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+              </div>
+              
+              <h3 className="text-xl font-bold text-gray-800 text-center mb-2">{customConfirm.title}</h3>
+              <p className="text-gray-600 text-center mb-6">{customConfirm.message}</p>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCustomConfirm({show: false, title: '', message: '', onConfirm: () => {}})}
+                  className="flex-1 px-4 py-3 border-2 border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    customConfirm.onConfirm()
+                    setCustomConfirm({show: false, title: '', message: '', onConfirm: () => {}})
+                  }}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-orange-400 to-orange-500 text-white rounded-lg font-semibold hover:opacity-90 transition"
+                >
+                  Aceptar
+                </button>
+              </div>
             </div>
           </div>
         </div>
