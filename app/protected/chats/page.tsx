@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, Search, Plus, Send, Paperclip } from 'lucide-react'
+import { ArrowLeft, Search, Plus, Send, Paperclip, User, X, Phone, MessageCircle } from 'lucide-react'
 import { createClient } from '../../../utils/supabase/client'
 
 // Tipos para los datos de chats
@@ -52,6 +52,10 @@ export default function ChatsPage() {
   
   // Estado para el modal de participantes
   const [showParticipantsModal, setShowParticipantsModal] = useState(false)
+  
+  // Estados para el modal de perfil de usuario
+  const [showUserProfileModal, setShowUserProfileModal] = useState(false)
+  const [selectedUserProfile, setSelectedUserProfile] = useState<any>(null)
   
   // Estados para modales personalizados
   const [customAlert, setCustomAlert] = useState<{show: boolean, title: string, message: string, type: 'success' | 'error' | 'info'}>({
@@ -147,7 +151,7 @@ export default function ChatsPage() {
   const openExistingChat = () => {
     if (existingChatData) {
       const chatId = (existingChatData.chat as any).id || (existingChatData.chat as any).id_chat
-      console.log('📱 Abriendo chat existente:', chatId)
+
       
       // Seleccionar el chat existente
       setSelectedChat(chatId.toString())
@@ -170,7 +174,6 @@ export default function ChatsPage() {
     if (selectedChat) {
       const chatData = getSelectedChatData(selectedChat)
       setSelectedChatData(chatData)
-      console.log('📱 Chat seleccionado:', chatData)
       
       // Marcar como leído cuando se abre el chat
       markChatAsRead(selectedChat)
@@ -211,8 +214,6 @@ export default function ChatsPage() {
     }
     
     // Paso 1: Obtener id_usuario desde UUID usando el endpoint correcto
-    console.log('🔍 Llamando a /api/users/uuid con UUID:', user.id)
-    
     const userUuidResponse = await fetch(`/api/users/uuid/${user.id}`, {
       method: 'GET',
       headers: {
@@ -221,8 +222,6 @@ export default function ChatsPage() {
       }
     })
     
-    console.log('📡 Respuesta del endpoint UUID:', userUuidResponse.status, userUuidResponse.statusText)
-    
     if (!userUuidResponse.ok) {
       const errorText = await userUuidResponse.text()
       console.error('❌ Error en /api/users/uuid:', errorText)
@@ -230,7 +229,6 @@ export default function ChatsPage() {
     }
     
     const responseText = await userUuidResponse.text()
-    console.log('📄 Respuesta raw del endpoint UUID:', responseText)
     
     let userData
     try {
@@ -240,9 +238,6 @@ export default function ChatsPage() {
       throw new Error(`Respuesta inválida del servidor: ${responseText}`)
     }
     
-    console.log('✅ Datos parseados del usuario:', userData)
-    console.log('🔍 Propiedades disponibles:', Object.keys(userData))
-    
     // Buscar el id_usuario en diferentes propiedades posibles
     const idUsuario = userData.id_usuario || userData.id || userData.userId || userData.user_id
     
@@ -251,11 +246,102 @@ export default function ChatsPage() {
       throw new Error(`No se pudo obtener el id_usuario del backend. Datos recibidos: ${JSON.stringify(userData)}`)
     }
     
-    console.log('✅ ID de usuario encontrado:', idUsuario)
-    
     return {
       idUsuario: idUsuario,
       accessToken: session.access_token
+    }
+  }
+
+  // Funciones helper reutilizadas de contactos
+  const fullName = (nombre?: string, apellido?: string) => {
+    const n = nombre?.trim() || ''
+    const a = apellido?.trim() || ''
+    return `${n} ${a}`.trim() || 'Usuario'
+  }
+
+  const getJwt = async () => {
+    const supabase = createClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token || null
+  }
+
+  // Función para enviar solicitud de contacto (reutilizada de contactos page)
+  const sendContactRequest = async (idReceptor: number) => {
+    try {
+      const { idUsuario } = await resolveIdUsuarioAndToken()
+      const supabase = createClient()
+      
+      // Verificar si ya son contactos
+      const { data: existingContact } = await supabase
+        .from('Agenda')
+        .select('id')
+        .or(`and(id_usuario.eq.${idUsuario},id_usuario_contacto.eq.${idReceptor}),and(id_usuario.eq.${idReceptor},id_usuario_contacto.eq.${idUsuario})`)
+        .single()
+
+      if (existingContact) {
+        setCustomAlert({
+          show: true,
+          title: 'Información',
+          message: 'Ya son contactos',
+          type: 'info'
+        })
+        return
+      }
+
+      // Verificar si ya hay una solicitud pendiente
+      const { data: existingRequest } = await supabase
+        .from('SolicitudContacto')
+        .select('id')
+        .or(`and(id_solicitante.eq.${idUsuario},id_receptor.eq.${idReceptor}),and(id_solicitante.eq.${idReceptor},id_receptor.eq.${idUsuario})`)
+        .eq('estado', 'pendiente')
+        .single()
+
+      if (existingRequest) {
+        setCustomAlert({
+          show: true,
+          title: 'Información',
+          message: 'Ya hay una solicitud pendiente entre ustedes',
+          type: 'info'
+        })
+        return
+      }
+
+      // Crear la solicitud
+      const { error } = await supabase
+        .from('SolicitudContacto')
+        .insert({
+          id_solicitante: idUsuario,
+          id_receptor: idReceptor,
+          fecha_solicitud: new Date().toISOString(),
+          estado: 'pendiente'
+        })
+
+      if (error) {
+        console.error('Error al enviar solicitud:', error)
+        setCustomAlert({
+          show: true,
+          title: 'Error',
+          message: 'No se pudo enviar la solicitud',
+          type: 'error'
+        })
+        return
+      }
+
+      setCustomAlert({
+        show: true,
+        title: '¡Éxito!',
+        message: 'Solicitud de contacto enviada',
+        type: 'success'
+      })
+      
+    } catch (error) {
+      console.error('Error al enviar solicitud:', error)
+      setCustomAlert({
+        show: true,
+        title: 'Error',
+        message: 'Error al enviar la solicitud',
+        type: 'error'
+      })
     }
   }
 
@@ -293,14 +379,12 @@ export default function ChatsPage() {
 
   // Función para enriquecer chats con información detallada
   const enrichChatsWithInfo = async (chats: ChatData[], idUsuario: number, accessToken: string) => {
-    console.log('🔄 Enriqueciendo chats con información detallada del backend...')
     
     // Procesar todos los chats en paralelo
     const enrichedChats = await Promise.all(chats.map(async (chat) => {
       const chatId = (chat as any).id || (chat as any).id_chat
       
       if (!chatId) {
-        console.log(`⚠️ Chat sin ID válido, usando datos básicos:`, chat)
         return chat
       }
 
@@ -315,13 +399,11 @@ export default function ChatsPage() {
           }
         }
       } catch (error) {
-        console.log(`❌ Error al obtener info para chat ${chatId}:`, error)
+        // Error silencioso para no saturar logs
       }
 
       return chat // Si falla, devolver chat sin enriquecer
     }))
-    
-    console.log('✨ Proceso de enriquecimiento completado')
     return enrichedChats
   }
 
@@ -354,6 +436,7 @@ export default function ChatsPage() {
 
       // 2. Mostrar inmediatamente los chats básicos ordenados
       const sortedBaseChats = sortChatsByDate(baseChats)
+   
       setUserChats(sortedBaseChats)
       setLoading(false) // Quitar loading después de mostrar datos básicos
       
@@ -417,35 +500,22 @@ export default function ChatsPage() {
   // Función para crear un chat privado
   const createPrivateChat = async (contact: any) => {
     try {
-      console.log('🚀 Iniciando creación de chat privado...')
-      
       // VALIDAR SI YA EXISTE EL CHAT
-      console.log('🔍 Verificando si ya existe chat privado con:', contact.nombre)
       const existingChat = findExistingPrivateChat(contact.id_usuario_contacto)
       
       if (existingChat) {
-        console.log('⚠️ Chat privado ya existe:', existingChat)
         // Mostrar modal de confirmación
         setExistingChatData({ chat: existingChat, contact })
         setShowExistingChatModal(true)
         return // No crear chat nuevo
       }
-      
-      console.log('✅ Chat privado no existe, procediendo a crear...')
       const { idUsuario, accessToken } = await resolveIdUsuarioAndToken()
-      
-      console.log('💬 Creando chat privado con contacto:', contact)
-      console.log('👤 ID Usuario creador:', idUsuario)
-      console.log('👤 ID Usuario contacto (id_usuario_contacto):', contact.id_usuario_contacto)
-      console.log('🔧 Access Token presente:', !!accessToken)
       
       const chatData = {
         id_usuario: idUsuario, // Usuario que crea el chat
         id_contacto: contact.id_usuario_contacto, // ID del contacto (viene de misContactos)
         id_tipo_chat: 1 // 1 = chat privado
       }
-      
-      console.log('📤 Datos del chat a crear:', chatData)
       
       const response = await fetch('/api/chats/create', {
         method: 'POST',
@@ -456,11 +526,8 @@ export default function ChatsPage() {
         body: JSON.stringify(chatData)
       })
       
-      console.log('📡 Respuesta crear chat:', response.status, response.statusText)
-      
       if (response.ok) {
         const responseText = await response.text()
-        console.log('📄 Respuesta raw crear chat:', responseText)
         
         let newChat
         try {
@@ -470,17 +537,14 @@ export default function ChatsPage() {
           throw new Error(`Respuesta inválida del servidor: ${responseText}`)
         }
         
-        console.log('✅ Chat creado exitosamente:', newChat)
-        
         // Obtener información detallada del chat recién creado
         const newChatId = (newChat as any).id || (newChat as any).id_chat || (newChat as any).chatId
         let chatInfo = null
         if (newChatId) {
-          console.log('🔍 Intentando obtener info detallada del chat recién creado:', newChatId)
           try {
             chatInfo = await getChatInfo(idUsuario, newChatId, accessToken)
           } catch (error) {
-            console.log('⚠️ No se pudo obtener info del chat recién creado, usando fecha actual')
+            // Usar fecha actual si no se puede obtener info
           }
         }
         
@@ -495,19 +559,14 @@ export default function ChatsPage() {
           participantes: [contact]
         }
         
-        console.log('📦 Chat a agregar con fecha de creación:', chatToAdd)
-        
         // Agregar el nuevo chat al principio de la lista y reordenar
         const updatedChats = sortChatsByDate([chatToAdd, ...userChats])
         setUserChats(updatedChats)
-        console.log('📅 Lista actualizada con nuevo chat privado:', updatedChats)
         
         // Seleccionar el nuevo chat
         if (newChatId) {
           setSelectedChat(newChatId.toString())
         }
-        
-        console.log('🎉 Chat privado creado exitosamente, cerrando modal...')
         return newChat
       } else {
         const errorText = await response.text()
@@ -526,10 +585,6 @@ export default function ChatsPage() {
     try {
       const { idUsuario, accessToken } = await resolveIdUsuarioAndToken()
       
-      console.log('👥 Creando chat grupal:', groupTitle)
-      console.log('👤 ID Usuario creador:', idUsuario)
-      console.log('👥 Contactos seleccionados:', selectedContacts)
-      
       // Preparar datos según el swagger de create-group-with-chat
       const participantes = selectedContacts.map(contact => contact.id_usuario_contacto).filter(id => id)
       
@@ -540,9 +595,6 @@ export default function ChatsPage() {
         participantes: participantes // Array de IDs de usuarios participantes
       }
       
-      console.log('📤 Datos del grupo a crear (nuevo formato):', chatData)
-      console.log('👥 IDs de participantes:', participantes)
-      
       const response = await fetch('/api/chats/create-group-with-chat', {
         method: 'POST',
         headers: {
@@ -552,11 +604,8 @@ export default function ChatsPage() {
         body: JSON.stringify(chatData)
       })
       
-      console.log('📡 Respuesta crear grupo (create-group-with-chat):', response.status, response.statusText)
-      
       if (response.ok) {
         const responseText = await response.text()
-        console.log('📄 Respuesta raw crear grupo:', responseText)
         
         let newGroup
         try {
@@ -565,8 +614,6 @@ export default function ChatsPage() {
           console.error('❌ Error al parsear JSON de nuevo grupo:', parseError)
           throw new Error(`Respuesta inválida del servidor: ${responseText}`)
         }
-        
-        console.log('✅ Grupo creado exitosamente:', newGroup)
         
         // Limpiar estados del modal
         setShowGroupContactsModal(false)
@@ -577,11 +624,10 @@ export default function ChatsPage() {
         const newGroupId = (newGroup as any).id || (newGroup as any).id_chat || (newGroup as any).chatId
         let groupInfo = null
         if (newGroupId) {
-          console.log('🔍 Intentando obtener info detallada del grupo recién creado:', newGroupId)
           try {
             groupInfo = await getChatInfo(idUsuario, newGroupId, accessToken)
           } catch (error) {
-            console.log('⚠️ No se pudo obtener info del grupo recién creado, usando fecha actual')
+            // Usar fecha actual si no se puede obtener info
           }
         }
         
@@ -596,12 +642,9 @@ export default function ChatsPage() {
           participantes: selectedContacts
         }
         
-        console.log('📦 Grupo a agregar con fecha de creación:', groupToAdd)
-        
         // Agregar el nuevo grupo al principio de la lista y reordenar
         const updatedChats = sortChatsByDate([groupToAdd, ...userChats])
         setUserChats(updatedChats)
-        console.log('📅 Lista actualizada con nuevo grupo:', updatedChats)
         
         // Seleccionar el nuevo grupo
         if (newGroupId) {
@@ -628,7 +671,7 @@ export default function ChatsPage() {
     try {
       const { idUsuario, accessToken } = await resolveIdUsuarioAndToken()
       
-      console.log('📞 Cargando contactos para id_usuario:', idUsuario)
+
       
       const response = await fetch(`/api/contacts/misContactos?id_usuario=${idUsuario}`, {
         method: 'GET',
@@ -638,11 +681,8 @@ export default function ChatsPage() {
         }
       })
       
-      console.log('📡 Respuesta del endpoint contactos:', response.status, response.statusText)
-      
       if (response.ok) {
         const responseText = await response.text()
-        console.log('📄 Respuesta raw de contactos:', responseText)
         
         let data
         try {
@@ -652,7 +692,7 @@ export default function ChatsPage() {
           throw new Error(`Respuesta inválida del servidor de contactos: ${responseText}`)
         }
         
-        console.log('✅ Contactos obtenidos:', data)
+
         setContacts(Array.isArray(data) ? data : [])
       } else {
         const errorText = await response.text()
@@ -722,33 +762,55 @@ export default function ChatsPage() {
 
   const loadHistory = async (chatId: number) => {
     try {
-      const query = supabase
-        .from('Mensaje')
-        .select(`
-          *,
-          emisor:id_emisor (
-            nombre,
-            apellido
-          )
-        `)
-        .eq('id_chat', chatId)
-        .order('fecha', { ascending: true })
-        .limit(200)
+      const { idUsuario, accessToken } = await resolveIdUsuarioAndToken()
+      
+      try {
+        // MÉTODO 1: Intentar usar el endpoint del backend que aplica soft delete correctamente
+        const response = await fetch(`/api/mensaje/chat-messages?id_chat=${chatId}&id_usuario=${idUsuario}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        })
 
-      if (onlyActive) query.is('eliminado', false)
+        if (!response.ok) {
+          throw new Error(`Backend error: ${response.status}`)
+        }
 
-      const { data: mensajes, error: mensajesError } = await query
+        const mensajes = await response.json()
+        setMessages(mensajes || [])
+      } catch (backendError) {
+        console.warn('⚠️ Backend fallido, usando Supabase directo:', backendError)
+        
+        // MÉTODO 2: Fallback - usar Supabase directo (método anterior)
+        let query = supabase
+          .from('Mensaje')
+          .select(`
+            *,
+            Usuario:id_emisor (
+              nombre,
+              apellido,
+              apodo
+            )
+          `)
+          .eq('id_chat', chatId)
+          .order('fecha', { ascending: true })
+          .limit(200)
 
-      if (onlyActive) (query as any).is('eliminado', false)
+        if (onlyActive) {
+          query = query.is('eliminado', false)
+        }
 
-      const { data, error } = await (query as any)
-      if (mensajesError) {
-        console.error('❌ Error cargando historial:', mensajesError)
-        return
+        const { data: mensajes, error } = await query
+
+        if (error) {
+          console.error('❌ Error cargando historial con Supabase:', error)
+          return
+        }
+
+        setMessages(mensajes || [])
       }
-
-      console.log('📩 Mensajes cargados:', mensajes);
-      setMessages(mensajes || [])
       // wait a tick then scroll
       setTimeout(scrollToBottom, 50)
     } catch (err) {
@@ -811,10 +873,26 @@ export default function ChatsPage() {
             const row = payload.new
             if (onlyActive && row.eliminado === true) return
 
+            // Verificar si el usuario eliminó este chat
+            const { idUsuario } = await resolveIdUsuarioAndToken()
+            const { data: chatEliminado } = await supabase
+              .from('ChatEliminado')
+              .select('fecha_eliminado')
+              .eq('id_chat', chatId)
+              .eq('id_usuario', idUsuario)
+              .order('fecha_eliminado', { ascending: false })
+              .limit(1)
+              .single()
+
+            // Si el chat fue eliminado y el mensaje es anterior a la eliminación, no mostrarlo
+            if (chatEliminado && new Date(row.fecha) <= new Date(chatEliminado.fecha_eliminado)) {
+              return
+            }
+
             // Obtener información del usuario emisor
             const { data: userData } = await supabase
               .from('Usuario')
-              .select('nombre, apellido')
+              .select('nombre, apellido, apodo')
               .eq('id', row.id_emisor)
               .single()
 
@@ -845,7 +923,7 @@ export default function ChatsPage() {
         )
 
       ch.subscribe((status: any) => {
-        console.log('Realtime status:', status)
+
       })
 
       channelRef.current = ch
@@ -905,7 +983,10 @@ export default function ChatsPage() {
       }
 
       setMessageText('')
-      // El append lo hará el evento realtime, pero si hay lag podemos optimizar
+      
+      // 🚀 OPTIMIZACIÓN: Mover el chat al tope inmediatamente
+      const currentTime = new Date().toISOString()
+      moveToTopAndUpdateLastMessage(selectedChat, texto, currentTime)
     } catch (err) {
       console.error('❌ sendMessage error:', err)
     }
@@ -948,35 +1029,30 @@ export default function ChatsPage() {
             const chatId = message.id_chat?.toString()
             const emisorId = message.id_emisor
             
-            console.log('🔔 Nuevo mensaje global:', message)
-            
-            // Solo procesar si el mensaje NO es del usuario actual
-            if (emisorId !== idUsuario && chatId) {
-              // Verificar si este chat está en la lista del usuario
-              const chatExists = userChats.some(chat => {
-                const currentChatId = ((chat as any).id || (chat as any).id_chat)?.toString()
-                return currentChatId === chatId
-              })
+            // Verificar si este chat está en la lista del usuario
+            const chatExists = userChats.some(chat => {
+              const currentChatId = ((chat as any).id || (chat as any).id_chat)?.toString()
+              return currentChatId === chatId
+            })
 
-              if (chatExists) {
-                // Si no es el chat actualmente abierto, incrementar contador
-                if (selectedChat !== chatId) {
-                  incrementUnreadCount(chatId)
-                }
-                
-                // Mover chat al principio y actualizar último mensaje
-                moveToTopAndUpdateLastMessage(
-                  chatId, 
-                  message.texto || 'Nuevo mensaje', 
-                  message.fecha || new Date().toISOString()
-                )
+            if (chatExists && chatId) {
+              // Si el mensaje NO es del usuario actual Y no es el chat abierto -> incrementar contador
+              if (emisorId !== idUsuario && selectedChat !== chatId) {
+                incrementUnreadCount(chatId)
               }
+              
+              // SIEMPRE mover chat al principio y actualizar último mensaje (tanto para emisor como receptor)
+              moveToTopAndUpdateLastMessage(
+                chatId, 
+                message.texto || 'Nuevo mensaje', 
+                message.fecha || new Date().toISOString()
+              )
             }
           }
         )
 
       globalChannel.subscribe((status: any) => {
-        console.log('🔔 Estado canal global:', status)
+
       })
 
       globalChannelRef.current = globalChannel
@@ -1126,9 +1202,15 @@ export default function ChatsPage() {
               // Filtrar según la pestaña activa
               let filteredChats = userChats
               if (activeTab === 'chats') {
-                filteredChats = userChats.filter(chat => chat.id_tipo_chat === 1)
+                filteredChats = userChats.filter(chat => {
+                  const tipoChat = chat.id_tipo_chat || (chat as any).tipo_chat
+                  return tipoChat === 1 || tipoChat === '1'
+                })
               } else if (activeTab === 'grupos') {
-                filteredChats = userChats.filter(chat => chat.id_tipo_chat === 2)
+                filteredChats = userChats.filter(chat => {
+                  const tipoChat = chat.id_tipo_chat || (chat as any).tipo_chat
+                  return tipoChat === 2 || tipoChat === '2'
+                })
               }
               // Si activeTab === 'todos', no filtramos por tipo (mostramos todos)
 
@@ -1163,13 +1245,14 @@ export default function ChatsPage() {
               }
 
               return filteredChats.map((chat, index) => {
+                const tipoChat = chat.id_tipo_chat || (chat as any).tipo_chat
                 const initials = chat.nombre?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 
-                  (chat.id_tipo_chat === 1 ? 'CH' : 'GR')
+                  ((tipoChat === 1 || tipoChat === '1') ? 'CH' : 'GR')
                 const chatId = (chat as any).id || (chat as any).id_chat || (chat as any).chatId || 
-                  `${chat.id_tipo_chat === 1 ? 'chat' : 'group'}-${index}`
+                  `${(tipoChat === 1 || tipoChat === '1') ? 'chat' : 'group'}-${index}`
                 
                 // Crear key única combinando tipo, ID y posición para evitar duplicados
-                const uniqueKey = `${chat.id_tipo_chat}-${chatId}-${index}`
+                const uniqueKey = `${tipoChat}-${chatId}-${index}`
                 
                 return (
                   <li key={uniqueKey}>
@@ -1187,13 +1270,12 @@ export default function ChatsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="truncate font-medium">{chat.nombre}</span>
-                          {activeTab === 'todos' && (
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              chat.id_tipo_chat === 1 
-                                ? '' //bg-blue-100 text-blue-600 
-                                : 'bg-green-100 text-green-600'
-                            }`}> 
-                              {chat.id_tipo_chat === 1 ? '' : 'Grupo'} 
+                          {(activeTab === 'todos' || activeTab === 'grupos') && (() => {
+                            const tipoChat = chat.id_tipo_chat || (chat as any).tipo_chat
+                            return tipoChat === 2 || tipoChat === '2'
+                          })() && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-600">
+                              Grupo
                             </span>
                           )}
                           {/* Contador de mensajes no leídos */}
@@ -1226,7 +1308,8 @@ export default function ChatsPage() {
                 <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
                   <span className="text-white font-semibold text-sm">
                     {(() => {
-                      if (selectedChatData.id_tipo_chat === 1) {
+                      const tipoChat = selectedChatData.id_tipo_chat || (selectedChatData as any).tipo_chat
+                      if (tipoChat === 1 || tipoChat === '1') {
                         // Chat privado - usar iniciales del nombre del contacto
                         return selectedChatData.nombre?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'CH'
                       } else {
@@ -1237,28 +1320,48 @@ export default function ChatsPage() {
                   </span>
                 </div>
                 <div 
-                  className={`flex flex-col ${selectedChatData.id_tipo_chat === 2 ? 'cursor-pointer hover:opacity-80' : ''}`}
+                  className="flex flex-col cursor-pointer hover:opacity-80"
                   onClick={() => {
-                    if (selectedChatData.id_tipo_chat === 2) { // Solo para grupos
+                    const tipoChat = selectedChatData.id_tipo_chat || (selectedChatData as any).tipo_chat
+                    if (tipoChat === 2 || tipoChat === '2') {
+                      // Para grupos: mostrar lista de participantes
                       setShowParticipantsModal(true);
+                    } else {
+                      // Para chats privados: ir directo al modal de perfil
+                      // Buscar el otro participante (que no sea yo)
+                      if (selectedChatData.participantes && selectedChatData.participantes.length > 0) {
+                        const otroParticipante = selectedChatData.participantes.find(p => 
+                          p.id_usuario !== currentEmisorRef.current
+                        );
+                        if (otroParticipante) {
+                          setSelectedUserProfile(otroParticipante);
+                          setShowUserProfileModal(true);
+                        }
+                      }
                     }
                   }}
                 >
                   <span className="font-bold text-lg text-gray-700 flex items-center gap-2">
                     {selectedChatData.nombre || 'Chat sin nombre'}
-                    {selectedChatData.id_tipo_chat === 2 && (
-                      <svg 
-                        xmlns="http://www.w3.org/2000/svg" 
-                        className="h-4 w-4 text-gray-400" 
-                        viewBox="0 0 20 20" 
-                        fill="currentColor"
-                      >
-                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                      </svg>
-                    )}
+                    {(() => {
+                      const tipoChat = selectedChatData.id_tipo_chat || (selectedChatData as any).tipo_chat
+                      return (tipoChat === 2 || tipoChat === '2') && (
+                        <svg 
+                          xmlns="http://www.w3.org/2000/svg" 
+                          className="h-4 w-4 text-gray-400" 
+                          viewBox="0 0 20 20" 
+                          fill="currentColor"
+                        >
+                          <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      )
+                    })()}
                   </span>
                   <span className="text-xs text-gray-500">
-                    {selectedChatData.id_tipo_chat === 1 ? 'Chat privado' : 'Chat grupal'}
+                    {(() => {
+                      const tipoChat = selectedChatData.id_tipo_chat || (selectedChatData as any).tipo_chat
+                      return (tipoChat === 1 || tipoChat === '1') ? 'Chat privado' : 'Chat grupal'
+                    })()}
                   </span>
                 </div>
               </div>
@@ -1288,32 +1391,14 @@ export default function ChatsPage() {
                             throw new Error('ID de usuario no disponible');
                           }
 
-                          // 1. Primero eliminar todos los mensajes del chat usando Supabase directamente
-                          try {
-                            console.log('🗑️ Eliminando mensajes del chat:', chatId);
-                            const { error: deleteMessagesError } = await supabase
-                              .from('Mensaje')
-                              .delete()
-                              .eq('id_chat', chatId);
-
-                            if (deleteMessagesError) {
-                              console.error('❌ Error al eliminar mensajes:', deleteMessagesError);
-                              throw new Error('No se pudieron eliminar los mensajes del chat');
-                            }
-
-                            console.log('✅ Mensajes eliminados correctamente');
-                          } catch (error) {
-                            console.error('❌ Error al eliminar mensajes:', error);
-                            throw new Error('Error al eliminar los mensajes del chat');
-                          }
+                          // 1. Solo eliminar la participación del usuario en el chat (soft delete)
 
                           // 2. Luego eliminar el chat
                           const deleteData = {
                             id_chat: chatId,
                             id_emisor: idUsuario
                           };
-                          
-                          console.log('🗑️ Intentando eliminar chat:', deleteData);
+
 
                           const response = await fetch('/api/chats/delete', {
                             method: 'POST',
@@ -1325,17 +1410,10 @@ export default function ChatsPage() {
                           });
 
                           const responseText = await response.text();
-                          console.log('📡 Respuesta del servidor:', {
-                            status: response.status,
-                            text: responseText
-                          });
 
                           if (!response.ok) {
                             throw new Error(`Error ${response.status}: ${responseText}`);
                           }
-
-                          // Si llegamos aquí, la eliminación fue exitosa
-                          console.log('✅ Chat eliminado correctamente');
                           
                           // Actualizar la lista de chats
                           setUserChats(prevChats => 
@@ -1391,23 +1469,34 @@ export default function ChatsPage() {
                   messages.map((m: any) => {
                     const isMine = m.id_emisor === currentEmisorRef.current;
                     const time = m.fecha ? new Date(m.fecha).toLocaleTimeString() : '';
-                    const isGroupChat = selectedChatData.id_tipo_chat === 2;
+                    const tipoChat = selectedChatData.id_tipo_chat || (selectedChatData as any).tipo_chat
+                    const isGroupChat = tipoChat === 2 || tipoChat === '2';
                     
-                    // Debug detallado del mensaje
-                    console.log('📩 Datos del mensaje:', {
-                      texto: m.texto,
-                      emisor_id: m.id_emisor,
-                      emisor_data: m.emisor,
-                      isMine,
-                      isGroupChat
-                    });
+
                     
                     return (
                       <div key={m.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
                         <div className="flex flex-col">
                           {!isMine && (
                             <div className="text-sm text-gray-600 font-medium ml-2 mb-1">
-                              ID: {m.id_emisor}
+                              {(() => {
+                                // Debug temporal - revisar estructura del mensaje
+                                if (m.id_emisor === 1) { // Solo log para el Usuario 1 para no spam
+                                  console.log('🔍 Estructura mensaje:', m);
+                                  console.log('🔍 Usuario info:', m.Usuario);
+                                  console.log('🔍 Apodo directo:', m.apodo);
+                                }
+                                
+                                // Revisar múltiples posibles ubicaciones del apodo
+                                const apodo = m.Usuario?.apodo || m.apodo || null;
+                                const nombreCompleto = m.Usuario 
+                                  ? `${m.Usuario.nombre} ${m.Usuario.apellido || ''}`.trim()
+                                  : null;
+                                
+                                if (apodo) return apodo;
+                                if (nombreCompleto) return nombreCompleto;
+                                return `Usuario ${m.id_emisor}`;
+                              })()}
                             </div>
                           )}
                           <div className={`${isMine ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white' : 'bg-orange-100 text-orange-700'} max-w-xs px-4 py-2 rounded-xl font-medium shadow`}>
@@ -1526,8 +1615,7 @@ export default function ChatsPage() {
                         key={contact.id || index}
                         onClick={async () => {
                           try {
-                            console.log('🎯 Contacto seleccionado para crear chat:', contact)
-                            console.log('📄 Propiedades del contacto:', Object.keys(contact))
+
                             setCreatingChat(true)
                             await createPrivateChat(contact)
                             setShowContactsList(false)
@@ -1845,7 +1933,12 @@ export default function ChatsPage() {
             <div className="px-6 py-4 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-gray-800">Participantes del Grupo</h2>
+                  <h2 className="text-lg font-bold text-gray-800">
+                    {(() => {
+                      const tipoChat = selectedChatData.id_tipo_chat || (selectedChatData as any).tipo_chat
+                      return (tipoChat === 2 || tipoChat === '2') ? 'Participantes del Grupo' : 'Información del Chat'
+                    })()}
+                  </h2>
                   <p className="text-sm text-gray-600">{selectedChatData.nombre}</p>
                 </div>
                 <button
@@ -1880,16 +1973,17 @@ export default function ChatsPage() {
                   return (
                     <div 
                       key={participante.id_usuario_contacto || index}
-                      className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50"
+                      className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 cursor-pointer transition-colors"
+                      onClick={() => {
+                        setSelectedUserProfile(participante);
+                        setShowUserProfileModal(true);
+                      }}
                     >
                       <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
                         <span className="text-white font-semibold text-sm">{initials}</span>
                       </div>
                       <div className="flex-1">
                         <p className="font-medium text-gray-800">{nombreCompleto}</p>
-                        {participante.email && (
-                          <p className="text-xs text-gray-500">{participante.email}</p>
-                        )}
                       </div>
                     </div>
                   );
@@ -1989,6 +2083,68 @@ export default function ChatsPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Perfil de Usuario */}
+      {showUserProfileModal && selectedUserProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowUserProfileModal(false)} />
+          <div className="relative z-10 w-[90%] max-w-md rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
+            <div className="flex items-start justify-between mb-6">
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <User className="h-5 w-5 text-orange-600" />
+                Perfil del usuario
+              </h3>
+              <button 
+                className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10" 
+                onClick={() => setShowUserProfileModal(false)} 
+                aria-label="Cerrar" 
+                title="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Información del usuario */}
+            <div className="space-y-4 mb-6">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <span className="text-white font-bold text-xl">
+                    {selectedUserProfile.nombre?.charAt(0)?.toUpperCase() || '?'}
+                  </span>
+                </div>
+                <h4 className="text-xl font-semibold text-foreground">
+                  {fullName(selectedUserProfile.nombre, selectedUserProfile.apellido)}
+                </h4>
+              </div>
+
+              <div className="bg-white/10 dark:bg-white/5 rounded-lg p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Nombre:</span>
+                  <span className="text-sm text-foreground">
+                    {fullName(selectedUserProfile.nombre, selectedUserProfile.apellido)}
+                  </span>
+                </div>
+                
+                {selectedUserProfile.email && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Email:</span>
+                    <span className="text-sm text-foreground">{selectedUserProfile.email}</span>
+                  </div>
+                )}
+                
+                {selectedUserProfile.apodo && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Apodo:</span>
+                    <span className="text-sm text-foreground">{selectedUserProfile.apodo}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+           
           </div>
         </div>
       )}

@@ -8,12 +8,26 @@ interface CreateChatParams {
 }
 
 export async function createChatService({ idUsuario, idContacto, nombreGrupo, idGrupo}: CreateChatParams): Promise<number | null> {
-  const { data, error } = await supabase.rpc("create_chat", { 
-    p_id_emisor: idUsuario,
-    p_id_contacto: idContacto,
+  // Intentar usar la función mejorada primero, fallback a la original
+  let { data, error } = await supabase.rpc("create_chat_improved", { 
+    p_id_usuario_creador: idUsuario,
+    p_id_usuario_destinatario: idContacto,
     p_nombre: nombreGrupo,
-    p_id_grupo: idGrupo,
+    p_descripcion: null,
   });
+
+  // Si la función mejorada no existe, usar la original
+  if (error && error.message && error.message.includes('does not exist')) {
+    console.log('⚠️ Usando función create_chat original (create_chat_improved no encontrada)');
+    const fallback = await supabase.rpc("create_chat", { 
+      p_id_emisor: idUsuario,
+      p_id_contacto: idContacto,
+      p_nombre: nombreGrupo,
+      p_id_grupo: idGrupo,
+    });
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     // No terminar el proceso desde un servicio: propagar el error para que el caller lo maneje.

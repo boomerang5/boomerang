@@ -15,7 +15,8 @@ export async function createGroupWithChatService({
   descripcion = null,
   participantes = null,
 }: CreateGroupWithChatParams): Promise<CreateGroupWithChatResult> {
-  const { data, error } = await supabase.rpc("create_group_with_chat", {
+  // Intentar usar la función mejorada primero, fallback a la original
+  let { data, error } = await supabase.rpc("create_group_with_chat_improved", {
     p_id_usuario_creador: idUsuarioCreador,
     p_nombre: nombre,
     p_descripcion: descripcion ?? null,
@@ -23,8 +24,22 @@ export async function createGroupWithChatService({
       participantes && participantes.length ? participantes : null,
   });
 
+  // Si la función mejorada no existe, usar la original
+  if (error && error.message && error.message.includes('does not exist')) {
+    console.log('⚠️ Usando función create_group_with_chat original (create_group_with_chat_improved no encontrada)');
+    const fallback = await supabase.rpc("create_group_with_chat", {
+      p_id_usuario_creador: idUsuarioCreador,
+      p_nombre: nombre,
+      p_descripcion: descripcion ?? null,
+      p_participantes:
+        participantes && participantes.length ? participantes : null,
+    });
+    data = fallback.data;
+    error = fallback.error;
+  }
+
   if (error) {
-    process.exit(1);
+    throw error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
   }
 
   if (!data) {

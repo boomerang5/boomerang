@@ -141,13 +141,14 @@ export const delete_chat = async (req: Request, res: Response) => {
 // GET_CHAT_INFO
 export const get_chat_info = async (req: Request, res: Response) => {
   const idChat = parseInt(req.query.id_chat as string);
+  const idUsuario = parseInt(req.query.id_usuario as string);
 
   if (isNaN(idChat)) {
     return res.status(400).json({ error: 'ID de Chat inválido' });
   }
 
   try {
-    const data = await getChatInfoService(idChat);
+    const data = await getChatInfoService(idChat, idUsuario);
     return res.status(200).json(data);
   } catch (error: any) {
     console.error("❌ Error en getChatInfoService:", error);
