@@ -1480,13 +1480,6 @@ export default function ChatsPage() {
                           {!isMine && (
                             <div className="text-sm text-gray-600 font-medium ml-2 mb-1">
                               {(() => {
-                                // Debug temporal - revisar estructura del mensaje
-                                if (m.id_emisor === 1) { // Solo log para el Usuario 1 para no spam
-                                  console.log('🔍 Estructura mensaje:', m);
-                                  console.log('🔍 Usuario info:', m.Usuario);
-                                  console.log('🔍 Apodo directo:', m.apodo);
-                                }
-                                
                                 // Revisar múltiples posibles ubicaciones del apodo
                                 const apodo = m.Usuario?.apodo || m.apodo || null;
                                 const nombreCompleto = m.Usuario 
