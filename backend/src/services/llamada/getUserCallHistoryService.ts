@@ -8,13 +8,14 @@ export async function getUserCallHistoryService(
   to?: string
 ) {
   try {
+
     
-    const { data, error } = await supabase.rpc('get_llamadas_conectadas', {
+    const { data, error } = await supabase.rpc('get_user_call_history', {
       p_id_usuario: idUsuario
     });
 
     if (error) {
-      console.error("❌ Error al ejecutar SP get_llamadas_conectadas:", error);
+      console.error("❌ Error al ejecutar SP get_user_call_history:", error);
       throw new Error(error.message);
     }
 
@@ -60,21 +61,53 @@ export async function getUserCallHistoryService(
     }
 
     
-    // Agregar campos de fecha y hora separados
+    // Agregar campos de fecha y hora separados y calcular duración
     const processedData = filteredData.map((llamada: any) => {
-      const fechaInicio = new Date(llamada.fecha_inicio);
+      // Procesar fecha de forma simple - SIN conversiones de timezone
+      // Extraer fecha directamente del string de PostgreSQL
+      const fechaStr = String(llamada.fecha_inicio);
+      const match = fechaStr.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/);
       
-      // Usar fecha local para evitar problemas de zona horaria
-      const year = fechaInicio.getFullYear();
-      const month = String(fechaInicio.getMonth() + 1).padStart(2, '0');
-      const day = String(fechaInicio.getDate()).padStart(2, '0');
-      const hours = String(fechaInicio.getHours()).padStart(2, '0');
-      const minutes = String(fechaInicio.getMinutes()).padStart(2, '0');
+      let year, month, day, hours, minutes;
+      if (match) {
+        [, year, month, day, hours, minutes] = match;
+      } else {
+        // Fallback usando Date
+        const fechaInicio = new Date(llamada.fecha_inicio);
+        year = fechaInicio.getFullYear();
+        month = String(fechaInicio.getMonth() + 1).padStart(2, '0');
+        day = String(fechaInicio.getDate()).padStart(2, '0');
+        hours = String(fechaInicio.getHours()).padStart(2, '0');
+        minutes = String(fechaInicio.getMinutes()).padStart(2, '0');
+      }
+      
+      // Calcular duración en segundos desde el interval de PostgreSQL
+      let duracionSegundos = 0;
+      if (llamada.duracion_calculada) {
+        // El interval viene como string tipo "00:02:15" o como objeto
+        const duracionStr = typeof llamada.duracion_calculada === 'string' 
+          ? llamada.duracion_calculada 
+          : llamada.duracion_calculada.toString();
+        
+        // Parsear el interval "HH:MM:SS"
+        const match = duracionStr.match(/(\d{2}):(\d{2}):(\d{2})/);
+        if (match) {
+          const [, hours, minutes, seconds] = match;
+          duracionSegundos = (parseInt(hours) * 3600) + (parseInt(minutes) * 60) + parseInt(seconds);
+        }
+      }
       
       return {
         ...llamada,
+        id_llamada: llamada.id, // Mapear id a id_llamada para compatibilidad
+        duracion_segundos: duracionSegundos,
         fecha_solo: `${year}-${month}-${day}`, // YYYY-MM-DD en fecha local
-        hora_solo: `${hours}:${minutes}` // HH:MM en hora local
+        hora_solo: `${hours}:${minutes}`, // HH:MM en hora local
+        // Asegurar compatibilidad con campos esperados por el frontend
+        tiene_grabacion: false, // El nuevo SP no incluye este campo, default false
+        tiene_transcripcion: false, // El nuevo SP no incluye este campo, default false
+        estado: 'finalizada', // Asumir que llamadas en historial están finalizadas
+        tipo: 'video' // Default tipo video
       };
     });
     

@@ -1261,7 +1261,7 @@ export default function VideoCallPage() {
         if (roleRef.current === 'caller') {
           setCallRowId(payload.id_llamada)
           if (!localStreamRef.current) await enableCam()
-          await dbAddCallParticipant(payload.id_llamada, meIdInt, { host: true })
+          // dbAddCallParticipant ya no es necesario, create_call_with_participants lo hace automáticamente
           await joinCallChannel(payload.callId)        // **espera SUBSCRIBED**
           setInCall(true)
           await startCall()                            // ahora sí, offer
@@ -1354,8 +1354,8 @@ export default function VideoCallPage() {
           await makeCall(to, shouldTranscript)
           try {
             sessionStorage.removeItem('vc_transcript')
-            sessionStorage.removeItem('vc_call_title')
-            sessionStorage.removeItem('vc_call_description')
+            // NO limpiar vc_call_title y vc_call_description aquí
+            // Se limpiarán en dbStartCall después de usarlos
           } catch { }
         })()
     }
@@ -1398,8 +1398,9 @@ export default function VideoCallPage() {
     (async () => {
       if (!localStreamRef.current) await enableCam();
       const idRow = await dbStartCall();
+      
       if (idRow) setCallRowId(idRow);
-      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false });
+      // dbAddCallParticipant ya no es necesario, create_call_with_participants lo hace automáticamente
       await joinCallChannel(incoming);
       setInCall(true);
 
@@ -1486,6 +1487,10 @@ export default function VideoCallPage() {
       // Overall resolution failed
     }
 
+    // CREAR LA LLAMADA EN LA BASE DE DATOS ANTES DE ENVIAR EL RING
+    const idRow = await dbStartCall()
+    if (idRow) setCallRowId(idRow)
+
     for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)
       await ensureSubscribed(ch)
@@ -1516,8 +1521,9 @@ export default function VideoCallPage() {
     try {
       if (!localStreamRef.current) await enableCam()
       const idRow = await dbStartCall()
+      
       if (idRow) setCallRowId(idRow)
-      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false })
+      // dbAddCallParticipant ya no es necesario, create_call_with_participants lo hace automáticamente
       await joinCallChannel(currentCallId)
       setInCall(true)
 
@@ -1778,21 +1784,76 @@ export default function VideoCallPage() {
 
   // ========= 5) RPCs BD (best-effort)
   const dbStartCall = async (): Promise<number | null> => {
-    if (!sb || !callIdRef.current) return null
+    if (!sb) {
+      console.error('❌ No hay cliente Supabase')
+      return null
+    }
+    
     try {
-      const { data, error } = await sb.rpc('start_call', {
-        p_id_grupo: null,
-        p_titulo: callIdRef.current,
-        p_descripcion: JSON.stringify({
-          from: callerUserIdRef.current,
-          to: calleeUserIdRef.current,
-        }),
-      })
-      if (error) { log('! start_call (no bloquea): ' + error.message); return null }
-      log('✓ DB start_call id=' + data)
-      return data as number
+      // PRUEBA DIRECTA CON VALORES HARDCODEADOS PARA VER SI FUNCIONA
+      // Leer datos del modal desde sessionStorage
+      const storedTitle = sessionStorage.getItem('vc_call_title')
+      const storedDescription = sessionStorage.getItem('vc_call_description')
+      
+      console.log('📖 Datos del sessionStorage:')
+      console.log('   - vc_call_title:', storedTitle)
+      console.log('   - vc_call_description:', storedDescription)
+      
+      // Usar valores del modal o fallbacks descriptivos
+      const finalTitle = (storedTitle && storedTitle.trim()) ? storedTitle.trim() : 'Llamada desde Boomerang'
+      const finalDescription = (storedDescription && storedDescription.trim()) ? storedDescription.trim() : 'Llamada realizada desde la aplicación'
+      
+      // Obtener IDs reales
+      const callerNumericId = meNumericId || 1  // Mi ID numérico
+      const calleeNumericId = Number(calleeUserIdRef.current) || 2  // ID del contactado
+      
+      console.log('🔍 Datos finales:')
+      console.log('   - Título:', finalTitle)
+      console.log('   - Descripción:', finalDescription)
+      console.log('   - Caller ID:', callerNumericId)
+      console.log('   - Callee ID:', calleeNumericId)
+      
+      const rpcParams = {
+        p_titulo: finalTitle,
+        p_descripcion: finalDescription,
+        p_caller_id: callerNumericId,
+        p_callee_id: calleeNumericId,
+        p_id_grupo: null
+      }
+      
+      console.log('� LLAMANDO AL SP CON VALORES DIRECTOS:', rpcParams)
+      
+      const { data, error } = await sb.rpc('create_call_with_modal_data', rpcParams)
+      
+      console.log('📋 RESPUESTA DEL SP:')
+      console.log('   - data:', data)
+      console.log('   - error:', error)
+      
+      if (error) { 
+        console.error('💀 ERROR:', error)
+        // Error logged above
+        return null 
+      }
+      
+      if (data) {
+        console.log('🎉 ¡ÉXITO! ID CREADO:', data)
+        // Llamada creada exitosamente - limpiar sessionStorage
+        try {
+          sessionStorage.removeItem('vc_call_title')
+          sessionStorage.removeItem('vc_call_description')
+        } catch (e) {
+          console.warn('⚠️ Error limpiando sessionStorage:', e)
+        }
+        return data as number
+      } else {
+        console.error('❌ Sin data')
+        // Error logged above
+        return null
+      }
+      
     } catch (e: any) {
-      log('! start_call (excepción, no bloquea): ' + e?.message)
+      console.error('💥 EXCEPCIÓN:', e)
+      // Error logged above
       return null
     }
   }

@@ -522,19 +522,36 @@ export default function ContactosPage() {
     if (kind === 'video') params.set('type', 'video');
 
     // Guardar información de la llamada en sessionStorage
+    console.log('🔍 gotoCall DEBUG - Guardando en sessionStorage:');
+    console.log('  - title:', title);
+    console.log('  - description:', description);
+    
     if (title) {
       try {
         sessionStorage.setItem('vc_call_title', title);
+        console.log('✓ Guardado vc_call_title:', title);
+        
         if (description) {
           sessionStorage.setItem('vc_call_description', description);
+          console.log('✓ Guardado vc_call_description:', description);
         }
+        
         if (shouldSaveTranscript) {
           sessionStorage.setItem('vc_transcript', '1');
           sessionStorage.setItem('vc_transcript_title', title);
+          console.log('✓ Guardado flags de transcripción');
         }
+        
+        // Verificar que se guardó correctamente
+        console.log('🔍 Verificación inmediata sessionStorage:');
+        console.log('  - vc_call_title:', sessionStorage.getItem('vc_call_title'));
+        console.log('  - vc_call_description:', sessionStorage.getItem('vc_call_description'));
+        
       } catch (e) {
         console.warn('sessionStorage set failed', e);
       }
+    } else {
+      console.log('⚠️ No hay título para guardar en sessionStorage');
     }
 
     router.push(`/protected/videollamada?${params.toString()}`);
