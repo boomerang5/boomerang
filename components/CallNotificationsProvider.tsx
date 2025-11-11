@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useSupabaseClient } from '@supabase/auth-helpers-react';
+import { useUserUuid } from '@/contexts/UserUuidContext';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
 type IncomingCall = { callId: string; fromId: string; fromName?: string; transcript?: boolean };
@@ -38,6 +39,7 @@ export default function CallNotificationsProvider({
   const router = useRouter();
   const user = useUser();
   const sb = useSupabaseClient() as SupabaseClient;
+  const { uuid: cachedUuid, isLoading: uuidLoading } = useUserUuid();
 
   const [meUuid, setMeUuid] = useState('');
   const [meNumericId, setMeNumericId] = useState<number | null>(null);
@@ -52,38 +54,22 @@ export default function CallNotificationsProvider({
   const log = (...args: any[]) => {
     try {
       console.log('[CallNotif]', ...args);
-    } catch {}
+    } catch { }
   };
 
-  // 1) Identidad (usa el mismo cliente para tener la sesión correcta)
+  // 1) Identidad usando UUID cacheado
   useEffect(() => {
-    if (!sb) return;
+    if (!sb || uuidLoading) return;
+
     (async () => {
-      let uuid: string | null = null;
+      let uuid: string | null = cachedUuid;
 
-      // a) sesión autenticada
-      if (user?.id) {
-        uuid = user.id;
-        log('✅ UUID from useUser():', uuid);
-      }
-
-      // b) RPC si aplica
       if (!uuid) {
-        try {
-          const { data: uuidData } = await sb.rpc('get_usuario_uuid');
-          const rpcUuid =
-            (typeof uuidData === 'string' && uuidData) ||
-            (uuidData && (uuidData as any).uuid) ||
-            (uuidData && (uuidData as any).user_uuid) ||
-            null;
-          if (rpcUuid) {
-            uuid = rpcUuid;
-            log('✅ UUID via RPC:', uuid);
-          }
-        } catch (e) {
-          log('RPC get_usuario_uuid error:', e);
-        }
+        log('❌ No UUID available from cache');
+        return;
       }
+
+      log('✅ UUID from cache:', uuid);
 
       // c) fallback por pestaña
       if (!uuid) {
@@ -129,7 +115,7 @@ export default function CallNotificationsProvider({
       for (const ch of prev) {
         try {
           await ch.unsubscribe();
-        } catch {}
+        } catch { }
       }
 
       const setup = async (key: string) => {
@@ -157,7 +143,10 @@ export default function CallNotificationsProvider({
 
           // dedupe entre múltiples inbox
           if (seenCallIdsRef.current.has(callId)) {
-            log('~ duplicate ring ignored', callId);
+            // Solo log en debug mode, no en consola normal
+            if (process.env.NODE_ENV === 'development') {
+              console.debug('~ duplicate ring ignored', callId);
+            }
             return;
           }
           seenCallIdsRef.current.add(callId);
@@ -169,12 +158,11 @@ export default function CallNotificationsProvider({
           peerIdRef.current = fromId;
           const incomingData = { callId, fromId, fromName, transcript: transcriptFlag };
           setIncoming(incomingData);
-          
+
           log(`✅ Incoming call set: ${callId} from ${fromId} (${fromName}) transcript:${transcriptFlag}`);
-          try { console.log('[CallNotif] full payload:', payload) } catch {}
           try {
             navigator.vibrate?.(200);
-          } catch {}
+          } catch { }
           log('← ring', { key, callId, fromId, fromName });
         });
 
@@ -205,7 +193,7 @@ export default function CallNotificationsProvider({
       try {
         const vc = sessionStorage.getItem('vc_uuid');
         if (vc && vc !== meUuid) await setup(vc);
-      } catch {}
+      } catch { }
       // id numérico
       if (meNumericId != null) await setup(String(meNumericId));
 
@@ -215,7 +203,7 @@ export default function CallNotificationsProvider({
     return () => {
       cancelled = true;
     };
-  }, [sb, meUuid, meNumericId]);
+  }, [sb, meUuid, meNumericId, cachedUuid, uuidLoading]);
 
   async function resolvePeerUuidByAnyId(sb: SupabaseClient, raw: string): Promise<string | null> {
     const looksUuid = /[a-f0-9-]{8,}/i.test(raw);
@@ -240,7 +228,7 @@ export default function CallNotificationsProvider({
 
     try {
       sessionStorage.setItem(`aa:${callId}`, '1');
-    } catch {}
+    } catch { }
 
     // Navegar a la página de llamada como callee. La page espera ?incoming=<id>&from=<caller>&autoaccept=1&aa=<token>
     const url = new URL(window.location.origin + callRoute);
@@ -249,7 +237,7 @@ export default function CallNotificationsProvider({
     url.searchParams.set('from', peerUuid); // quien nos llamó
     url.searchParams.set('autoaccept', '1');
     url.searchParams.set('aa', callId);
-    
+
     // Si la llamada entrante tiene transcript, pasarlo como parámetro
     if (incoming?.transcript) {
       url.searchParams.set('transcript', '1');
@@ -285,7 +273,7 @@ export default function CallNotificationsProvider({
       prev.forEach((ch) => {
         try {
           ch.unsubscribe();
-        } catch {}
+        } catch { }
       });
     };
   }, []);

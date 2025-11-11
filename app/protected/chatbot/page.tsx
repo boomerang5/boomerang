@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Image from "next/image";
+import { useUserUuid } from '@/contexts/UserUuidContext';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -14,35 +15,35 @@ const supabase = createClient();
 // Componentes de íconos SVG
 const SearchIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <circle cx="11" cy="11" r="8"/>
-    <path d="m21 21-4.35-4.35"/>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.35-4.35" />
   </svg>
 );
 
 const PlusIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <line x1="12" y1="5" x2="12" y2="19"/>
-    <line x1="5" y1="12" x2="19" y2="12"/>
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
   </svg>
 );
 
 const EditIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
   </svg>
 );
 
 const CheckIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <polyline points="20,6 9,17 4,12"/>
+    <polyline points="20,6 9,17 4,12" />
   </svg>
 );
 
 const XIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <line x1="18" y1="6" x2="6" y2="18"/>
-    <line x1="6" y1="6" x2="18" y2="18"/>
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
 
@@ -97,12 +98,14 @@ function fmtTime(dt?: string | Date) {
 }
 
 export default function ChatBotPage() {
+  const { uuid: cachedUuid, isLoading: uuidLoading } = useUserUuid();
+
   // Estados principales
   const [userId, setUserId] = useState<number | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [selectedSession, setSelectedSession] = useState<SessionRow | null>(null);
   const [selectedTranscriptPath, setSelectedTranscriptPath] = useState<string>("");
-  
+
   // Panel creación
   const [showCreator, setShowCreator] = useState(false);
   const [transcripts, setTranscripts] = useState<TranscriptRPC[]>([]);
@@ -112,14 +115,14 @@ export default function ChatBotPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
-  
+
   // Edición de títulos
   const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  
+
   // Búsqueda
   const [searchTerm, setSearchTerm] = useState("");
-  
+
   // Ref para scroll automático
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -195,18 +198,13 @@ export default function ChatBotPage() {
   // ---------- Autenticación ----------
   async function resolveIdUsuarioAndToken(): Promise<{ idUsuario: number; accessToken: string }> {
     const { data: sessionData } = await supabase.auth.getSession();
-    
+
     if (!sessionData?.session?.access_token) {
       throw new Error("No hay sesión activa");
     }
-    
-    const { data: uuidData } = await supabase.rpc("get_usuario_uuid");
-    
-    const userUuid =
-      (typeof uuidData === "string" && uuidData) ||
-      (uuidData && (uuidData as any).uuid) ||
-      (uuidData && (uuidData as any).user_uuid) ||
-      sessionData?.session?.user?.id;
+
+    // Usar UUID del contexto cacheado en lugar de RPC
+    const userUuid = cachedUuid || sessionData?.session?.user?.id;
 
     if (!userUuid) {
       throw new Error("No se pudo resolver el UUID del usuario");
@@ -217,9 +215,9 @@ export default function ChatBotPage() {
       .select("id")
       .eq("User_id", userUuid)
       .maybeSingle();
-      
+
     if (error) throw error;
-    
+
     const idUsuario = Number(userData?.id);
     if (!idUsuario) {
       throw new Error(`No se encontró el id de Usuario con UUID: ${userUuid}`);
@@ -278,6 +276,9 @@ export default function ChatBotPage() {
   // ---------- Efectos ----------
   useEffect(() => {
     async function initUser() {
+      // Esperar a que el UUID del contexto esté disponible
+      if (uuidLoading) return;
+
       try {
         const { idUsuario } = await resolveIdUsuarioAndToken();
         setUserId(idUsuario);
@@ -286,7 +287,7 @@ export default function ChatBotPage() {
       }
     }
     initUser();
-  }, []);
+  }, [cachedUuid, uuidLoading]); // Dependencias actualizadas
 
   useEffect(() => {
     if (userId == null) return;
@@ -327,9 +328,9 @@ export default function ChatBotPage() {
       }
 
       // Actualizar la lista local
-      setSessions(prev => 
-        prev.map(s => 
-          s.id === editingSessionId 
+      setSessions(prev =>
+        prev.map(s =>
+          s.id === editingSessionId
             ? { ...s, titulo: editingTitle.trim() }
             : s
         )
@@ -337,7 +338,7 @@ export default function ChatBotPage() {
 
       // Actualizar la sesión seleccionada si es la que se está editando
       if (selectedSession?.id === editingSessionId) {
-        setSelectedSession(prev => 
+        setSelectedSession(prev =>
           prev ? { ...prev, titulo: editingTitle.trim() } : prev
         );
       }
@@ -408,7 +409,7 @@ export default function ChatBotPage() {
         transcriptPath: selectedTranscriptPath,
         sessionId: selectedSession.id
       });
-      
+
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -544,10 +545,10 @@ export default function ChatBotPage() {
               )}
               {(() => {
                 // Filtrar conversaciones por término de búsqueda
-                const filteredSessions = searchTerm.trim() 
-                  ? sessions.filter(session => 
-                      session.titulo.toLowerCase().includes(searchTerm.toLowerCase().trim())
-                    )
+                const filteredSessions = searchTerm.trim()
+                  ? sessions.filter(session =>
+                    session.titulo.toLowerCase().includes(searchTerm.toLowerCase().trim())
+                  )
                   : sessions;
 
                 if (searchTerm.trim() && filteredSessions.length === 0) {
@@ -559,111 +560,111 @@ export default function ChatBotPage() {
                 }
 
                 return filteredSessions.map((session) => {
-                const isActive = selectedSession?.id === session.id;
-                const isEditing = editingSessionId === session.id;
-                
-                return (
-                  <li key={session.id}>
-                    <div
-                      className={`w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-orange-100 bg-white hover:bg-orange-50 transition font-medium shadow-sm ${
-                        isActive
-                          ? "bg-orange-100 text-orange-600"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      {/* Avatar y título */}
-                      <div 
-                        className="flex items-center gap-3 flex-1 cursor-pointer"
-                        onClick={() => !isEditing && onSelectSession(session)}
-                      >
-                        <Image
-                          src="/mascota.png"
-                          alt={session.titulo}
-                          width={40}
-                          height={40}
-                          className="rounded-full"
-                        />
-                        <div className="flex flex-col items-start flex-1">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editingTitle}
-                              onChange={(e) => setEditingTitle(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  saveTitle();
-                                } else if (e.key === "Escape") {
-                                  cancelEditing();
-                                }
-                              }}
-                              className="font-semibold bg-white border border-orange-300 rounded px-2 py-1 text-sm w-full"
-                              autoFocus
-                              onBlur={saveTitle}
-                            />
-                          ) : (
-                            <span className="font-semibold truncate" title={session.titulo}>
-                              {session.titulo}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                  const isActive = selectedSession?.id === session.id;
+                  const isEditing = editingSessionId === session.id;
 
-                      {/* Botón de editar */}
-                      {isEditing ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={saveTitle}
-                            className="p-1 hover:bg-green-100 rounded text-green-600"
-                            title="Guardar"
-                          >
-                            <CheckIcon />
-                          </button>
-                          <button
-                            onClick={cancelEditing}
-                            className="p-1 hover:bg-red-100 rounded text-red-600"
-                            title="Cancelar"
-                          >
-                            <XIcon />
-                          </button>
+                  return (
+                    <li key={session.id}>
+                      <div
+                        className={`w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-orange-100 bg-white hover:bg-orange-50 transition font-medium shadow-sm ${isActive
+                            ? "bg-orange-100 text-orange-600"
+                            : "text-gray-700"
+                          }`}
+                      >
+                        {/* Avatar y título */}
+                        <div
+                          className="flex items-center gap-3 flex-1 cursor-pointer"
+                          onClick={() => !isEditing && onSelectSession(session)}
+                        >
+                          <Image
+                            src="/mascota.png"
+                            alt={session.titulo}
+                            width={40}
+                            height={40}
+                            className="rounded-full"
+                          />
+                          <div className="flex flex-col items-start flex-1">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editingTitle}
+                                onChange={(e) => setEditingTitle(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    saveTitle();
+                                  } else if (e.key === "Escape") {
+                                    cancelEditing();
+                                  }
+                                }}
+                                className="font-semibold bg-white border border-orange-300 rounded px-2 py-1 text-sm w-full"
+                                autoFocus
+                                onBlur={saveTitle}
+                              />
+                            ) : (
+                              <span className="font-semibold truncate" title={session.titulo}>
+                                {session.titulo}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      ) : (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
+
+                        {/* Botón de editar */}
+                        {isEditing ? (
+                          <div className="flex items-center gap-1">
                             <button
-                              aria-label="Opciones"
-                              onClick={(e) => e.stopPropagation()}
-                              className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-orange-600"
-                              title="Opciones"
+                              onClick={saveTitle}
+                              className="p-1 hover:bg-green-100 rounded text-green-600"
+                              title="Guardar"
                             >
-                              <MoreIcon />
+                              <CheckIcon />
                             </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="bg-white">
-                            <DropdownMenuItem
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                startEditing(session);
-                              }}
-                              className="cursor-pointer"
+                            <button
+                              onClick={cancelEditing}
+                              className="p-1 hover:bg-red-100 rounded text-red-600"
+                              title="Cancelar"
                             >
-                              Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                handleDeleteSession(session);
-                              }}
-                              className="cursor-pointer text-red-600 focus:text-red-700"
-                            >
-                              Eliminar
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </div>
-                  </li>
-                );
-              })})()}
+                              <XIcon />
+                            </button>
+                          </div>
+                        ) : (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                aria-label="Opciones"
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-orange-600"
+                                title="Opciones"
+                              >
+                                <MoreIcon />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="bg-white">
+                              <DropdownMenuItem
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  startEditing(session);
+                                }}
+                                className="cursor-pointer"
+                              >
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={(e) => {
+                                  e.preventDefault();
+                                  handleDeleteSession(session);
+                                }}
+                                className="cursor-pointer text-red-600 focus:text-red-700"
+                              >
+                                Eliminar
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })
+              })()}
             </ul>
           </div>
         </aside>
@@ -703,9 +704,9 @@ export default function ChatBotPage() {
                 {messages.length === 0 && !isSending && (
                   <div className="text-center py-8">
                     <div className="mb-4">
-                      <Image 
-                        src="/mascota.png" 
-                        alt="Mascota" 
+                      <Image
+                        src="/mascota.png"
+                        alt="Mascota"
                         width={80}
                         height={80}
                         className="mx-auto opacity-50"
@@ -719,16 +720,14 @@ export default function ChatBotPage() {
                 {messages.map((msg, i) => (
                   <div
                     key={i}
-                    className={`flex ${
-                      msg.role === "user" ? "justify-end" : "justify-start"
-                    }`}
+                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"
+                      }`}
                   >
                     <div
-                      className={`max-w-xs px-4 py-2 rounded-xl font-medium shadow ${
-                        msg.role === "user"
+                      className={`max-w-xs px-4 py-2 rounded-xl font-medium shadow ${msg.role === "user"
                           ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white"
                           : "bg-orange-100 text-orange-700"
-                      }`}
+                        }`}
                     >
                       {msg.content}
                       <div className="text-xs text-white/80 mt-1 text-right">
@@ -770,9 +769,9 @@ export default function ChatBotPage() {
             <div className="w-full h-full flex flex-col items-center justify-center text-center">
               {userId && (
                 <div className="mb-6">
-                  <Image 
-                    src="/mascota.png" 
-                    alt="Mascota Boomerang" 
+                  <Image
+                    src="/mascota.png"
+                    alt="Mascota Boomerang"
                     width={120}
                     height={120}
                     className="mx-auto object-contain"

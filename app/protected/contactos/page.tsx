@@ -403,33 +403,33 @@ export default function ContactosPage() {
   );
 
   async function acceptFromContacts(c: ContactoAgenda) {
-  if (!c.id_solicitante || !c.id_receptor) return;
-  const { error } = await supabase.rpc('accept_contact_request', {
-    p_id_solicitante: Number(c.id_solicitante),
-    p_id_receptor: Number(c.id_receptor),
-  });
-  if (error) {
-    console.error(error);
-    toast.error('No se pudo aceptar la solicitud.');
-    return;
-  }
-  
-  // Actualizar la notificación correspondiente
-  // Buscar la notificación de solicitud de amistad relacionada con este solicitante
-  const relatedNotif = notifications.find(
-    n => n.type === 'friend_request' && 
-         Number(n.meta?.id_solicitante) === Number(c.id_solicitante)
-  );
-  
-  if (relatedNotif && typeof relatedNotif.id === 'number') {
-    const meta = { ...(relatedNotif.meta ?? {}), respuesta: 'aceptada', responded_at: new Date().toISOString() };
-    await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', relatedNotif.id);
-  }
-  
-  // Optimista: saco de la lista entrante y refresco agenda confirmada
-  setInList(prev => prev.filter(x => x.id !== c.id));
-  await refreshAgenda();
-  toast.success('Solicitud aceptada');
+    if (!c.id_solicitante || !c.id_receptor) return;
+    const { error } = await supabase.rpc('accept_contact_request', {
+      p_id_solicitante: Number(c.id_solicitante),
+      p_id_receptor: Number(c.id_receptor),
+    });
+    if (error) {
+      console.error(error);
+      toast.error('No se pudo aceptar la solicitud.');
+      return;
+    }
+
+    // Actualizar la notificación correspondiente
+    // Buscar la notificación de solicitud de amistad relacionada con este solicitante
+    const relatedNotif = notifications.find(
+      n => n.type === 'friend_request' &&
+        Number(n.meta?.id_solicitante) === Number(c.id_solicitante)
+    );
+
+    if (relatedNotif && typeof relatedNotif.id === 'number') {
+      const meta = { ...(relatedNotif.meta ?? {}), respuesta: 'aceptada', responded_at: new Date().toISOString() };
+      await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', relatedNotif.id);
+    }
+
+    // Optimista: saco de la lista entrante y refresco agenda confirmada
+    setInList(prev => prev.filter(x => x.id !== c.id));
+    await refreshAgenda();
+    toast.success('Solicitud aceptada');
   }
 
   async function rejectFromContacts(c: ContactoAgenda) {
@@ -443,19 +443,19 @@ export default function ContactosPage() {
       toast.error('No se pudo rechazar la solicitud.');
       return;
     }
-    
+
     // Actualizar la notificación correspondiente
     // Buscar la notificación de solicitud de amistad relacionada con este solicitante
     const relatedNotif = notifications.find(
-      n => n.type === 'friend_request' && 
-           Number(n.meta?.id_solicitante) === Number(c.id_solicitante)
+      n => n.type === 'friend_request' &&
+        Number(n.meta?.id_solicitante) === Number(c.id_solicitante)
     );
-    
+
     if (relatedNotif && typeof relatedNotif.id === 'number') {
       const meta = { ...(relatedNotif.meta ?? {}), respuesta: 'rechazada', responded_at: new Date().toISOString() };
       await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', relatedNotif.id);
     }
-    
+
     setInList(prev => prev.filter(x => x.id !== c.id));
     toast.success('Solicitud rechazada');
   }
@@ -464,19 +464,17 @@ export default function ContactosPage() {
   // Helper: si tengo un ID de usuario numérico, busco su UUID en tabla Usuario
   async function getUuidFromUserNumericId(idNum: number): Promise<string | null> {
     try {
-      console.log('🔍 Buscando UUID para ID:', idNum);
       const { data, error } = await supabase
         .from('Usuario')
         .select('User_id')
         .eq('id', idNum)
         .maybeSingle();
-      
+
       if (error) {
         console.error('❌ Error en consulta Usuario:', error);
         return null;
       }
-      
-      console.log('🔍 Resultado consulta:', data);
+
       return data?.User_id ?? null;
     } catch (e) {
       console.error('❌ Excepción en getUuidFromUserNumericId:', e);
@@ -486,21 +484,15 @@ export default function ContactosPage() {
 
   // Función principal para navegar a videollamada
   async function gotoCall(c: ContactoAgenda, kind: 'audio' | 'video', shouldSaveTranscript: boolean = false, title?: string, description?: string) {
-    console.log('🔍 gotoCall - Contacto completo:', c);
-    console.log('🔍 id_usuario_contacto:', c.id_usuario_contacto);
-    console.log('🔍 id directo:', c.id);
-    
     // Primero intentamos obtener el UUID del usuario contacto
     let peer: string | null = null;
 
     // PRIORIDAD 1: Si tenemos id_usuario_contacto, lo usamos para obtener el UUID
     if (c.id_usuario_contacto != null) {
       const idNum = Number(c.id_usuario_contacto);
-      console.log('🔍 Intentando con id_usuario_contacto:', idNum);
-      
+
       if (Number.isFinite(idNum)) {
         const uuid = await getUuidFromUserNumericId(idNum);
-        console.log('🔍 UUID encontrado con id_usuario_contacto:', uuid);
         if (uuid) peer = uuid;
       }
     }
@@ -508,11 +500,9 @@ export default function ContactosPage() {
     // PRIORIDAD 2: Si no encontramos UUID, intentamos con el ID directo del contacto
     if (!peer && c.id != null) {
       const idNum = Number(c.id);
-      console.log('🔍 Intentando con ID directo:', idNum);
-      
+
       if (Number.isFinite(idNum)) {
         const uuid = await getUuidFromUserNumericId(idNum);
-        console.log('🔍 UUID con ID directo:', uuid);
         if (uuid) peer = uuid;
       }
     }
@@ -525,13 +515,12 @@ export default function ContactosPage() {
       return;
     }
 
-    console.log('✅ UUID resuelto:', peer);
     const params = new URLSearchParams();
     params.set('to', peer);
     params.set('autocall', '1');
     if (shouldSaveTranscript) params.set('transcript', '1');
     if (kind === 'video') params.set('type', 'video');
-    
+
     // Guardar información de la llamada en sessionStorage
     if (title) {
       try {
@@ -543,11 +532,11 @@ export default function ContactosPage() {
           sessionStorage.setItem('vc_transcript', '1');
           sessionStorage.setItem('vc_transcript_title', title);
         }
-      } catch (e) { 
-        console.warn('sessionStorage set failed', e); 
+      } catch (e) {
+        console.warn('sessionStorage set failed', e);
       }
     }
-    
+
     router.push(`/protected/videollamada?${params.toString()}`);
   }
 
@@ -574,9 +563,8 @@ export default function ContactosPage() {
     // Ejecutar la llamada con la configuración proporcionada
     if (pendingCallContact) {
       try {
-        console.log('[contactos] handleCallConfirm title=', title, 'description=', description, 'transcription=', transcriptionEnabled, 'contact=', pendingCallContact);
         void gotoCall(pendingCallContact, 'audio', transcriptionEnabled, title, description);
-      } catch (e) { 
+      } catch (e) {
         console.warn('handleCallConfirm error', e);
       }
     }
@@ -587,7 +575,7 @@ export default function ContactosPage() {
   // Abrir modal de perfil del contacto
   const handleContactClick = async (c: ContactoAgenda) => {
     if (c.pendiente) return; // No mostrar perfil si está pendiente
-    
+
     // Obtener información completa del contacto
     if (c.id_usuario_contacto) {
       try {
@@ -639,7 +627,7 @@ export default function ContactosPage() {
     } else {
       setSelectedContactForProfile(c);
     }
-    
+
     setShowContactProfileModal(true);
   };
 
@@ -667,7 +655,7 @@ export default function ContactosPage() {
       setSelectedContactForProfile(null);
       setShowDeleteConfirmModal(false);
       setContactToDelete(null);
-      
+
       // Recargar la lista de contactos
       refreshAgenda();
     } catch (err) {
@@ -691,7 +679,7 @@ export default function ContactosPage() {
 
     try {
       const newFavoriteState = !c.favorito;
-      
+
       // Actualizar en la base de datos (tabla ContactoUsuario)
       const { error } = await supabase
         .from('ContactoUsuario')
@@ -706,7 +694,7 @@ export default function ContactosPage() {
       }
 
       // Actualizar el estado local
-      setSelectedContactForProfile(prev => 
+      setSelectedContactForProfile(prev =>
         prev ? { ...prev, favorito: newFavoriteState } : null
       );
 
@@ -714,8 +702,8 @@ export default function ContactosPage() {
       refreshAgenda();
 
       toast.success(
-        newFavoriteState 
-          ? `${fullName(c.nombre, c.apellido)} agregado a favoritos ⭐` 
+        newFavoriteState
+          ? `${fullName(c.nombre, c.apellido)} agregado a favoritos ⭐`
           : `${fullName(c.nombre, c.apellido)} removido de favoritos`
       );
     } catch (err) {
@@ -747,13 +735,13 @@ export default function ContactosPage() {
           });
 
           // outsList enriquecida (solo mientras esté pendiente)
-         if (payload.eventType === 'INSERT' && row.estado === 'pendiente') {
-          const u = await getUserMin(Number(row.id_receptor));
-          setOutsList(prev => {
-            const exists = prev.some(c => Number(c.id_usuario_contacto) === Number(row.id_receptor));
-            if (exists || agendaIds.has(Number(row.id_receptor))) return prev;
-            return [
-              ...prev,
+          if (payload.eventType === 'INSERT' && row.estado === 'pendiente') {
+            const u = await getUserMin(Number(row.id_receptor));
+            setOutsList(prev => {
+              const exists = prev.some(c => Number(c.id_usuario_contacto) === Number(row.id_receptor));
+              if (exists || agendaIds.has(Number(row.id_receptor))) return prev;
+              return [
+                ...prev,
                 {
                   id: `pending-${row.id}`,
                   id_usuario_contacto: row.id_receptor,
@@ -775,7 +763,7 @@ export default function ContactosPage() {
       )
       // Cuando me aceptan (se crea ContactoUsuario para mí), refresco agenda
       .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'ContactoUsuario',   filter: `id_usuario=eq.${idUsuario}` },
+        { event: 'INSERT', schema: 'public', table: 'ContactoUsuario', filter: `id_usuario=eq.${idUsuario}` },
         () => { void refreshAgenda(); }
       )
       .subscribe();
@@ -833,445 +821,442 @@ export default function ContactosPage() {
 
 
   /* ================= Render ================= */
-const combinedAgenda = useMemo(
-  () => ([...inList, ...filteredOuts, ...(confirmed ?? [])] as ContactoAgenda[]),
-  [inList, filteredOuts, confirmed]
-);
+  const combinedAgenda = useMemo(
+    () => ([...inList, ...filteredOuts, ...(confirmed ?? [])] as ContactoAgenda[]),
+    [inList, filteredOuts, confirmed]
+  );
 
   return (
-  <>
-    <main className="flex flex-col gap-8">
-      {/* Header + botón + buscador */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <>
+      <main className="flex flex-col gap-8">
+        {/* Header + botón + buscador */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
 
-        <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-        Contactos
-        {pendingFriendRequests > 0 && (
-          <span className="inline-flex items-center justify-center text-xs font-semibold
+          <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+            Contactos
+            {pendingFriendRequests > 0 && (
+              <span className="inline-flex items-center justify-center text-xs font-semibold
                             rounded-full px-2 py-0.5 bg-orange-100 text-orange-700">
-            {pendingFriendRequests}
-          </span>
-        )}
-      </h1>
+                {pendingFriendRequests}
+              </span>
+            )}
+          </h1>
 
-        <div className="flex w-full md:max-w-xl items-center gap-3">
-          <button
-            onClick={() => { setIsModalOpen(true); }}
-            className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-md font-semibold hover:brightness-105 transition"
-          >
-            Añadir contacto
-          </button>
-
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar por nombre, apellido o apodo…"
-              className="w-full px-4 py-2 pr-10 rounded-md bg-white/40 dark:bg-white/10 border border-orange-300 text-foreground focus:ring-2 focus:ring-orange-400 backdrop-blur-md"
-            />
-            <Search className="w-4 h-4 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-orange-500" />
-          </div>
-        </div>
-      </header>
-
-      {/* Resultados de búsqueda */}
-      {hayBusqueda && (
-        <section className="bg-white/30 dark:bg-white/10 rounded-xl p-6 shadow-lg backdrop-blur-md border border-white/20 flex flex-col gap-2">
-          {loadingSearch && <p className="text-muted-foreground">Buscando…</p>}
-          {!loadingSearch && results.length === 0 && (
-            <p className="text-muted-foreground">No hay resultados para “{q.trim()}”.</p>
-          )}
-          {!loadingSearch && results.map((u) => (
-            <div key={u.id} className="flex items-center justify-between bg-white/20 dark:bg-white/5 p-3 rounded-lg">
-              <div>
-                <p className="font-medium">
-                  {u.nombre} {u.apellido}{u.apodo ? ` (${u.apodo})` : ''}
-                </p>
-                <p className="text-xs text-muted-foreground">{u.mail}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {u.pendiente ? (
-                  <span className="text-xs px-2 py-1 rounded-full border border-orange-300 bg-orange-50 text-orange-700">
-                    Pendiente
-                  </span>
-                ) : u.en_agenda ? (
-                  <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-700 border border-green-500/30">
-                    Ya en tu lista
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => addContacto(u.id)}
-                    className="text-sm bg-gradient-to-r from-orange-400 to-orange-600 text-white px-3 py-1.5 rounded-full font-semibold hover:brightness-105 transition"
-                  >
-                    Agregar
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* Agenda */}
-      <section className="bg-white/30 dark:bg-white/10 rounded-xl p-6 shadow-lg backdrop-blur-md border border-white/20 flex flex-col gap-4">
-        <h2 className="text-sm font-semibold text-orange-600">Mi agenda</h2>
-
-        {loadingAgenda && <p className="text-muted-foreground">Cargando contactos…</p>}
-        {!loadingAgenda && agendaError && <p className="text-red-600 dark:text-red-400">{agendaError}</p>}
-
-        {!loadingAgenda && !agendaError && (filteredOuts.length + (confirmed?.length ?? 0)) === 0 && (
-          <p className="text-muted-foreground">No tienes contactos agregados.</p>
-        )}
-
-        {/* Primero los pendientes (si no están confirmados), luego los confirmados */}
-        {combinedAgenda.map((c: ContactoAgenda, idx: number) => {
-          const isPending = !!c.pendiente;
-          const canCall = !isPending;
-
-          return (
-            <div
-              key={String(c.id ?? c.id_usuario_contacto ?? idx)}
-              className="flex justify-between items-center bg-white/20 dark:bg-white/5 p-4 rounded-lg hover:bg-white/30 transition"
+          <div className="flex w-full md:max-w-xl items-center gap-3">
+            <button
+              onClick={() => { setIsModalOpen(true); }}
+              className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-4 py-2 rounded-md font-semibold hover:brightness-105 transition"
             >
-              {/* Área clickeable del contacto (nombre y estado) */}
-              <div 
-                className={`flex-1 ${!isPending ? 'cursor-pointer hover:opacity-80' : ''}`}
-                onClick={() => !isPending && handleContactClick(c)}
-              >
-                <p className="font-semibold text-lg">
-                  {fullName(c.nombre, c.apellido)}
-                </p>
-                {!isPending && (
-                  <p className="text-sm text-muted-foreground">
-                    Toca para ver perfil
-                  </p>
-                )}
-              </div>
+              Añadir contacto
+            </button>
 
-              <div className="flex items-center gap-2">
-                {isPending ? (
-                  c.inbound ? (
-                    // 👉 Es una solicitud ENTRANTE: mostrar Aceptar/Rechazar
-                    <>
-                      <button
-                        onClick={() => acceptFromContacts(c)}
-                        className="p-2 rounded-full bg-green-500/20 hover:bg-green-500/30 text-green-600"
-                        title="Aceptar"
-                      >
-                        {/* Si usás este icono, importá { Check } de 'lucide-react' */}
-                        <Check className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => rejectFromContacts(c)}
-                        className="p-2 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-600"
-                        title="Rechazar"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </>
-                  ) : (
-                    // 👉 Es una solicitud SALIENTE (vos la enviaste): solo badge "Pendiente"
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Buscar por nombre, apellido o apodo…"
+                className="w-full px-4 py-2 pr-10 rounded-md bg-white/40 dark:bg-white/10 border border-orange-300 text-foreground focus:ring-2 focus:ring-orange-400 backdrop-blur-md"
+              />
+              <Search className="w-4 h-4 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-orange-500" />
+            </div>
+          </div>
+        </header>
+
+        {/* Resultados de búsqueda */}
+        {hayBusqueda && (
+          <section className="bg-white/30 dark:bg-white/10 rounded-xl p-6 shadow-lg backdrop-blur-md border border-white/20 flex flex-col gap-2">
+            {loadingSearch && <p className="text-muted-foreground">Buscando…</p>}
+            {!loadingSearch && results.length === 0 && (
+              <p className="text-muted-foreground">No hay resultados para “{q.trim()}”.</p>
+            )}
+            {!loadingSearch && results.map((u) => (
+              <div key={u.id} className="flex items-center justify-between bg-white/20 dark:bg-white/5 p-3 rounded-lg">
+                <div>
+                  <p className="font-medium">
+                    {u.nombre} {u.apellido}{u.apodo ? ` (${u.apodo})` : ''}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{u.mail}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {u.pendiente ? (
                     <span className="text-xs px-2 py-1 rounded-full border border-orange-300 bg-orange-50 text-orange-700">
                       Pendiente
                     </span>
-                  )
-                ) : (
-                  // 👉 Contacto confirmado: botones de llamada habilitados
-                  <div className="flex items-center gap-2">
+                  ) : u.en_agenda ? (
+                    <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-700 border border-green-500/30">
+                      Ya en tu lista
+                    </span>
+                  ) : (
                     <button
-                      onClick={() => handleCallOpenModal(c)}
-                      disabled={!canCall}
-                      aria-label={canCall ? 'Llamar' : 'Solicitud pendiente'}
-                      title={canCall ? 'Llamar' : 'Solicitud pendiente'}
-                      className={[
-                        'inline-flex h-9 w-9 items-center justify-center rounded-full transition shadow',
-                        canCall
-                          ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:brightness-105'
-                          : 'bg-gray-300/70 text-gray-500 cursor-not-allowed',
-                      ].join(' ')}
+                      onClick={() => addContacto(u.id)}
+                      className="text-sm bg-gradient-to-r from-orange-400 to-orange-600 text-white px-3 py-1.5 rounded-full font-semibold hover:brightness-105 transition"
                     >
-                      <Phone className="h-4 w-4" />
+                      Agregar
                     </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </section>
-    </main>
-
-    {/* ====== Modal Añadir contacto ====== */}
-    {isModalOpen && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleCloseModal} />
-        <div className="relative z-10 w-[90%] max-w-xl rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
-          <div className="flex items-start justify-between mb-4">
-            <h3 className="text-lg font-semibold text-foreground">Añadir contacto</h3>
-            <button className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10" onClick={handleCloseModal} aria-label="Cerrar" title="Cerrar">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="relative mb-4">
-            <input
-              autoFocus
-              type="text"
-              value={modalQ}
-              onChange={(e) => { setModalQ(e.target.value); setSelectedUser(null); }}
-              placeholder="Nombre, apellido o apodo…"
-              className="w-full px-4 py-2 pr-10 rounded-md bg-white/60 dark:bg-white/10 border border-orange-300 text-foreground focus:ring-2 focus:ring-orange-400 backdrop-blur"
-            />
-            <Search className="w-4 h-4 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-orange-500" />
-          </div>
-
-          <div className="max-h-72 overflow-auto space-y-2">
-            {modalLoading && <p className="text-muted-foreground">Buscando…</p>}
-            {!modalLoading && modalQ.trim() && modalResults.length === 0 && (<p className="text-muted-foreground">Sin resultados.</p>)}
-
-            {!modalLoading && modalResults.map(u => (
-              <button
-                key={u.id}
-                onClick={() => !u.en_agenda && !u.pendiente && setSelectedUser(u)}
-                disabled={u.en_agenda || u.pendiente}
-                className={`w-full text-left rounded-lg p-3 transition ${
-                  u.en_agenda || u.pendiente 
-                    ? 'bg-gray-100 dark:bg-white/5 cursor-not-allowed opacity-70' 
-                    : selectedUser?.id === u.id 
-                      ? 'bg-white/60 dark:bg-white/5 border-2 border-orange-500 hover:bg-white/80 dark:hover:bg-white/10' 
-                      : 'bg-white/60 dark:bg-white/5 border border-white/30 hover:bg-white/80 dark:hover:bg-white/10'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <p className="font-medium">
-                      {u.nombre} {u.apellido}{u.apodo ? ` (${u.apodo})` : ''}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{u.mail}</p>
-                  </div>
-                  {u.en_agenda && (
-                    <span className="text-xs px-3 py-1 rounded-full bg-green-500/20 text-green-700 dark:text-green-400 border border-green-500/30 font-medium">
-                      Amigos
-                    </span>
-                  )}
-                  {u.pendiente && !u.en_agenda && (
-                    <span className="text-xs px-3 py-1 rounded-full bg-orange-500/20 text-orange-700 dark:text-orange-400 border border-orange-500/30 font-medium">
-                      Pendiente
-                    </span>
                   )}
                 </div>
-              </button>
+              </div>
             ))}
-          </div>
+          </section>
+        )}
 
-          <div className="mt-5 flex items-center justify-between gap-3">
-            <div className="text-sm text-muted-foreground">
-              {selectedUser && <>¿Agregar a <span className="font-medium">{selectedUser.nombre} {selectedUser.apellido}</span>?</>}
-            </div>
-            <div className="flex gap-2">
-              <button onClick={handleCloseModal} className="px-4 py-2 rounded-md border border-white/30 bg-white/50 dark:bg-white/10 hover:bg-white/70 dark:hover:bg-white/20 transition">
-                Cancelar
-              </button>
-              <button
-                disabled={!selectedUser || selectedUser.en_agenda}
-                onClick={() => selectedUser && addContacto(selectedUser.id)}
-                className={`px-4 py-2 rounded-md font-semibold transition ${
-                  !selectedUser || selectedUser.en_agenda
-                    ? 'bg-gray-300 dark:bg-white/10 text-gray-500 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-orange-400 to-orange-600 text-white hover:brightness-105'
-                }`}
+        {/* Agenda */}
+        <section className="bg-white/30 dark:bg-white/10 rounded-xl p-6 shadow-lg backdrop-blur-md border border-white/20 flex flex-col gap-4">
+          <h2 className="text-sm font-semibold text-orange-600">Mi agenda</h2>
+
+          {loadingAgenda && <p className="text-muted-foreground">Cargando contactos…</p>}
+          {!loadingAgenda && agendaError && <p className="text-red-600 dark:text-red-400">{agendaError}</p>}
+
+          {!loadingAgenda && !agendaError && (filteredOuts.length + (confirmed?.length ?? 0)) === 0 && (
+            <p className="text-muted-foreground">No tienes contactos agregados.</p>
+          )}
+
+          {/* Primero los pendientes (si no están confirmados), luego los confirmados */}
+          {combinedAgenda.map((c: ContactoAgenda, idx: number) => {
+            const isPending = !!c.pendiente;
+            const canCall = !isPending;
+
+            return (
+              <div
+                key={String(c.id ?? c.id_usuario_contacto ?? idx)}
+                className="flex justify-between items-center bg-white/20 dark:bg-white/5 p-4 rounded-lg hover:bg-white/30 transition"
               >
-                Confirmar
+                {/* Área clickeable del contacto (nombre y estado) */}
+                <div
+                  className={`flex-1 ${!isPending ? 'cursor-pointer hover:opacity-80' : ''}`}
+                  onClick={() => !isPending && handleContactClick(c)}
+                >
+                  <p className="font-semibold text-lg">
+                    {fullName(c.nombre, c.apellido)}
+                  </p>
+                  {!isPending && (
+                    <p className="text-sm text-muted-foreground">
+                      Toca para ver perfil
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {isPending ? (
+                    c.inbound ? (
+                      // 👉 Es una solicitud ENTRANTE: mostrar Aceptar/Rechazar
+                      <>
+                        <button
+                          onClick={() => acceptFromContacts(c)}
+                          className="p-2 rounded-full bg-green-500/20 hover:bg-green-500/30 text-green-600"
+                          title="Aceptar"
+                        >
+                          {/* Si usás este icono, importá { Check } de 'lucide-react' */}
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => rejectFromContacts(c)}
+                          className="p-2 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-600"
+                          title="Rechazar"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </>
+                    ) : (
+                      // 👉 Es una solicitud SALIENTE (vos la enviaste): solo badge "Pendiente"
+                      <span className="text-xs px-2 py-1 rounded-full border border-orange-300 bg-orange-50 text-orange-700">
+                        Pendiente
+                      </span>
+                    )
+                  ) : (
+                    // 👉 Contacto confirmado: botones de llamada habilitados
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleCallOpenModal(c)}
+                        disabled={!canCall}
+                        aria-label={canCall ? 'Llamar' : 'Solicitud pendiente'}
+                        title={canCall ? 'Llamar' : 'Solicitud pendiente'}
+                        className={[
+                          'inline-flex h-9 w-9 items-center justify-center rounded-full transition shadow',
+                          canCall
+                            ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:brightness-105'
+                            : 'bg-gray-300/70 text-gray-500 cursor-not-allowed',
+                        ].join(' ')}
+                      >
+                        <Phone className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      </main>
+
+      {/* ====== Modal Añadir contacto ====== */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleCloseModal} />
+          <div className="relative z-10 w-[90%] max-w-xl rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Añadir contacto</h3>
+              <button className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10" onClick={handleCloseModal} aria-label="Cerrar" title="Cerrar">
+                <X className="w-5 h-5" />
               </button>
             </div>
-          </div>
-        </div>
-      </div>
-    )}
 
-    {/* ====== Modal Configurar llamada ====== */}
-    {showCallConfigModal && (
-      <CallConfigModal
-        open={showCallConfigModal}
-        onClose={() => { setPendingCallContact(null); setShowCallConfigModal(false); }}
-        onConfirm={handleCallConfirm}
-      />
-    )}
-
-    {/* ====== Modal Perfil del contacto ====== */}
-    {showContactProfileModal && selectedContactForProfile && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowContactProfileModal(false)} />
-        <div className="relative z-10 w-[90%] max-w-md rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
-          <div className="flex items-start justify-between mb-6">
-            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-              <User className="h-5 w-5 text-orange-600" />
-              Perfil del contacto
-            </h3>
-            <button 
-              className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10" 
-              onClick={() => setShowContactProfileModal(false)} 
-              aria-label="Cerrar" 
-              title="Cerrar"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Información del contacto */}
-          <div className="space-y-4 mb-6">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-white font-bold text-xl">
-                  {selectedContactForProfile.nombre?.charAt(0)?.toUpperCase() || '?'}
-                </span>
-              </div>
-              <h4 className="text-xl font-semibold text-foreground">
-                {fullName(selectedContactForProfile.nombre, selectedContactForProfile.apellido)}
-              </h4>
-              {selectedContactForProfile.apodo && (
-                <p className="text-sm text-muted-foreground">"{selectedContactForProfile.apodo}"</p>
-              )}
+            <div className="relative mb-4">
+              <input
+                autoFocus
+                type="text"
+                value={modalQ}
+                onChange={(e) => { setModalQ(e.target.value); setSelectedUser(null); }}
+                placeholder="Nombre, apellido o apodo…"
+                className="w-full px-4 py-2 pr-10 rounded-md bg-white/60 dark:bg-white/10 border border-orange-300 text-foreground focus:ring-2 focus:ring-orange-400 backdrop-blur"
+              />
+              <Search className="w-4 h-4 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-orange-500" />
             </div>
 
-            <div className="bg-white/10 dark:bg-white/5 rounded-lg p-4 space-y-3">
-              {selectedContactForProfile.fecha_registro && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Se unió:</span>
-                  <span className="text-sm text-foreground">
-                    {new Date(selectedContactForProfile.fecha_registro).toLocaleDateString('es-ES', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </span>
-                </div>
-              )}
-              {selectedContactForProfile.fh_alta && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Contacto desde:</span>
-                  <span className="text-sm text-foreground">
-                    {new Date(selectedContactForProfile.fh_alta).toLocaleDateString('es-ES', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
-                  </span>
-                </div>
-              )}
-              {selectedContactForProfile.idioma && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Idioma:</span>
-                  <span className="text-sm text-foreground">{selectedContactForProfile.idioma}</span>
-                </div>
-              )}
-              
-              {/* Toggle de favorito */}
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Favorito:</span>
+            <div className="max-h-72 overflow-auto space-y-2">
+              {modalLoading && <p className="text-muted-foreground">Buscando…</p>}
+              {!modalLoading && modalQ.trim() && modalResults.length === 0 && (<p className="text-muted-foreground">Sin resultados.</p>)}
+
+              {!modalLoading && modalResults.map(u => (
                 <button
-                  onClick={() => toggleFavorite(selectedContactForProfile)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition ${
-                    selectedContactForProfile.favorito 
-                      ? 'bg-orange-500/20 text-orange-600' 
-                      : 'bg-gray-500/10 text-gray-600 hover:bg-gray-500/20'
-                  }`}
+                  key={u.id}
+                  onClick={() => !u.en_agenda && !u.pendiente && setSelectedUser(u)}
+                  disabled={u.en_agenda || u.pendiente}
+                  className={`w-full text-left rounded-lg p-3 transition ${u.en_agenda || u.pendiente
+                      ? 'bg-gray-100 dark:bg-white/5 cursor-not-allowed opacity-70'
+                      : selectedUser?.id === u.id
+                        ? 'bg-white/60 dark:bg-white/5 border-2 border-orange-500 hover:bg-white/80 dark:hover:bg-white/10'
+                        : 'bg-white/60 dark:bg-white/5 border border-white/30 hover:bg-white/80 dark:hover:bg-white/10'
+                    }`}
                 >
-                  <span className="text-lg">
-                    {selectedContactForProfile.favorito ? '⭐' : '☆'}
-                  </span>
-                  <span className="text-xs">
-                    {selectedContactForProfile.favorito ? 'Sí' : 'No'}
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <p className="font-medium">
+                        {u.nombre} {u.apellido}{u.apodo ? ` (${u.apodo})` : ''}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{u.mail}</p>
+                    </div>
+                    {u.en_agenda && (
+                      <span className="text-xs px-3 py-1 rounded-full bg-green-500/20 text-green-700 dark:text-green-400 border border-green-500/30 font-medium">
+                        Amigos
+                      </span>
+                    )}
+                    {u.pendiente && !u.en_agenda && (
+                      <span className="text-xs px-3 py-1 rounded-full bg-orange-500/20 text-orange-700 dark:text-orange-400 border border-orange-500/30 font-medium">
+                        Pendiente
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                {selectedUser && <>¿Agregar a <span className="font-medium">{selectedUser.nombre} {selectedUser.apellido}</span>?</>}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleCloseModal} className="px-4 py-2 rounded-md border border-white/30 bg-white/50 dark:bg-white/10 hover:bg-white/70 dark:hover:bg-white/20 transition">
+                  Cancelar
+                </button>
+                <button
+                  disabled={!selectedUser || selectedUser.en_agenda}
+                  onClick={() => selectedUser && addContacto(selectedUser.id)}
+                  className={`px-4 py-2 rounded-md font-semibold transition ${!selectedUser || selectedUser.en_agenda
+                      ? 'bg-gray-300 dark:bg-white/10 text-gray-500 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-orange-400 to-orange-600 text-white hover:brightness-105'
+                    }`}
+                >
+                  Confirmar
                 </button>
               </div>
             </div>
           </div>
-
-          {/* Botones de acción */}
-          <div className="flex gap-3">
-            <button
-              onClick={() => {
-                setShowContactProfileModal(false);
-                handleCallOpenModal(selectedContactForProfile);
-              }}
-              className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white py-2.5 px-4 rounded-lg hover:brightness-105 transition flex items-center justify-center gap-2"
-            >
-              <Phone className="h-4 w-4" />
-              Llamar
-            </button>
-            
-            <button
-              onClick={() => handleDeleteConfirmation(selectedContactForProfile)}
-              className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              Eliminar
-            </button>
-          </div>
         </div>
-      </div>
-    )}
+      )}
 
-    {/* ====== Modal Confirmación Eliminar Contacto ====== */}
-    {showDeleteConfirmModal && contactToDelete && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowDeleteConfirmModal(false)} />
-        <div className="relative z-10 w-[90%] max-w-md rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
-          <div className="flex items-start justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-red-500/10 rounded-full flex items-center justify-center">
-                <Trash2 className="h-5 w-5 text-red-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-foreground">
-                Eliminar contacto
+      {/* ====== Modal Configurar llamada ====== */}
+      {showCallConfigModal && (
+        <CallConfigModal
+          open={showCallConfigModal}
+          onClose={() => { setPendingCallContact(null); setShowCallConfigModal(false); }}
+          onConfirm={handleCallConfirm}
+        />
+      )}
+
+      {/* ====== Modal Perfil del contacto ====== */}
+      {showContactProfileModal && selectedContactForProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowContactProfileModal(false)} />
+          <div className="relative z-10 w-[90%] max-w-md rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
+            <div className="flex items-start justify-between mb-6">
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <User className="h-5 w-5 text-orange-600" />
+                Perfil del contacto
               </h3>
+              <button
+                className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"
+                onClick={() => setShowContactProfileModal(false)}
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <button 
-              className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10" 
-              onClick={() => setShowDeleteConfirmModal(false)} 
-              aria-label="Cerrar" 
-              title="Cerrar"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
 
-          {/* Contenido del modal */}
-          <div className="mb-6">
-            <p className="text-foreground mb-2">
-              ¿Estás seguro de que deseas eliminar a{' '}
-              <span className="font-semibold text-orange-600">
-                {fullName(contactToDelete.nombre, contactToDelete.apellido)}
-              </span>{' '}
-              de tus contactos?
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Esta acción no se puede deshacer. Debera volver a solicitar ser contacto si desea agregarlo nuevamente.
-            </p>
-          </div>
+            {/* Información del contacto */}
+            <div className="space-y-4 mb-6">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <span className="text-white font-bold text-xl">
+                    {selectedContactForProfile.nombre?.charAt(0)?.toUpperCase() || '?'}
+                  </span>
+                </div>
+                <h4 className="text-xl font-semibold text-foreground">
+                  {fullName(selectedContactForProfile.nombre, selectedContactForProfile.apellido)}
+                </h4>
+                {selectedContactForProfile.apodo && (
+                  <p className="text-sm text-muted-foreground">"{selectedContactForProfile.apodo}"</p>
+                )}
+              </div>
 
-          {/* Botones de acción */}
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowDeleteConfirmModal(false)}
-              className="flex-1 bg-gray-500/10 hover:bg-gray-500/20 text-gray-700 dark:text-gray-300 py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
-            >
-              Cancelar
-            </button>
-            
-            <button
-              onClick={() => handleDeleteContact(contactToDelete)}
-              className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              Eliminar
-            </button>
+              <div className="bg-white/10 dark:bg-white/5 rounded-lg p-4 space-y-3">
+                {selectedContactForProfile.fecha_registro && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Se unió:</span>
+                    <span className="text-sm text-foreground">
+                      {new Date(selectedContactForProfile.fecha_registro).toLocaleDateString('es-ES', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </span>
+                  </div>
+                )}
+                {selectedContactForProfile.fh_alta && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Contacto desde:</span>
+                    <span className="text-sm text-foreground">
+                      {new Date(selectedContactForProfile.fh_alta).toLocaleDateString('es-ES', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </span>
+                  </div>
+                )}
+                {selectedContactForProfile.idioma && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Idioma:</span>
+                    <span className="text-sm text-foreground">{selectedContactForProfile.idioma}</span>
+                  </div>
+                )}
+
+                {/* Toggle de favorito */}
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Favorito:</span>
+                  <button
+                    onClick={() => toggleFavorite(selectedContactForProfile)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg transition ${selectedContactForProfile.favorito
+                        ? 'bg-orange-500/20 text-orange-600'
+                        : 'bg-gray-500/10 text-gray-600 hover:bg-gray-500/20'
+                      }`}
+                  >
+                    <span className="text-lg">
+                      {selectedContactForProfile.favorito ? '⭐' : '☆'}
+                    </span>
+                    <span className="text-xs">
+                      {selectedContactForProfile.favorito ? 'Sí' : 'No'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Botones de acción */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowContactProfileModal(false);
+                  handleCallOpenModal(selectedContactForProfile);
+                }}
+                className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white py-2.5 px-4 rounded-lg hover:brightness-105 transition flex items-center justify-center gap-2"
+              >
+                <Phone className="h-4 w-4" />
+                Llamar
+              </button>
+
+              <button
+                onClick={() => handleDeleteConfirmation(selectedContactForProfile)}
+                className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    )}
-  </>
-);
+      )}
+
+      {/* ====== Modal Confirmación Eliminar Contacto ====== */}
+      {showDeleteConfirmModal && contactToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowDeleteConfirmModal(false)} />
+          <div className="relative z-10 w-[90%] max-w-md rounded-2xl bg-white dark:bg-[#111] border border-white/20 shadow-2xl p-6">
+            <div className="flex items-start justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-500/10 rounded-full flex items-center justify-center">
+                  <Trash2 className="h-5 w-5 text-red-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">
+                  Eliminar contacto
+                </h3>
+              </div>
+              <button
+                className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10"
+                onClick={() => setShowDeleteConfirmModal(false)}
+                aria-label="Cerrar"
+                title="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Contenido del modal */}
+            <div className="mb-6">
+              <p className="text-foreground mb-2">
+                ¿Estás seguro de que deseas eliminar a{' '}
+                <span className="font-semibold text-orange-600">
+                  {fullName(contactToDelete.nombre, contactToDelete.apellido)}
+                </span>{' '}
+                de tus contactos?
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Esta acción no se puede deshacer. Debera volver a solicitar ser contacto si desea agregarlo nuevamente.
+              </p>
+            </div>
+
+            {/* Botones de acción */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="flex-1 bg-gray-500/10 hover:bg-gray-500/20 text-gray-700 dark:text-gray-300 py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
+              >
+                Cancelar
+              </button>
+
+              <button
+                onClick={() => handleDeleteContact(contactToDelete)}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 px-4 rounded-lg transition flex items-center justify-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

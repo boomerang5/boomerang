@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { useUserUuid } from '@/contexts/UserUuidContext';
 // @ts-ignore
 import feather from 'feather-icons';
 import { Check, X, Calendar, UserPlus, Info } from 'lucide-react';
@@ -23,8 +24,8 @@ function stateDot(estado: string) {
     /busy|ocupado/i.test(estado)
       ? 'bg-red-500'
       : /away|ausente/i.test(estado)
-      ? 'bg-yellow-500'
-      : 'bg-green-500';
+        ? 'bg-yellow-500'
+        : 'bg-green-500';
   return <span className={`inline-block w-2 h-2 rounded-full mr-1 align-middle ${color}`} />;
 }
 function labelEstado(estado: string) {
@@ -78,8 +79,8 @@ function getInitials(nombre?: string | null, apellido?: string | null, mail?: st
 function InitialsAvatar({
   nombre,
   apellido,
- mail,
- className = "",
+  mail,
+  className = "",
 }: {
   nombre?: string | null;
   apellido?: string | null;
@@ -89,13 +90,13 @@ function InitialsAvatar({
   const initials = getInitials(nombre, apellido, mail);
   return (
     <div
-     className={`flex items-center justify-center rounded-full ${className} 
+      className={`flex items-center justify-center rounded-full ${className} 
                   bg-gradient-to-br from-[#f68b1f] to-[#f16f24] text-white 
                   font-semibold border border-white/30 shadow-sm`}
       aria-label={`Avatar de ${nombre ?? ""} ${apellido ?? ""}`.trim()}
     >
       <span className="select-none">{initials}</span>
-   </div>
+    </div>
   );
 }
 
@@ -109,6 +110,7 @@ export default function DashboardPage() {
 
   const supabase = useSupabaseClient<any>();
   const router = useRouter();
+  const { uuid: cachedUuid, isLoading: uuidLoading } = useUserUuid();
 
   const [estado, setEstado] = useState('available');
   const [perfil, setPerfil] = useState<Perfil | null>(null);
@@ -154,11 +156,11 @@ export default function DashboardPage() {
 
   // ---- Notificaciones (tabla Notificacion + Realtime)
   const { notifications, loading: notiLoading, markAsRead, hasMore, loadMore, loadingMore } =
-  useNotifications(supabase, idUsuario, { pageSize: 8 });
+    useNotifications(supabase, idUsuario, { pageSize: 8 });
 
   // Lista que realmente renderiza la card (para poder quitar optimista)
- const [localNotifs, setLocalNotifs] = useState<NotificationItem[]>([]);
-    useEffect(() => { setLocalNotifs(notifications); }, [notifications]);
+  const [localNotifs, setLocalNotifs] = useState<NotificationItem[]>([]);
+  useEffect(() => { setLocalNotifs(notifications); }, [notifications]);
 
   // IDs/keys que están saliendo con animación
   const [leavingKeys, setLeavingKeys] = useState<number[]>([]);
@@ -177,11 +179,11 @@ export default function DashboardPage() {
   // ===== UI helpers =====
   function iconFor(type: NotifType): string {
     switch (type) {
-      case 'friend_request':           return 'user-plus';
-      case 'friend_request_accepted':  return 'user-check';
-      case 'friend_request_rejected':  return 'user-x';
-      case 'meeting_invite':           return 'calendar';
-      default:                         return 'info';
+      case 'friend_request': return 'user-plus';
+      case 'friend_request_accepted': return 'user-check';
+      case 'friend_request_rejected': return 'user-x';
+      case 'meeting_invite': return 'calendar';
+      default: return 'info';
     }
   }
 
@@ -210,82 +212,82 @@ export default function DashboardPage() {
     // limpiar la marca de "leaving" para futuros items de esa solicitud
     const k = reqKey(n);
     if (k) setLeavingKeys(prev => prev.filter(x => x !== k));
-  
+
   }
 
   async function handleNotifAccept(n: NotificationItem) {
-  try {
-    if (n.type === 'friend_request') {
-      // IDs para la RPC (aceptar)
-      const idSolicitante =
-        Number((n.meta as any)?.id_solicitante) ??
-        Number((n.meta as any)?.solicitante?.id) ??
-        null;
+    try {
+      if (n.type === 'friend_request') {
+        // IDs para la RPC (aceptar)
+        const idSolicitante =
+          Number((n.meta as any)?.id_solicitante) ??
+          Number((n.meta as any)?.solicitante?.id) ??
+          null;
 
-      if (idUsuario && idSolicitante) {
-        await supabase.rpc('accept_contact_request', {
-          p_id_solicitante: idSolicitante,
-          p_id_receptor: idUsuario,
-        });
-      }
-      
-      // Persistir resolución en la misma notificación + marcar leída
-      if (typeof n.id === 'number') {
-        const meta = { ...(n.meta ?? {}), respuesta: 'aceptada', responded_at: new Date().toISOString() };
-        await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', n.id);
-        await markAsRead(n.id); // mantiene contadores en sync
-      }
-      // UI optimista (sin esfumar)
-      setLocalNotifs(prev =>
-        prev.map(x =>
-          x.id === n.id ? { ...x, leida: true, meta: { ...(x.meta ?? {}), respuesta: 'aceptada' } } : x
-        )
-      );
-      
-      return;
-    }
+        if (idUsuario && idSolicitante) {
+          await supabase.rpc('accept_contact_request', {
+            p_id_solicitante: idSolicitante,
+            p_id_receptor: idUsuario,
+          });
+        }
 
-    if (n.type === 'meeting_invite') {
-      startLeaving(n);
-      router.push('/protected/calendario');
-      if (typeof n.id === 'number') await markAsRead(n.id);
-      setTimeout(() => dropNotif(n), 280);
-      return;
+        // Persistir resolución en la misma notificación + marcar leída
+        if (typeof n.id === 'number') {
+          const meta = { ...(n.meta ?? {}), respuesta: 'aceptada', responded_at: new Date().toISOString() };
+          await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', n.id);
+          await markAsRead(n.id); // mantiene contadores en sync
+        }
+        // UI optimista (sin esfumar)
+        setLocalNotifs(prev =>
+          prev.map(x =>
+            x.id === n.id ? { ...x, leida: true, meta: { ...(x.meta ?? {}), respuesta: 'aceptada' } } : x
+          )
+        );
+
+        return;
+      }
+
+      if (n.type === 'meeting_invite') {
+        startLeaving(n);
+        router.push('/protected/calendario');
+        if (typeof n.id === 'number') await markAsRead(n.id);
+        setTimeout(() => dropNotif(n), 280);
+        return;
+      }
+    } catch (e) {
+      console.error(e);
     }
-  } catch (e) {
-    console.error(e);
   }
-}
 
 
   async function handleNotifReject(n: NotificationItem) {
-  try {
-    if (n.type === 'friend_request') {
-      const id_solicitante = Number((n.meta as any)?.id_solicitante);
-      if (idUsuario && id_solicitante) {
-        await supabase.rpc('reject_contact_request_v2', {
-          p_id_solicitante: id_solicitante,
-          p_id_receptor: idUsuario,
-        });
+    try {
+      if (n.type === 'friend_request') {
+        const id_solicitante = Number((n.meta as any)?.id_solicitante);
+        if (idUsuario && id_solicitante) {
+          await supabase.rpc('reject_contact_request_v2', {
+            p_id_solicitante: id_solicitante,
+            p_id_receptor: idUsuario,
+          });
+        }
+
+        if (typeof n.id === 'number') {
+          const meta = { ...(n.meta ?? {}), respuesta: 'rechazada', responded_at: new Date().toISOString() };
+          await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', n.id);
+          await markAsRead(n.id);
+        }
+        // UI optimista (sin esfumar)
+        setLocalNotifs(prev =>
+          prev.map(x =>
+            x.id === n.id ? { ...x, leida: true, meta: { ...(x.meta ?? {}), respuesta: 'rechazada' } } : x
+          )
+        );
+        return;
       }
-      
-      if (typeof n.id === 'number') {
-        const meta = { ...(n.meta ?? {}), respuesta: 'rechazada', responded_at: new Date().toISOString() };
-        await supabase.from('Notificacion').update({ leida: true, meta }).eq('id', n.id);
-        await markAsRead(n.id);
-      }
-      // UI optimista (sin esfumar)
-      setLocalNotifs(prev =>
-        prev.map(x =>
-          x.id === n.id ? { ...x, leida: true, meta: { ...(x.meta ?? {}), respuesta: 'rechazada' } } : x
-        )
-      );
-      return;
+    } catch (e) {
+      console.error(e);
     }
-  } catch (e) {
-    console.error(e);
   }
-}
 
   function whenLabel(iso?: string | null) {
     if (!iso) return null;
@@ -327,7 +329,7 @@ export default function DashboardPage() {
         const fechaFin = new Date()
         const fechaInicio = new Date()
         fechaInicio.setDate(fechaFin.getDate() - 30)
-        
+
         const params = new URLSearchParams({
           fechaInicio: fechaInicio.toISOString().split('T')[0],
           fechaFin: fechaFin.toISOString().split('T')[0]
@@ -349,16 +351,11 @@ export default function DashboardPage() {
   // Perfil + resolver id_usuario (uuid -> Usuario.id)
   useEffect(() => {
     const fetchPerfil = async () => {
+      if (uuidLoading) return;
+
       setCargando(true);
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const sessionUuid = sessionData?.session?.user?.id ?? null;
-      const { data: uuidData } = await supabase.rpc('get_usuario_uuid');
-      const uuid =
-        (typeof uuidData === 'string' && uuidData) ||
-        (uuidData && (uuidData as any).uuid) ||
-        (uuidData && (uuidData as any).user_uuid) ||
-        sessionUuid;
+      const uuid = cachedUuid;
 
       if (!uuid) {
         setCargando(false);
@@ -391,9 +388,9 @@ export default function DashboardPage() {
       setCargando(false);
     };
     fetchPerfil();
-  }, [supabase]);
+  }, [supabase, cachedUuid, uuidLoading]);
 
-    useEffect(() => {
+  useEffect(() => {
     (async () => {
       const {
         data: { user },
@@ -411,9 +408,9 @@ export default function DashboardPage() {
       await pingDailyActivity(supabase, usuario.id);
     })();
   }, [supabase]);
-    
 
-    return (
+
+  return (
     <div className="space-y-8">
       {/* Header */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -661,7 +658,7 @@ export default function DashboardPage() {
                   />
                   <div className="min-w-0">
                     <p className="font-medium truncate">
-                     {perfil.nombre ?? "—"} {perfil.apellido ?? ""}
+                      {perfil.nombre ?? "—"} {perfil.apellido ?? ""}
                     </p>
                     <p className="text-sm text-muted-foreground truncate">
                       {perfil.mail ?? "—"}
@@ -675,7 +672,7 @@ export default function DashboardPage() {
               )}
 
               {/* --- Botones al final --- */}
-                <div className="flex gap-2 mt-5 justify-start">
+              <div className="flex gap-2 mt-5 justify-start">
                 <Link
                   href="/protected/perfil"
                   className="bg-gradient-to-r from-orange-400 to-orange-600 text-white px-3 py-1.5 rounded-full text-xs font-semibold hover:brightness-105 transition"
@@ -694,8 +691,8 @@ export default function DashboardPage() {
         />
 
 
-       {/* Col 1 / Fila 2 (debajo de "perfil??") */}
-       <div
+        {/* Col 1 / Fila 2 (debajo de "perfil??") */}
+        <div
           className="h-full flex-shrink-0 lg:col-start-1 lg:row-start-2"
           style={{
             height: `calc(${LEFT_BOTTOM}px + ${FIX}px)`,
@@ -717,7 +714,7 @@ export default function DashboardPage() {
           title="Próximamente en Boomerang 🚀"
           content={
             <div className="h-full flex flex-col justify-center px-0">
-              <p className="text-sm font-medium text-foreground mb-1">  
+              <p className="text-sm font-medium text-foreground mb-1">
                 Videollamadas grupales
               </p>
               <p className="text-sm text-muted-foreground mb-3">
@@ -758,7 +755,7 @@ export default function DashboardPage() {
         .scroll-thin::-webkit-scrollbar-thumb:hover {
           background: rgba(241, 111, 36, 0.55);
         }
-      `}</style>    
+      `}</style>
     </div>
   );
 }

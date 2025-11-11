@@ -62,9 +62,7 @@ export function useContacts(
 
       const json = await res.json();
       const arr: RawContact[] = Array.isArray(json) ? json : json?.items ?? json?.data ?? [];
-      console.log('🔍 Raw contacts from API:', arr);
       const mappedContacts = arr.map(mapContact);
-      console.log('🔍 Mapped contacts:', mappedContacts);
       setContacts(mappedContacts);
     } catch (e) {
       setError('Error de red al obtener contactos.');

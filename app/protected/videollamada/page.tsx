@@ -11,6 +11,7 @@ async function fetchSpeechToken() {
 import { useRouter } from 'next/navigation'
 import clsx from 'clsx'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { useUserUuid } from '@/contexts/UserUuidContext'
 // @ts-ignore — solo en cliente
 import feather from 'feather-icons'
 import { useTranscriptChat } from '../transcription/useTranscriptChat'
@@ -57,7 +58,7 @@ async function ensureSubscribed(ch: ReturnType<SupabaseClient['channel']>): Prom
 }
 
 // Devuelve claves de destino para ring/accept/... (id y/o uuid) con fallbacks fuertes
-async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: string)=>void): Promise<string[]> {
+async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: string) => void): Promise<string[]> {
   const key = peerInput.trim()
   const keys = new Set<string>()
   if (!key) return []
@@ -77,7 +78,7 @@ async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: 
       } else {
         log?.(`~ resolvePeerKeys: RPC id→uuid sin datos (id=${key})`)
       }
-    } catch (e:any) {
+    } catch (e: any) {
       log?.(`~ resolvePeerKeys: RPC id→uuid error: ${e?.message}`)
     }
 
@@ -92,7 +93,7 @@ async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: 
         keys.add(String(data.User_id))
         log?.(`~ resolvePeerKeys: SELECT id→uuid ${key} → ${data.User_id}`)
       }
-    } catch (e:any) {
+    } catch (e: any) {
       log?.(`~ resolvePeerKeys: SELECT id→uuid error: ${e?.message}`)
     }
   } else {
@@ -107,7 +108,7 @@ async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: 
         keys.add(String(data.id))
         log?.(`~ resolvePeerKeys: SELECT uuid→id ${key} → ${data.id}`)
       }
-    } catch (e:any) {
+    } catch (e: any) {
       log?.(`~ resolvePeerKeys: SELECT uuid→id error: ${e?.message}`)
     }
   }
@@ -127,6 +128,7 @@ function pickTargets(keys: string[]) {
 
 export default function VideoCallPage() {
   const router = useRouter()
+  const { uuid: cachedUuid, isLoading: uuidLoading } = useUserUuid()
   // Traducción de voz
   const [translationText, setTranslationText] = useState('')
   const [originalText, setOriginalText] = useState('') // Texto original del peer
@@ -141,7 +143,7 @@ export default function VideoCallPage() {
   const [sourceLang, setSourceLang] = useState('es-ES')
   const [showOriginalText, setShowOriginalText] = useState(true)
   const [translationError, setTranslationError] = useState<string | null>(null)
-  
+
   // Cola de traducciones para TTS no bloqueante
   const translationQueueRef = useRef<string[]>([])
   const isPlayingTTSRef = useRef<boolean>(false)
@@ -152,49 +154,47 @@ export default function VideoCallPage() {
     const id = setInterval(async () => {
       try {
         const stats = await sender.getStats();
-        stats.forEach((r:any) => {
+        stats.forEach((r: any) => {
           if (r.type === 'outbound-rtp' && r.kind === 'audio') {
             if (lastTs) {
               const dt = (r.timestamp - lastTs) / 1000;
               const db = r.bytesSent - lastBytes;
-              const kbps = (db * 8) / 1000 / dt;
-              console.log(`${tag}: outbound audio ~${kbps.toFixed(1)} kbps, packets=${r.packetsSent}`);
+              // Silenced: performance debugging log
             }
             lastBytes = r.bytesSent; lastTs = r.timestamp;
           }
         });
-      } catch {}
+      } catch { }
     }, 1000);
     return () => clearInterval(id);
   }
 
-  function startInboundAudioDebug(pc: RTCPeerConnection, tag='PEER') {
+  function startInboundAudioDebug(pc: RTCPeerConnection, tag = 'PEER') {
     const rx = pc.getReceivers().find(r => r.track && r.track.kind === 'audio');
-    if (!rx) { console.warn(tag+': no audio receiver'); return () => {}; }
+    if (!rx) { console.warn(tag + ': no audio receiver'); return () => { }; }
     let lastBytes = 0, lastTs = 0;
     const id = setInterval(async () => {
       try {
         const stats = await rx.getStats();
-        stats.forEach((r:any) => {
+        stats.forEach((r: any) => {
           if (r.type === 'inbound-rtp' && r.kind === 'audio') {
             if (lastTs) {
               const dt = (r.timestamp - lastTs) / 1000;
               const db = r.bytesReceived - lastBytes;
-              const kbps = (db * 8) / 1000 / dt;
-              console.log(`${tag}: inbound audio ~${kbps.toFixed(1)} kbps, packets=${r.packetsReceived}`);
+              // Silenced: performance debugging log
             }
             lastBytes = r.bytesReceived; lastTs = r.timestamp;
           }
         });
-      } catch {}
+      } catch { }
     }, 1000);
     return () => clearInterval(id);
   }
 
   useEffect(() => {
     // Exponer helpers para debug desde consola
-    ;(window as any).startSenderDebug = startSenderDebug;
-    ;(window as any).startInboundAudioDebug = startInboundAudioDebug;
+    ; (window as any).startSenderDebug = startSenderDebug;
+    ; (window as any).startInboundAudioDebug = startInboundAudioDebug;
   }, [])
 
   // ...existing code...
@@ -204,7 +204,7 @@ export default function VideoCallPage() {
   const [panel, setPanel] = useState<Panel>('none')
   // Flag: la llamada tiene transcripción activada (muestra aviso azul)
   const [callTranscriptActive, setCallTranscriptActive] = useState(false)  // Chat (ephemeral for the call) — keep in parent so it survives panel unmount/mount
-  const [chatMessages, setChatMessages] = useState<Array<{id: string; from: string; fromId?: string; text: string; ts: number}>>([])
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; from: string; fromId?: string; text: string; ts: number }>>([])
   const chatSeenRef = useRef<Set<string>>(new Set())
 
   // ---- Estados para guardar transcripción
@@ -213,7 +213,7 @@ export default function VideoCallPage() {
   const [isRemoteHangup, setIsRemoteHangup] = useState(false)
   const [hasTranscriptData, setHasTranscriptData] = useState(false) // Estado más persistente
 
-  
+
 
   // ---- Refs de video
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -249,9 +249,9 @@ export default function VideoCallPage() {
 
 
   // Hook de transcripción con chat colaborativo
-  const { 
-    transcriptEntries, 
-    isTranscribing, 
+  const {
+    transcriptEntries,
+    isTranscribing,
     error: transcriptionError
   } = useTranscriptChat({
     isActive: callTranscriptActive,
@@ -264,7 +264,7 @@ export default function VideoCallPage() {
   useEffect(() => {
     if (!callId) {
       setChatMessages([])
-      try { chatSeenRef.current.clear() } catch {}
+      try { chatSeenRef.current.clear() } catch { }
       // Reset transcript usage flag when call ends
       setWasTranscriptionUsed(false)
       setIsRemoteHangup(false) // Reset remote hangup flag
@@ -289,9 +289,7 @@ export default function VideoCallPage() {
   // Solo activar transcripción manualmente (comentado auto-activación)
   /*
   useEffect(() => {
-    console.log('🔵 useEffect transcripción ejecutándose - callId=', callId)
     if (!callId) {
-      console.log('🔵 No callId, saliendo del useEffect')
       return
     }
     
@@ -305,7 +303,7 @@ export default function VideoCallPage() {
         if (hasTranscript) source = 'URL'
       }
     } catch (e) {
-      console.log('🔵 Error leyendo URL, probando sessionStorage')
+      // Error leyendo URL, probando sessionStorage
     }
     
     // Fallback a sessionStorage
@@ -316,18 +314,14 @@ export default function VideoCallPage() {
       } catch {}
     }
     
-    console.log('🔵 Resultado detección:', { hasTranscript, source, url: window.location?.search })
     
     if (hasTranscript) {
-      console.log('🔵🔵🔵 ACTIVANDO TRANSCRIPCIÓN desde', source)
       setCallTranscriptActive(true)
       
       // Verificar inmediatamente que se activó
       setTimeout(() => {
-        console.log('🔵 Estado después de setTimeout - callTranscriptActive debería ser true')
+        setWasTranscriptionUsed(true)
       }, 100)
-    } else {
-      console.log('❌ NO se activa transcripción')
     }
   }, [callId])
   */
@@ -364,46 +358,56 @@ export default function VideoCallPage() {
   const [peerSharing, setPeerSharing] = useState(false)
 
   // === Opciones de idiomas y voces ===
-const SOURCE_LANGUAGE_OPTIONS = [
-  { value: 'es-ES', label: 'Español' },
-  { value: 'en-US', label: 'Inglés' },
-  { value: 'pt-BR', label: 'Portugués' },
-  { value: 'fr-FR', label: 'Francés' },
-  { value: 'it-IT', label: 'Italiano' },
-  { value: 'de-DE', label: 'Alemán' },
-  { value: 'auto', label: 'Detección automática' },
-];
+  const SOURCE_LANGUAGE_OPTIONS = [
+    { value: 'es-ES', label: 'Español' },
+    { value: 'en-US', label: 'Inglés' },
+    { value: 'pt-BR', label: 'Portugués' },
+    { value: 'fr-FR', label: 'Francés' },
+    { value: 'it-IT', label: 'Italiano' },
+    { value: 'de-DE', label: 'Alemán' },
+    { value: 'auto', label: 'Detección automática' },
+  ];
 
-const TARGET_LANGUAGE_OPTIONS = [
-  { value: 'en', label: 'Inglés', voices: [
-    { value: 'en-US-AriaNeural', label: 'Femenina (Inglés)' },
-    { value: 'en-US-GuyNeural', label: 'Masculina (Inglés)' },
-  ] },
-  { value: 'pt', label: 'Portugués', voices: [
-    { value: 'pt-BR-FranciscaNeural', label: 'Femenina (Portugués)' },
-    { value: 'pt-BR-AntonioNeural', label: 'Masculina (Portugués)' },
-  ] },
-  { value: 'fr', label: 'Francés', voices: [
-    { value: 'fr-FR-DeniseNeural', label: 'Femenina (Francés)' },
-    { value: 'fr-FR-HenriNeural', label: 'Masculina (Francés)' },
-  ] },
-  { value: 'it', label: 'Italiano', voices: [
-    { value: 'it-IT-ElsaNeural', label: 'Femenina (Italiano)' },
-    { value: 'it-IT-DiegoNeural', label: 'Masculina (Italiano)' },
-  ] },
-  { value: 'es', label: 'Español', voices: [
-    { value: 'es-ES-ElviraNeural', label: 'Femenina (Español)' },
-    { value: 'es-ES-AlvaroNeural', label: 'Masculina (Español)' },
-  ] },
-];
-const [targetLang, setTargetLang] = useState('en');
-const [voice, setVoice] = useState(TARGET_LANGUAGE_OPTIONS[0].voices[0].value);
+  const TARGET_LANGUAGE_OPTIONS = [
+    {
+      value: 'en', label: 'Inglés', voices: [
+        { value: 'en-US-AriaNeural', label: 'Femenina (Inglés)' },
+        { value: 'en-US-GuyNeural', label: 'Masculina (Inglés)' },
+      ]
+    },
+    {
+      value: 'pt', label: 'Portugués', voices: [
+        { value: 'pt-BR-FranciscaNeural', label: 'Femenina (Portugués)' },
+        { value: 'pt-BR-AntonioNeural', label: 'Masculina (Portugués)' },
+      ]
+    },
+    {
+      value: 'fr', label: 'Francés', voices: [
+        { value: 'fr-FR-DeniseNeural', label: 'Femenina (Francés)' },
+        { value: 'fr-FR-HenriNeural', label: 'Masculina (Francés)' },
+      ]
+    },
+    {
+      value: 'it', label: 'Italiano', voices: [
+        { value: 'it-IT-ElsaNeural', label: 'Femenina (Italiano)' },
+        { value: 'it-IT-DiegoNeural', label: 'Masculina (Italiano)' },
+      ]
+    },
+    {
+      value: 'es', label: 'Español', voices: [
+        { value: 'es-ES-ElviraNeural', label: 'Femenina (Español)' },
+        { value: 'es-ES-AlvaroNeural', label: 'Masculina (Español)' },
+      ]
+    },
+  ];
+  const [targetLang, setTargetLang] = useState('en');
+  const [voice, setVoice] = useState(TARGET_LANGUAGE_OPTIONS[0].voices[0].value);
 
-// Actualizar voz cuando cambia idioma
-useEffect(() => {
-  const lang = TARGET_LANGUAGE_OPTIONS.find(l => l.value === targetLang);
-  if (lang) setVoice(lang.voices[0].value);
-}, [targetLang]);
+  // Actualizar voz cuando cambia idioma
+  useEffect(() => {
+    const lang = TARGET_LANGUAGE_OPTIONS.find(l => l.value === targetLang);
+    if (lang) setVoice(lang.voices[0].value);
+  }, [targetLang]);
 
   // Manejar encendido/apagado de traducción
   useEffect(() => {
@@ -422,12 +426,11 @@ useEffect(() => {
       setOriginalText('');
       setTranslationLatency(null);
       setTranslationError(null);
-      
+
       // Limpiar cola de traducciones cuando se desactiva
       translationQueueRef.current = [];
       isPlayingTTSRef.current = false;
-      console.log('🧹 [COLA] Cola limpiada al desactivar traducción');
-      
+
       // Restaurar audio del peer cuando se desactiva la traducción
       if (remoteVideoRef.current) {
         remoteVideoRef.current.muted = false;
@@ -461,7 +464,7 @@ useEffect(() => {
 
         const remoteStream = remoteVideo.srcObject as MediaStream;
         const remoteAudioTrack = remoteStream.getAudioTracks()[0];
-        
+
         if (!remoteAudioTrack) {
           setTranslationError('El peer no está enviando audio.');
           console.warn('No remote audio track');
@@ -470,7 +473,7 @@ useEffect(() => {
 
         // 2) Crear AudioContext para capturar SOLO el audio del peer
         remoteAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        
+
         // Crear un stream que contenga SOLO el audio del peer
         const peerOnlyStream = new MediaStream([remoteAudioTrack]);
         remoteAudioSource = remoteAudioContext.createMediaStreamSource(peerOnlyStream);
@@ -484,7 +487,7 @@ useEffect(() => {
 
         // 4) Configurar SpeechTranslationConfig
         const stConfig = SpeechSDK.SpeechTranslationConfig.fromAuthorizationToken(token, region);
-        
+
         // Detección automática o idioma específico
         if (sourceLang === 'auto') {
           try {
@@ -508,16 +511,16 @@ useEffect(() => {
             SpeechSDK.PropertyId.SpeechServiceResponse_PostProcessingOption,
             'TrueText'
           );
-        } catch (e) {}
+        } catch (e) { }
         try {
           stConfig.setProperty(
             SpeechSDK.PropertyId.Speech_SegmentationSilenceTimeoutMs,
             String(800)
           );
-        } catch (e) {}
-        try { 
+        } catch (e) { }
+        try {
           stConfig.setProfanity(SpeechSDK.ProfanityOption.Raw);
-        } catch (e) {}
+        } catch (e) { }
 
         const recognizer = new SpeechSDK.TranslationRecognizer(stConfig, audioConfig);
         recognizerRef.current = recognizer;
@@ -526,19 +529,17 @@ useEffect(() => {
         try {
           const pl = SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer);
           ['Boomerang', 'Supabase', 'WebRTC', 'Azure', 'Aria', 'Vercel'].forEach(p => pl.addPhrase(p));
-        } catch (e) {}
+        } catch (e) { }
 
         recognizer.recognizing = (s: any, e: any) => {
           if (!cancelled) {
             const startTime = Date.now();
             const translated = e.result.translations.get(targetLang) || '';
             setTranslationText(translated);
-            
+
             // Calcular latencia
             const latency = Date.now() - startTime;
             setTranslationLatency(latency);
-            
-            console.log('🔄 [RECONOCIMIENTO] Reconociendo continuamente...', { translated: translated.substring(0, 50) });
           }
         };
 
@@ -547,16 +548,11 @@ useEffect(() => {
             const startTime = Date.now();
             const translated = e.result.translations.get(targetLang) || '';
             const original = e.result.text || '';
-            
-            console.log('✅ [RECONOCIMIENTO] Reconocido (no bloqueante):', { 
-              original: original.substring(0, 50), 
-              translated: translated.substring(0, 50) 
-            });
-            
+
             setTranslationText(translated);
             setOriginalText(original);
             setFinalText(translated); // disparar TTS solo con texto final (no bloqueante)
-            
+
             // Calcular latencia total
             const latency = Date.now() - startTime;
             setTranslationLatency(latency);
@@ -580,7 +576,6 @@ useEffect(() => {
         };
 
         await recognizer.startContinuousRecognitionAsync();
-        console.log('✓ Translation started - listening to peer audio');
       } catch (err: any) {
         console.error('Translation error:', err);
         setTranslationError('Error al iniciar traducción: ' + (err?.message || err));
@@ -590,7 +585,7 @@ useEffect(() => {
 
     return () => {
       cancelled = true;
-      
+
       // Limpiar AudioContext del peer
       try {
         if (remoteAudioSource) remoteAudioSource.disconnect();
@@ -606,7 +601,7 @@ useEffect(() => {
           recognizerRef.current = null;
         });
       }
-      
+
       setTranslationText('');
       setOriginalText('');
       setTranslationLatency(null);
@@ -621,13 +616,12 @@ useEffect(() => {
 
     // Agregar a la cola de traducciones
     translationQueueRef.current.push(finalText);
-    console.log(`📝 [COLA] Agregado a cola: "${finalText}" (cola: ${translationQueueRef.current.length})`);
-    
+
     // Procesar cola si no está reproduciendo
     if (!isPlayingTTSRef.current) {
       processTranslationQueue();
     }
-    
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalText, translateOn, voice])
 
@@ -638,13 +632,11 @@ useEffect(() => {
 
     isPlayingTTSRef.current = true;
     const textToPlay = translationQueueRef.current.shift();
-    
+
     if (!textToPlay) {
       isPlayingTTSRef.current = false;
       return;
     }
-
-    console.log(`🎤 [COLA] Procesando: "${textToPlay}" (restantes: ${translationQueueRef.current.length})`);
 
     try {
       const tokenData = lastTokenRef.current || await fetchSpeechToken();
@@ -664,8 +656,7 @@ useEffect(() => {
         async (result: SpeechSDK.SpeechSynthesisResult) => {
           try {
             const ttsLatency = Date.now() - ttsStartTime;
-            console.log(`✅ [COLA] Completado en ${ttsLatency}ms: "${textToPlay}"`);
-            
+
             synthesizer.close();
 
             if (result.reason !== SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
@@ -708,8 +699,6 @@ useEffect(() => {
             src.connect(audioCtxRef.current!.destination)
             src.start()
 
-            console.log('✅ [COLA] Audio reproducido localmente');
-
             // Cuando termine la reproducción, procesar la siguiente
             src.onended = () => {
               isPlayingTTSRef.current = false;
@@ -726,7 +715,7 @@ useEffect(() => {
         (error: string) => {
           console.error('TTS error:', error)
           setTranslationError('Error en TTS: ' + error);
-          try { synthesizer.close() } catch {}
+          try { synthesizer.close() } catch { }
           isPlayingTTSRef.current = false;
           processTranslationQueue(); // Continuar con la siguiente
         }
@@ -752,7 +741,7 @@ useEffect(() => {
       stoppingRef.current = true
       try {
         screenStreamRef.current?.getTracks().forEach(t => t.stop())
-      } catch {}
+      } catch { }
       screenStreamRef.current = null
 
       // restore previous local stream (camera) if present; if not, try to acquire camera
@@ -790,14 +779,14 @@ useEffect(() => {
             await pcRef.current.setLocalDescription(offer)
             await sendSignal({ type: 'offer', sdp: pcRef.current.localDescription!, from: meId })
             log('→ renegotiation offer sent (restore camera)')
-          } catch (e:any) {
+          } catch (e: any) {
             log('! renegotiate (restore) error: ' + (e?.message || e))
           }
-        } catch (e:any) { log('! error replacing tracks: ' + e?.message) }
+        } catch (e: any) { log('! error replacing tracks: ' + e?.message) }
       }
 
       setShareOn(false)
-      try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: false } }) } catch (e) {}
+      try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: false } }) } catch (e) { }
       stoppingRef.current = false
       log('× screen sharing stopped')
       return
@@ -826,7 +815,7 @@ useEffect(() => {
     let disp: MediaStream | null = null
     try {
       disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-    } catch (e:any) {
+    } catch (e: any) {
       log('! screen share cancelled or failed: ' + (e?.message || e))
       return
     }
@@ -841,8 +830,8 @@ useEffect(() => {
 
     try {
       // notify peer we're sharing
-      try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: true } }) } catch (e) {}
-    } catch {}
+      try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: true } }) } catch (e) { }
+    } catch { }
 
     // Ensure we detect when the browser stops sharing via its UI (e.g. "Dejar de compartir")
     // Use an immediate, direct stop handler to avoid races that would re-open the picker
@@ -854,7 +843,7 @@ useEffect(() => {
       if (stoppingRef.current) return
       stoppingRef.current = true
       try {
-        try { screenStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+        try { screenStreamRef.current?.getTracks().forEach(t => t.stop()) } catch { }
         screenStreamRef.current = null
 
         // restore previous local stream (camera) if present; if not, try to acquire camera
@@ -879,12 +868,12 @@ useEffect(() => {
               await pcRef.current.setLocalDescription(offer)
               await sendSignal({ type: 'offer', sdp: pcRef.current.localDescription!, from: meId })
               log('→ renegotiation offer sent (stopHandler)')
-            } catch (e:any) { log('! renegotiate (stopHandler) error: ' + (e?.message || e)) }
-          } catch (e:any) { log('! error replacing tracks (stopHandler): ' + e?.message) }
+            } catch (e: any) { log('! renegotiate (stopHandler) error: ' + (e?.message || e)) }
+          } catch (e: any) { log('! error replacing tracks (stopHandler): ' + e?.message) }
         }
 
         setShareOn(false)
-          try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: false } }) } catch (e) {}
+        try { callChRef.current?.send({ type: 'broadcast', event: 'sharing', payload: { from: meId, sharing: false } }) } catch (e) { }
         log('× screen sharing stopped (stopHandler)')
       } finally {
         stoppingRef.current = false
@@ -894,13 +883,13 @@ useEffect(() => {
     try {
       // oninactive fires when the stream becomes inactive
       (disp as any).oninactive = () => { void stopHandler() }
-    } catch (e) {}
+    } catch (e) { }
     // Also add onended to every track as a fallback
     try {
       disp.getTracks().forEach(t => {
-        try { t.onended = () => { void stopHandler() } } catch (e) {}
+        try { t.onended = () => { void stopHandler() } } catch (e) { }
       })
-    } catch (e) {}
+    } catch (e) { }
 
     // if in a call, replace tracks
     if (pcRef.current) {
@@ -923,20 +912,20 @@ useEffect(() => {
           await pcRef.current.setLocalDescription(offer)
           await sendSignal({ type: 'offer', sdp: pcRef.current.localDescription!, from: meId })
           log('→ renegotiation offer sent (screen share)')
-        } catch (e:any) {
+        } catch (e: any) {
           log('! renegotiate (screen) error: ' + (e?.message || e))
         }
-      } catch (e:any) { log('! error replacing tracks: ' + e?.message) }
+      } catch (e: any) { log('! error replacing tracks: ' + e?.message) }
     }
 
     // when user stops sharing from browser UI, revert — handled above via oninactive/onended
   }
   const toggleTranslate = () => { setTranslateOn(v => !v) }
-  
-  const toggleTranscript = () => { 
+
+  const toggleTranscript = () => {
     setCallTranscriptActive(v => {
       const newValue = !v
-      
+
       // Notificar al peer del cambio de transcripción (solo en llamadas activas)
       if (callCh && inCall && peerId) {
         callCh.send({
@@ -950,11 +939,11 @@ useEffect(() => {
         })
         log(`📝 Notified peer of transcript change: active=${newValue}`)
       }
-      
+
       return newValue
-    }) 
+    })
   }
-  
+
   const openChat = () => setPanel(p => (p === 'chat' ? 'none' : 'chat'))
 
   // ---- Log
@@ -998,132 +987,122 @@ useEffect(() => {
   // === 1.b) Cargar identidad automáticamente (uuid + id numérico si existe)
   useEffect(() => {
     if (!sb) return
-    ;(async () => {
-      let finalUuid: string | null = null
+      ; (async () => {
+        let finalUuid: string | null = null
 
-      // a) override de pruebas: ?as=<uuid>
-      const asQ = qp('as')
-      if (asQ) {
-        finalUuid = asQ
-        sessionStorage.setItem('vc_uuid', finalUuid)
-        log(`~ override via ?as=${finalUuid}`)
-      }
-
-      // b) UUID vía RPC
-      if (!finalUuid) {
-        try {
-          const { data: uuidData } = await sb.rpc('get_usuario_uuid')
-          const rpcUuid =
-            (typeof uuidData === 'string' && uuidData) ||
-            (uuidData && (uuidData as any).uuid) ||
-            (uuidData && (uuidData as any).user_uuid) ||
-            null
-          if (rpcUuid) {
-            finalUuid = rpcUuid
-            log(`~ uuid via RPC get_usuario_uuid = ${finalUuid}`)
-          }
-        } catch {}
-      }
-
-      // c) fallback: usuario autenticado por client
-      if (!finalUuid) {
-        try {
-          const { data } = await sb.auth.getUser()
-          if (data?.user?.id) {
-            finalUuid = data.user.id
-            const nm =
-              (data.user.user_metadata && (data.user.user_metadata.full_name || data.user.user_metadata.name)) ||
-              undefined
-            if (nm) setMeName(String(nm))
-          }
-        } catch {}
-      }
-
-      // d) per-tab (sessionStorage) para anónimos
-      if (!finalUuid) {
-        finalUuid = sessionStorage.getItem('vc_uuid')
-        if (!finalUuid) {
-          finalUuid = uuid()
+        // a) override de pruebas: ?as=<uuid>
+        const asQ = qp('as')
+        if (asQ) {
+          finalUuid = asQ
           sessionStorage.setItem('vc_uuid', finalUuid)
+          log(`~ override via ?as=${finalUuid}`)
         }
-      }
 
-      // id numérico: primero LS, si no, buscar en BD y cachear
-      let lsId: number | null = null
-      const lsIdStr = localStorage.getItem('usuario_id')
-      if (lsIdStr && /^\d+$/.test(lsIdStr)) lsId = Number(lsIdStr)
-      if (!lsId && finalUuid) {
-        const fetched = await fetchMyNumericId(sb, finalUuid)
-        if (fetched) {
-          lsId = fetched
-          localStorage.setItem('usuario_id', String(fetched))
-          log(`~ meNumericId via DB = ${fetched}`)
-        } else {
-          log('~ no se encontró id numérico en BD (seguiré solo con UUID)')
+        // b) UUID desde contexto cacheado (evita múltiples RPC calls)
+        if (!finalUuid && cachedUuid) {
+          finalUuid = cachedUuid
+          log(`~ uuid from cached context = ${finalUuid}`)
         }
-      }
 
-      setMeNumericId(lsId ?? null)
-      setMeId(finalUuid)
-      log(`✓ identidad uid=${finalUuid}${lsId ? ` (id=${lsId})` : ''}`)
+        // c) fallback: usuario autenticado por client
+        if (!finalUuid) {
+          try {
+            const { data } = await sb.auth.getUser()
+            if (data?.user?.id) {
+              finalUuid = data.user.id
+              const nm =
+                (data.user.user_metadata && (data.user.user_metadata.full_name || data.user.user_metadata.name)) ||
+                undefined
+              if (nm) setMeName(String(nm))
+            }
+          } catch { }
+        }
 
-      // peer desde URL (para compartir link directo)
-      const peerQ = qp('peer')
-      if (peerQ) {
-        setPeerId(peerQ)
-        log(`~ peer via ?peer=${peerQ}`)
-      }
+        // d) per-tab (sessionStorage) para anónimos
+        if (!finalUuid) {
+          finalUuid = sessionStorage.getItem('vc_uuid')
+          if (!finalUuid) {
+            finalUuid = uuid()
+            sessionStorage.setItem('vc_uuid', finalUuid)
+          }
+        }
 
-      // >>> NUEVO: prefillear también cuando vienen desde contacto con ?to=<uuid|id>
-      const toQ = qp('to')
-      if (toQ) {
-        setPeerId(toQ)
-        log(`~ peer via ?to=${toQ}`)
-      }
-      // Prefill transcript flag from query (caller may pass ?transcript=1)
-      const transcriptQ = qp('transcript')
-      if (transcriptQ === '1') {
-        try { sessionStorage.setItem('vc_transcript', '1') } catch {}
-        log('~ auto-call will send transcript flag (from query)')
-      }
-    })()
-  }, [sb])
+        // id numérico: primero LS, si no, buscar en BD y cachear
+        let lsId: number | null = null
+        const lsIdStr = localStorage.getItem('usuario_id')
+        if (lsIdStr && /^\d+$/.test(lsIdStr)) lsId = Number(lsIdStr)
+        if (!lsId && finalUuid) {
+          const fetched = await fetchMyNumericId(sb, finalUuid)
+          if (fetched) {
+            lsId = fetched
+            localStorage.setItem('usuario_id', String(fetched))
+            log(`~ meNumericId via DB = ${fetched}`)
+          } else {
+            log('~ no se encontró id numérico en BD (seguiré solo con UUID)')
+          }
+        }
+
+        setMeNumericId(lsId ?? null)
+        setMeId(finalUuid)
+        log(`✓ identidad uid=${finalUuid}${lsId ? ` (id=${lsId})` : ''}`)
+
+        // peer desde URL (para compartir link directo)
+        const peerQ = qp('peer')
+        if (peerQ) {
+          setPeerId(peerQ)
+          log(`~ peer via ?peer=${peerQ}`)
+        }
+
+        // >>> NUEVO: prefillear también cuando vienen desde contacto con ?to=<uuid|id>
+        const toQ = qp('to')
+        if (toQ) {
+          setPeerId(toQ)
+          log(`~ peer via ?to=${toQ}`)
+        }
+        // Prefill transcript flag from query (caller may pass ?transcript=1)
+        const transcriptQ = qp('transcript')
+        if (transcriptQ === '1') {
+          try { sessionStorage.setItem('vc_transcript', '1') } catch { }
+          log('~ auto-call will send transcript flag (from query)')
+        }
+      })()
+  }, [sb, cachedUuid, uuidLoading])
 
   // === Intentar resolver y fijar mi nombre visible (para que los rings lleven el nombre correcto)
   useEffect(() => {
     if (!sb) return
-    // Si ya tenemos un meName distinto del placeholder, no forzamos (pero igualmente intentamos rellenar si está vacío)
-    ;(async () => {
-      try {
-        // Preferir id numérico (RPC más fiable)
-        if (meNumericId != null) {
-          try {
-            const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
-            if (!error && data) {
-              const u = Array.isArray(data) ? data[0] : data
-              const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
-              if (resolved) setMeName(String(resolved))
+      // Si ya tenemos un meName distinto del placeholder, no forzamos (pero igualmente intentamos rellenar si está vacío)
+      ; (async () => {
+        try {
+          // Preferir id numérico (RPC más fiable)
+          if (meNumericId != null) {
+            try {
+              const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
+              if (!error && data) {
+                const u = Array.isArray(data) ? data[0] : data
+                const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+                if (resolved) setMeName(String(resolved))
+              }
+            } catch (e) {
+              // ignore
             }
-          } catch (e) {
-            // ignore
-          }
-        } else if (meId) {
-          // Fallback por UUID usando la ruta interna del app router
-          try {
-            const res = await fetch(`/api/users/uuid/${meId}`)
-            if (res.ok) {
-              const json = await res.json()
-              const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
-              if (resolved) setMeName(String(resolved))
+          } else if (meId) {
+            // Fallback por UUID usando la ruta interna del app router
+            try {
+              const res = await fetch(`/api/users/uuid/${meId}`)
+              if (res.ok) {
+                const json = await res.json()
+                const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+                if (resolved) setMeName(String(resolved))
+              }
+            } catch (e) {
+              // ignore
             }
-          } catch (e) {
-            // ignore
           }
+        } catch (e) {
+          // noop
         }
-      } catch (e) {
-        // noop
-      }
-    })()
+      })()
   }, [sb, meId, meNumericId])
 
   // ========= 2) Inbox user:<meId> y/o user:<meNumericId>
@@ -1140,48 +1119,48 @@ useEffect(() => {
   // Resolver nombre/apodo del peer cuando cambie peerId o recibamos incoming
   useEffect(() => {
     let mounted = true
-    ;(async () => {
-      try {
-        // Si el incoming trae un nombre explícito, usarlo inmediatamente
-        if (incoming && incoming.fromName) {
-          setPeerName(incoming.fromName)
-          return
-        }
-
-        // Si no hay peerId o no hay cliente supabase aún, limpiar
-        if (!peerId || !sb) {
-          if (mounted) setPeerName(null)
-          return
-        }
-
-        // Intentar resolver por UUID/id vía la ruta interna del app
+      ; (async () => {
         try {
-          const res = await fetch(`/api/users/uuid/${peerId}`)
-          if (res.ok) {
-            const json = await res.json()
-            const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
-            if (mounted) setPeerName(resolved ? String(resolved) : null)
+          // Si el incoming trae un nombre explícito, usarlo inmediatamente
+          if (incoming && incoming.fromName) {
+            setPeerName(incoming.fromName)
             return
           }
-        } catch (e) { /* ignore */ }
 
-        // fallback: dejar null (mostraremos 'Invitado' en la UI)
-        if (mounted) setPeerName(null)
-      } catch (e) { /* noop */ }
-    })()
+          // Si no hay peerId o no hay cliente supabase aún, limpiar
+          if (!peerId || !sb) {
+            if (mounted) setPeerName(null)
+            return
+          }
+
+          // Intentar resolver por UUID/id vía la ruta interna del app
+          try {
+            const res = await fetch(`/api/users/uuid/${peerId}`)
+            if (res.ok) {
+              const json = await res.json()
+              const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+              if (mounted) setPeerName(resolved ? String(resolved) : null)
+              return
+            }
+          } catch (e) { /* ignore */ }
+
+          // fallback: dejar null (mostraremos 'Invitado' en la UI)
+          if (mounted) setPeerName(null)
+        } catch (e) { /* noop */ }
+      })()
     return () => { mounted = false }
   }, [peerId, incoming, sb])
 
   // Transcript sync para llamadas 1-a-1: cuando me uno a una llamada, preguntar al peer por su estado de transcript
   useEffect(() => {
     if (!callCh || !inCall || !peerId) return
-    
+
     log('📝 Setting up transcript sync for 1-a-1 call')
-    
+
     // Enviar request de sync después de un delay para asegurar que el peer esté listo
     const syncTimer = setTimeout(() => {
       if (!callCh) return
-      
+
       callCh.send({
         type: 'broadcast',
         event: 'transcript_sync',
@@ -1191,10 +1170,10 @@ useEffect(() => {
           requestSync: true
         }
       })
-      
+
       log(`📝 Sent transcript sync request: active=${callTranscriptActive}`)
     }, 2000) // 2 segundos de delay para asegurar que ambos estén conectados
-    
+
     return () => clearTimeout(syncTimer)
   }, [callCh, inCall, peerId, callTranscriptActive, meId])
 
@@ -1213,20 +1192,22 @@ useEffect(() => {
     if (!sb) return
     if (!meId && meNumericId == null) return
 
-    // limpiar anteriores
-    ;(async () => {
-      setInboxReady(false)
-      if (inbox) { try { await inbox.unsubscribe() } catch {} setInbox(null) }
-      const prev = inboxesRef.current
-      inboxesRef.current = []
-      for (const ch of prev) { try { await ch.unsubscribe() } catch {} }
-    })()
+      // limpiar anteriores
+      ; (async () => {
+        setInboxReady(false)
+        if (inbox) { try { await inbox.unsubscribe() } catch { } setInbox(null) }
+        const prev = inboxesRef.current
+        inboxesRef.current = []
+        for (const ch of prev) { try { await ch.unsubscribe() } catch { } }
+      })()
 
     const setupInbox = async (key: string) => {
       const ch = sb.channel(`user:${key}`, { config: { broadcast: { self: false } } })
 
       ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
-        try { console.log('📨 ring payload received:', payload) } catch (e) {}
+        try {
+          console.log('📨 ring payload received on channel:', `user:${key}`, payload)
+        } catch (e) { }
         // soportar varias formas de payload: payload.callId / payload.room, payload.from.{id,name} o payload.fromId/payload.fromName
         const cid = String(payload?.callId ?? payload?.room ?? '')
         if (!cid) return
@@ -1241,11 +1222,12 @@ useEffect(() => {
         // ❌ si ya vimos un ring con este callId (por el otro inbox), ignorar
         if (seenRingsRef.current.has(cid)) {
           if (incoming?.callId === cid) setIncoming(null)
-          log(`~ ring ignorado (duplicado) cid=${cid}`)
+          log(`~ ring ignorado (duplicado) cid=${cid} en canal user:${key}`)
           return
         }
         // marcar este ring como visto para bloquear el duplicado del otro canal
         seenRingsRef.current.add(cid)
+        log(`✅ ring NUEVO procesado en canal user:${key} - callId=${cid}`)
 
         // si la llamada ya fue manejada (aceptada/rechazada/cancelada), ignorar
         if (handledCallsRef.current.has(cid)) {
@@ -1261,26 +1243,16 @@ useEffect(() => {
         }
 
 
-
-  // Debug: verificar nombres en payload
-  console.log('🏷️ [DEBUG] Ring payload recibido:', {
-    'from.name': payload?.from?.name,
-    'fromName': payload?.fromName,  
-    'from_name': payload?.from_name,
-    'name': payload?.name,
-    'fromId': fromId
-  })
-  
-  const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
-  const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
-  log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
+        const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
+        const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
+        log(`← ring PROCESADO en user:${key} from ${fromId} (${fromName}) callId=${cid}`)
         setCallId(cid); callIdRef.current = cid
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
         calleeUserIdRef.current = String(meId || key)
         setPeerId(fromId)
         setIncoming({ callId: cid, fromId, fromName, transcript: transcriptFlag }) // mostrar notificación
-        try { navigator.vibrate?.(200) } catch {}
+        try { navigator.vibrate?.(200) } catch { }
       })
 
       ch.on('broadcast', { event: 'accept' }, async ({ payload }) => {
@@ -1301,7 +1273,7 @@ useEffect(() => {
         markHandled(payload.callId)
         log(`← reject (via user:${key})`)
         setIncoming(null) // cerrar banner
-        
+
         // Si soy el caller (Usuario A), redirigir a pantalla principal
         if (roleRef.current === 'caller') {
           console.log('📞 [REJECT] Llamada rechazada por el peer, redirigiendo...')
@@ -1317,7 +1289,7 @@ useEffect(() => {
         markHandled(payload.callId)
         log(`← cancel (via user:${key})`)
         setIncoming(null) // cerrar banner
-        
+
         // Si soy el callee (Usuario B), redirigir a pantalla principal
         if (roleRef.current === 'callee') {
           console.log('📞 [CANCEL] Llamada cancelada por el caller, redirigiendo...')
@@ -1335,12 +1307,26 @@ useEffect(() => {
       if (!inbox) setInbox(ch)
     }
 
-    ;(async () => {
-      if (meId) await setupInbox(meId)
-      if (meNumericId != null) await setupInbox(String(meNumericId))
-    })()
+      ; (async () => {
+        if (meId) await setupInbox(meId)
+        if (meNumericId != null) await setupInbox(String(meNumericId))
+      })()
 
   }, [sb, meId, meNumericId])
+
+  /* ========= 2.c) Limpiar rings antiguos =========
+     Para evitar memory leaks limpiamos rings vistos cuando no hay llamadas activas
+  */
+  useEffect(() => {
+    const cleanup = setInterval(() => {
+      // Limpiamos el set de rings vistos cada 30 segundos si no hay llamadas activas
+      if (role === 'idle' && !inCall) {
+        seenRingsRef.current.clear()
+      }
+    }, 30000) // 30 segundos
+
+    return () => clearInterval(cleanup)
+  }, [role, inCall])
 
   /* ========= 2.b) Auto-acciones por query =========
      - ?to=<uuid|id>&autocall=1        -> inicia llamada automáticamente (caller)
@@ -1359,19 +1345,19 @@ useEffect(() => {
     const once = sessionStorage.getItem(onceKey)
     if (!once) {
       sessionStorage.setItem(onceKey, 'done')
-      ;(async () => {
-        if (!localStreamRef.current) await enableCam()
-        // Check if caller wanted transcript saved (sessionStorage or URL param)
-        const fromStorage = sessionStorage.getItem('vc_transcript') === '1'
-        const fromUrl = qp('transcript') === '1'
-        const shouldTranscript = fromStorage || fromUrl
-        await makeCall(to, shouldTranscript)
-        try { 
-          sessionStorage.removeItem('vc_transcript') 
-          sessionStorage.removeItem('vc_call_title') 
-          sessionStorage.removeItem('vc_call_description')
-        } catch {}
-      })()
+        ; (async () => {
+          if (!localStreamRef.current) await enableCam()
+          // Check if caller wanted transcript saved (sessionStorage or URL param)
+          const fromStorage = sessionStorage.getItem('vc_transcript') === '1'
+          const fromUrl = qp('transcript') === '1'
+          const shouldTranscript = fromStorage || fromUrl
+          await makeCall(to, shouldTranscript)
+          try {
+            sessionStorage.removeItem('vc_transcript')
+            sessionStorage.removeItem('vc_call_title')
+            sessionStorage.removeItem('vc_call_description')
+          } catch { }
+        })()
     }
     return () => { sessionStorage.removeItem(onceKey) }
   }, [sb, meId, inboxReady])
@@ -1381,56 +1367,56 @@ useEffect(() => {
     if (!sb) return
 
     const incoming = qp('incoming') || qp('room');
-  const from = qp('from') || qp('peer') || qp('to');
-  const auto = qp('autoaccept');
-  const token = qp('aa');
+    const from = qp('from') || qp('peer') || qp('to');
+    const auto = qp('autoaccept');
+    const token = qp('aa');
 
-  if (!incoming || !from || auto !== '1') return;
-  if (!inboxReady) return;
+    if (!incoming || !from || auto !== '1') return;
+    if (!inboxReady) return;
 
-  const gateKey = `aa:${incoming}`;
-  const ok = sessionStorage.getItem(gateKey) === '1';
+    const gateKey = `aa:${incoming}`;
+    const ok = sessionStorage.getItem(gateKey) === '1';
 
-  if (!ok || token !== incoming) {
-    log('~ auto-accept bloqueado (sin gate o token inválido) → muestro toast local');
-    setRole('callee');
-    roleRef.current = 'callee';
-    setPeerId(from);
-    setIncoming({ callId: incoming, fromId: from, fromName: 'Invitado' });
-    return;
-  }
-
-  // ✅ Gate/Token OK → continuar auto-aceptación
-  sessionStorage.removeItem(gateKey);
-
-  setCallId(incoming); callIdRef.current = incoming;
-  setRole('callee');   roleRef.current = 'callee';
-  setPeerId(from);
-  callerUserIdRef.current = from;
-  calleeUserIdRef.current = String(meId || meNumericId || '');
-
-  (async () => {
-    if (!localStreamRef.current) await enableCam();
-    const idRow = await dbStartCall();
-    if (idRow) setCallRowId(idRow);
-    await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false });
-    await joinCallChannel(incoming);
-    setInCall(true);
-
-    // avisar al caller que aceptamos
-    const keys = await resolvePeerKeys(sb, String(from), log);
-    const targets = pickTargets(keys);
-    for (const key of targets) {
-      const ch = sb.channel(`user:${key}`);
-      await ensureSubscribed(ch);
-      await ch.send({
-        type: 'broadcast',
-        event: 'accept',
-        payload: { callId: incoming, from: meId, id_llamada: idRow ?? undefined },
-      });
-      await ch.unsubscribe();
+    if (!ok || token !== incoming) {
+      log('~ auto-accept bloqueado (sin gate o token inválido) → muestro toast local');
+      setRole('callee');
+      roleRef.current = 'callee';
+      setPeerId(from);
+      setIncoming({ callId: incoming, fromId: from, fromName: 'Invitado' });
+      return;
     }
-  })();
+
+    // ✅ Gate/Token OK → continuar auto-aceptación
+    sessionStorage.removeItem(gateKey);
+
+    setCallId(incoming); callIdRef.current = incoming;
+    setRole('callee'); roleRef.current = 'callee';
+    setPeerId(from);
+    callerUserIdRef.current = from;
+    calleeUserIdRef.current = String(meId || meNumericId || '');
+
+    (async () => {
+      if (!localStreamRef.current) await enableCam();
+      const idRow = await dbStartCall();
+      if (idRow) setCallRowId(idRow);
+      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false });
+      await joinCallChannel(incoming);
+      setInCall(true);
+
+      // avisar al caller que aceptamos
+      const keys = await resolvePeerKeys(sb, String(from), log);
+      const targets = pickTargets(keys);
+      for (const key of targets) {
+        const ch = sb.channel(`user:${key}`);
+        await ensureSubscribed(ch);
+        await ch.send({
+          type: 'broadcast',
+          event: 'accept',
+          payload: { callId: incoming, from: meId, id_llamada: idRow ?? undefined },
+        });
+        await ch.unsubscribe();
+      }
+    })();
   }, [sb, inboxReady])
 
   // ========= 3) Acciones Call/Accept/Reject/Cancel
@@ -1439,7 +1425,7 @@ useEffect(() => {
     if (sendTranscript) {
       setCallTranscriptActive(true)
     }
-    
+
     if (!sb) return
     if (!inboxReady) return alert('Aún suscribiéndose al inbox… probá de nuevo en un segundo')
 
@@ -1470,8 +1456,7 @@ useEffect(() => {
 
     // Asegurar que enviamos un nombre válido (SIEMPRE resolver para evitar cache incorrecto)
     let nameToSend = meName
-    console.log('[NAME DEBUG] Initial meName:', meName, 'meId:', meId, 'meNumericId:', meNumericId)
-    
+
     // FORZAR resolución siempre (sin importar el valor actual de meName)
     try {
       if (meNumericId != null) {
@@ -1480,11 +1465,10 @@ useEffect(() => {
           if (!error && data) {
             const u = Array.isArray(data) ? data[0] : data
             const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
-            console.log('[NAME DEBUG] RPC data:', u, 'resolved:', resolved);
             if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
           }
         } catch (e) {
-          console.log('[NAME DEBUG] RPC failed:', e);
+          // RPC failed, continue to try UUID fetch
         }
       } else if (meId) {
         try {
@@ -1492,18 +1476,15 @@ useEffect(() => {
           if (res.ok) {
             const json = await res.json()
             const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
-            console.log('[NAME DEBUG] UUID fetch:', json, 'resolved:', resolved);
             if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
           }
         } catch (e) {
-          console.log('[NAME DEBUG] UUID fetch failed:', e);
+          // UUID fetch failed
         }
       }
     } catch (e) {
-      console.log('[NAME DEBUG] Overall resolution failed:', e);
+      // Overall resolution failed
     }
-
-    console.log('[NAME DEBUG] Final nameToSend:', nameToSend);
 
     for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)
@@ -1634,7 +1615,7 @@ useEffect(() => {
 
   const joinCallChannel = async (id: string | null) => {
     if (!sb || !id) return
-    if (callCh) { try { await callCh.unsubscribe() } catch {} }
+    if (callCh) { try { await callCh.unsubscribe() } catch { } }
 
     // Usar una clave de presencia única y estable por pestaña/usuario
     const stableUuid = (() => {
@@ -1691,7 +1672,7 @@ useEffect(() => {
       } else if (m.type === 'hangup') {
         log('← hangup')
         console.log('📞 [HANGUP] Peer colgó la llamada')
-        
+
         // Mostrar modal para que el usuario pueda guardar transcripción
         console.log('📝 [HANGUP-REMOTE] Mostrando modal de transcripción...')
         setIsRemoteHangup(true)
@@ -1702,7 +1683,7 @@ useEffect(() => {
       }
     })
 
-  // handle remote peer announcing they started/stopped sharing (so we can adjust fit)
+    // handle remote peer announcing they started/stopped sharing (so we can adjust fit)
     ch.on('broadcast', { event: 'sharing' }, ({ payload }: any) => {
       try {
         const from = String(payload?.from ?? '')
@@ -1710,7 +1691,7 @@ useEffect(() => {
         const sharing = !!payload?.sharing
         setPeerSharing(sharing)
         log(`← sharing ${sharing ? 'START' : 'STOP'} from ${from}`)
-      } catch (e) {}
+      } catch (e) { }
     })
 
     // handle transcript sync between peers (1-a-1 calls only)
@@ -1719,12 +1700,12 @@ useEffect(() => {
         const fromUserId = String(payload?.fromUserId ?? '')
         const isActive = Boolean(payload?.active)
         const requestSync = Boolean(payload?.requestSync)
-        
+
         // Ignorar mis propios mensajes
         if (fromUserId === meId || fromUserId === String(meNumericId)) return
-        
+
         log(`📝 transcript_sync from ${fromUserId}: active=${isActive}, requestSync=${requestSync}`)
-        
+
         // Si el peer solicita sync, enviarle mi estado actual
         if (requestSync) {
           ch.send({
@@ -1738,7 +1719,7 @@ useEffect(() => {
           })
           log(`📝 Responded to transcript sync request: active=${callTranscriptActive}`)
         }
-        
+
         // Si el peer tiene transcript activo y yo no, activarlo automáticamente
         if (isActive && !callTranscriptActive) {
           log('📝 Auto-enabling transcript to sync with peer')
@@ -1761,11 +1742,11 @@ useEffect(() => {
     if (!pc || !pc.remoteDescription) return
     const toAdd = pendingIceRef.current
     pendingIceRef.current = []
-    ;(async () => {
-      for (const c of toAdd) {
-        try { await pc.addIceCandidate(c) } catch (e) { log('! addIceCandidate (drain): ' + (e as Error).message) }
-      }
-    })()
+      ; (async () => {
+        for (const c of toAdd) {
+          try { await pc.addIceCandidate(c) } catch (e) { log('! addIceCandidate (drain): ' + (e as Error).message) }
+        }
+      })()
   }
 
   const startCall = async () => {
@@ -1810,7 +1791,7 @@ useEffect(() => {
       if (error) { log('! start_call (no bloquea): ' + error.message); return null }
       log('✓ DB start_call id=' + data)
       return data as number
-    } catch (e:any) {
+    } catch (e: any) {
       log('! start_call (excepción, no bloquea): ' + e?.message)
       return null
     }
@@ -1843,7 +1824,7 @@ useEffect(() => {
       localStreamRef.current = stream
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
-        try { await localVideoRef.current.play() } catch {}
+        try { await localVideoRef.current.play() } catch { }
       }
       applyMediaState()
       log('✓ local stream ready')
@@ -1877,14 +1858,14 @@ useEffect(() => {
 
   const hangup = async () => {
     console.log('📞 [HANGUP] Usuario colgando la llamada...')
-    
+
     // Verificar si se usó transcripción durante la llamada
     if (wasTranscriptionUsed && transcriptEntries.length > 0) {
       console.log('📝 [HANGUP] Se detectó uso de transcripción, mostrando modal para guardar...')
       setShowSaveTranscriptModal(true)
       return // No colgar aún, esperar decisión del usuario
     }
-    
+
     // Si no se usó transcripción, colgar normalmente
     await performHangup()
   }
@@ -1892,7 +1873,7 @@ useEffect(() => {
   const performHangup = async () => {
     console.log('📞 [HANGUP] Ejecutando colgado definitivo...')
     if (callChRef.current && callIdRef.current) {
-      try { await sendSignal({ type: 'hangup', from: meId }) } catch {}
+      try { await sendSignal({ type: 'hangup', from: meId }) } catch { }
     }
     await endLocalCall('local_hangup')
     // Redirigir a pantalla principal
@@ -1901,7 +1882,7 @@ useEffect(() => {
 
   const saveTranscription = async (callTitle: string) => {
     console.log('📝 [SAVE] Guardando transcripción con título:', callTitle)
-    
+
     // Sanitizar título para evitar problemas con caracteres especiales
     const sanitizedTitle = callTitle
       .normalize('NFD') // Descomponer caracteres acentuados
@@ -1909,13 +1890,13 @@ useEffect(() => {
       .replace(/[^\w\s-]/g, '') // Eliminar caracteres especiales excepto palabras, espacios y guiones
       .replace(/\s+/g, '_') // Reemplazar espacios con guiones bajos
       .trim()
-    
+
     // Validación temprana: si no hay entradas, no hay nada que guardar
     if (transcriptEntries.length === 0) {
       console.log('⚠️ [SAVE] No hay entradas de transcripción para guardar')
       return { success: false, message: 'No hay transcripción para guardar' }
     }
-    
+
     if (!sb || !transcriptEntries.length) {
       throw new Error('No hay datos de transcripción para guardar')
     }
@@ -1929,21 +1910,21 @@ useEffect(() => {
 
     // **NUEVA ESTRATEGIA: Usar API para convertir UUID a ID numérico**
     console.log('📝 [SAVE] Convirtiendo UUID a ID numérico usando API')
-    
+
     // Función helper para convertir UUID a ID usando tu API
     const convertUuidToNumericId = async (uuid: string): Promise<number | null> => {
       try {
         console.log(`📝 [SAVE] Convirtiendo UUID ${uuid} a ID numérico...`)
         const response = await fetch(`/api/users/uuid/${uuid}`)
-        
+
         if (!response.ok) {
           console.error(`📝 [SAVE] Error API para UUID ${uuid}:`, response.status, response.statusText)
           return null
         }
-        
+
         const data = await response.json()
         console.log(`📝 [SAVE] Respuesta API para UUID ${uuid}:`, data)
-        
+
         return data.id || null
       } catch (error) {
         console.error(`📝 [SAVE] Error convirtiendo UUID ${uuid}:`, error)
@@ -1953,9 +1934,9 @@ useEffect(() => {
 
     // Obtener ID numérico del usuario actual
     let currentUserId: number
-    
 
-    
+
+
     // Preferir meNumericId si está disponible (usuario autenticado)
     if (meNumericId !== null) {
       currentUserId = meNumericId
@@ -1965,7 +1946,7 @@ useEffect(() => {
         '685a4741-f1d4-4c03-8ec6-4d200ff67682', // ID=2
         '4b268139-258c-4dc4-9a0f-12b536dfc637'  // ID=3
       ]
-      
+
       if (!validUuids.includes(meId)) {
         // UUID temporal/anónimo - generar ID temporal basado en hash
         const tempId = Math.abs(meId.split('-').join('').slice(0, 8).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0))
@@ -1985,16 +1966,16 @@ useEffect(() => {
         throw new Error('ID de usuario inválido')
       }
     }
-    
+
     console.log('📝 [SAVE] ID numérico del usuario actual:', currentUserId)
 
     // Obtener todos los usuarios únicos que participaron en la transcripción
     const uniqueUserIds = new Set(transcriptEntries.map(entry => entry.userId))
     const participantUserIds = Array.from(uniqueUserIds)
     console.log('📝 [SAVE] Usuarios participantes (raw):', participantUserIds)
-    
+
     // Debug: Mostrar TODAS las entradas de transcripción para entender de dónde vienen los UUIDs
-    console.log('📝 [SAVE] TODAS las transcriptEntries para debug:', 
+    console.log('📝 [SAVE] TODAS las transcriptEntries para debug:',
       transcriptEntries.map((entry, index) => ({
         index,
         userId: entry.userId,
@@ -2004,7 +1985,7 @@ useEffect(() => {
         isValidUuid: ['685a4741-f1d4-4c03-8ec6-4d200ff67682', '4b268139-258c-4dc4-9a0f-12b536dfc637'].includes(entry.userId)
       }))
     )
-    
+
     // Mostrar qué UUIDs únicos están presentes
     const uniqueUuids = new Set(transcriptEntries.map(entry => entry.userId))
     const allUuids = Array.from(uniqueUuids)
@@ -2021,12 +2002,12 @@ useEffect(() => {
       '685a4741-f1d4-4c03-8ec6-4d200ff67682', // ID=2
       '4b268139-258c-4dc4-9a0f-12b536dfc637'  // ID=3
     ]
-    
+
     const numericParticipantIds: number[] = []
-    
+
     for (const userId of participantUserIds) {
       let numericId: number | null = null
-      
+
       if (userId.includes('-')) {
         // Es UUID, verificar si es válido antes de llamar API
         if (!validUuids.includes(userId)) {
@@ -2049,11 +2030,11 @@ useEffect(() => {
         }
         numericId = parsed
       }
-      
+
       numericParticipantIds.push(numericId)
       console.log(`📝 [SAVE] Participante ${userId} → ID numérico ${numericId}`)
     }
-    
+
     console.log('📝 [SAVE] Participantes con IDs numéricos finales:', numericParticipantIds)
 
     // Convertir transcriptEntries a formato legible pero JSON válido
@@ -2065,15 +2046,15 @@ useEffect(() => {
     const now = new Date()
     const timestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '').replace('T', '_')
     const filename = `transcript_${timestamp}.ndjson`
-    
+
     // Crear un blob con el contenido legible en formato NDJSON
     const blob = new Blob([readableContent], { type: 'application/x-ndjson' })
-    
+
     const savedPaths: string[] = []
-    
+
     // Guardar archivo para el usuario actual
     const folderPath = `${currentUserId}/${sanitizedTitle}/${filename}`
-    
+
     try {
       const { data: storageData, error: storageError } = await sb.storage
         .from('calls')
@@ -2087,24 +2068,24 @@ useEffect(() => {
           console.warn(`⚠️ [SAVE] Error subiendo archivo:`, storageError.message)
         }
       }
-      
+
       if (storageData) {
         savedPaths.push(storageData.path)
         console.log(`✅ [SAVE] Transcripción guardada exitosamente`)
       }
-      
+
     } catch (error) {
       console.error(`❌ [SAVE] Error guardando archivo:`, error)
       // No parar el proceso - continuar con colgado
     }
-    
+
     // **ÉXITO GARANTIZADO**: Aunque no se guarde en storage, la llamada debe continuar
     if (savedPaths.length === 0) {
       console.warn('⚠️ [SAVE] No se pudo guardar en storage, pero continuamos con el colgado')
     } else {
       console.log(`✅ [SAVE] Transcripción guardada en storage para ${savedPaths.length} usuarios`)
     }
-    
+
     // **OPCIONAL**: Intentar guardar en BD solo si es posible (no crítico para el colgado)
     try {
       // Intentar guardar registro en tabla Transcripcion
@@ -2132,18 +2113,18 @@ useEffect(() => {
 
   const handleSaveTranscriptChoice = async (saveTranscript: boolean, title?: string) => {
     setShowSaveTranscriptModal(false)
-    
+
     if (saveTranscript && title) {
       console.log('📝 [SAVE] Guardando transcripción con título:', title)
       console.log('📝 [SAVE] Número de entradas de transcripción:', transcriptEntries.length)
       console.log('📝 [SAVE] Estado de Supabase (sb):', !!sb)
       console.log('📝 [SAVE] ID del usuario (meId):', meId)
-      
+
       // **CRÍTICO**: El guardado NO puede impedir que la llamada se cuelgue
       try {
         await Promise.race([
           saveTranscription(title),
-          new Promise((_, reject) => 
+          new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Timeout guardando transcripción')), 5000)
           )
         ])
@@ -2156,7 +2137,7 @@ useEffect(() => {
     } else {
       console.log('❌ [SAVE] Usuario decidió no guardar la transcripción')
     }
-    
+
     // **NUEVO**: Verificar si es hangup local o remoto
     if (isRemoteHangup) {
       // Es hangup remoto - limpiar y redirigir
@@ -2176,7 +2157,7 @@ useEffect(() => {
     setEnding(true)
     log('~ endLocalCall (' + reason + ')')
 
-    try { await dbEndCall() } catch {}
+    try { await dbEndCall() } catch { }
 
     // Marcar llamada como manejada y cerrar toast
     markHandled(callIdRef.current)
@@ -2185,7 +2166,7 @@ useEffect(() => {
     cleanupPC()
 
     // ⚠️ IMPORTANTE: NO cerramos los inbox; así pueden volver a llamarte.
-    try { await callCh?.unsubscribe() } catch {}
+    try { await callCh?.unsubscribe() } catch { }
     setCallCh(null)
     callChRef.current = null
 
@@ -2200,13 +2181,13 @@ useEffect(() => {
   }
 
   const cleanupPC = () => {
-    try { pcRef.current?.getSenders().forEach(s => { try { s.track?.stop() } catch {} }) } catch {}
-    try { localStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+    try { pcRef.current?.getSenders().forEach(s => { try { s.track?.stop() } catch { } }) } catch { }
+    try { localStreamRef.current?.getTracks().forEach(t => t.stop()) } catch { }
     if (localVideoRef.current?.srcObject) localVideoRef.current.srcObject = null
     if (remoteVideoRef.current?.srcObject) remoteVideoRef.current.srcObject = null
     // Limpiar AudioContext
-    try { if (audioCtxRef.current) { try { audioCtxRef.current.close() } catch {} audioCtxRef.current = null } } catch {}
-    try { pcRef.current?.close() } catch {}
+    try { if (audioCtxRef.current) { try { audioCtxRef.current.close() } catch { } audioCtxRef.current = null } } catch { }
+    try { pcRef.current?.close() } catch { }
     pcRef.current = null
     localStreamRef.current = null
   }
@@ -2220,7 +2201,7 @@ useEffect(() => {
     setRole('idle'); roleRef.current = 'idle'
     setCallPeers(0)
     cleanupPC()
-    try { callCh?.unsubscribe() } catch {}
+    try { callCh?.unsubscribe() } catch { }
     setCallCh(null)
     callChRef.current = null
     setInCall(false)
@@ -2312,10 +2293,10 @@ useEffect(() => {
         </div>
       </header>
 
-  {/* Main */}
-  <main className="relative flex-1 min-h-0 overflow-hidden">
+      {/* Main */}
+      <main className="relative flex-1 min-h-0 overflow-hidden">
 
-        
+
         {/* Traducción en tiempo real */}
         {translateOn && (
           <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-xl bg-white/95 dark:bg-black/90 px-6 py-4 shadow-2xl border border-orange-400/40 max-w-3xl w-[95vw] text-center">
@@ -2486,11 +2467,11 @@ useEffect(() => {
         {/* === Notificación de llamada entrante (local) === */}
         {showIncomingToast && (
           <IncomingCallToast
-              fromName={incoming!.fromName || 'Invitado'}
-              onAccept={accept}
-              onReject={reject}
-              transcript={incoming!.transcript}
-            />
+            fromName={incoming!.fromName || 'Invitado'}
+            onAccept={accept}
+            onReject={reject}
+            transcript={incoming!.transcript}
+          />
         )}
 
         {/* === Modal para guardar transcripción === */}
@@ -2511,8 +2492,8 @@ useEffect(() => {
 function LinkIcon() {
   return (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-      <path d="M10 13a5 5 0 007.07 0l1.41-1.41a5 5 0 10-7.07-7.07L10 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M14 11a5 5 0 00-7.07 0L5.5 12.43a5 5 0 107.07 7.07L14 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M10 13a5 5 0 007.07 0l1.41-1.41a5 5 0 10-7.07-7.07L10 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 11a5 5 0 00-7.07 0L5.5 12.43a5 5 0 107.07 7.07L14 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -2530,7 +2511,7 @@ function TimeBadge() {
   }, [])
   return (
     <div className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/20 px-3 py-1.5 text-sm backdrop-blur-md">
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
       <span suppressHydrationWarning>{mounted ? now : ''}</span>
     </div>
   )
@@ -2636,9 +2617,9 @@ function CallControls({
       >
         <RoundBtn active={micOn} onClick={onToggleMic} title={micOn ? 'Silenciar micrófono' : 'Activar micrófono'} icon="mic" />
         <RoundBtn active={camOn} onClick={onToggleCam} title={camOn ? 'Apagar cámara' : 'Encender cámara'} icon="video" />
-  <RoundBtn active={shareOn} onClick={onToggleShare} title="Compartir pantalla" icon="monitor" />
-  <RoundBtn onClick={onOpenWhiteboard} title="Pizarra" icon="edit" />
-  <RoundBtn onClick={onOpenChat} title="Chat" icon="message-square" />
+        <RoundBtn active={shareOn} onClick={onToggleShare} title="Compartir pantalla" icon="monitor" />
+        <RoundBtn onClick={onOpenWhiteboard} title="Pizarra" icon="edit" />
+        <RoundBtn onClick={onOpenChat} title="Chat" icon="message-square" />
 
         <span className="mx-3 hidden h-6 w-px bg-black/10 dark:bg-white/15 sm:inline" />
 
@@ -2715,18 +2696,18 @@ function RoundBtn({
 
 /* ============== Panel de Chat ============== */
 function ChatPanel({ callCh, meName, meId, callId, messages, setMessages, seenMsgIdsRef }:
-  { callCh: any; meName: string; meId: string; callId: string | null; messages: Array<{id: string; from: string; fromId?: string; text: string; ts: number}>; setMessages: (m: any)=>void; seenMsgIdsRef: RefObject<Set<string>> }) {
+  { callCh: any; meName: string; meId: string; callId: string | null; messages: Array<{ id: string; from: string; fromId?: string; text: string; ts: number }>; setMessages: (m: any) => void; seenMsgIdsRef: RefObject<Set<string>> }) {
   const [newMessage, setNewMessage] = useState('')
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   // Append message locally and optionally send over the call channel
   const sendMessage = async (text: string) => {
     if (!text.trim()) return
-  const msgId = String(Date.now()) + Math.random().toString(36).slice(2,8)
-  const msg = { id: msgId, from: meName || 'Yo', fromId: meId, text: text.trim(), ts: Date.now() }
-  // mark seen so we don't add again when the channel echoes the message back
-  try { seenMsgIdsRef.current?.add(msgId) } catch {}
-  setMessages((m: any) => [...m, msg])
+    const msgId = String(Date.now()) + Math.random().toString(36).slice(2, 8)
+    const msg = { id: msgId, from: meName || 'Yo', fromId: meId, text: text.trim(), ts: Date.now() }
+    // mark seen so we don't add again when the channel echoes the message back
+    try { seenMsgIdsRef.current?.add(msgId) } catch { }
+    setMessages((m: any) => [...m, msg])
     setNewMessage('')
     // Try to send over realtime channel if available
     try {
@@ -2746,11 +2727,11 @@ function ChatPanel({ callCh, meName, meId, callId, messages, setMessages, seenMs
       try {
         const p = payload
         if (!p || !p.text) return
-  const incomingId = String(p.id ?? (Date.now() + Math.random().toString(36).slice(2,8)))
-  // ignore messages we've already seen (e.g. our own echoed message)
-  if (seenMsgIdsRef.current && seenMsgIdsRef.current.has(incomingId)) return
-  try { seenMsgIdsRef.current?.add(incomingId) } catch {}
-  setMessages((m: any) => [...m, { id: incomingId, from: p.from || 'Invitado', fromId: p.fromId, text: p.text, ts: Number(p.ts || Date.now()) }])
+        const incomingId = String(p.id ?? (Date.now() + Math.random().toString(36).slice(2, 8)))
+        // ignore messages we've already seen (e.g. our own echoed message)
+        if (seenMsgIdsRef.current && seenMsgIdsRef.current.has(incomingId)) return
+        try { seenMsgIdsRef.current?.add(incomingId) } catch { }
+        setMessages((m: any) => [...m, { id: incomingId, from: p.from || 'Invitado', fromId: p.fromId, text: p.text, ts: Number(p.ts || Date.now()) }])
       } catch (e) { console.warn('chat payload parse error', e) }
     }
     try { callCh.on('broadcast', { event: 'chat' }, handler) } catch (e) { /* ignore */ }
@@ -2788,7 +2769,7 @@ function ChatPanel({ callCh, meName, meId, callId, messages, setMessages, seenMs
             )}>
               {msg.text}
             </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">{new Date(msg.ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">{new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
         ))}
       </div>
@@ -2831,7 +2812,7 @@ function IncomingCallToast({
         <div className="flex items-start gap-3">
           <div className="mt-0.5 h-9 w-9 shrink-0 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 text-white grid place-items-center shadow">
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-              <path d="M22 16.92v3a2 2 0 01-2.18 2 19.86 19.86 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.86 19.86 0 012.08 4.18 2 2 0 014.06 2h3a2 2 0 012 1.72c.12.9.37 1.77.73 2.58a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.5-1.25a2 2 0 012.11-.45c.81.36 1.68.61 2.58.73A2 2 0 0122 16.92z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M22 16.92v3a2 2 0 01-2.18 2 19.86 19.86 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.86 19.86 0 012.08 4.18 2 2 0 014.06 2h3a2 2 0 012 1.72c.12.9.37 1.77.73 2.58a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.5-1.25a2 2 0 012.11-.45c.81.36 1.68.61 2.58.73A2 2 0 0122 16.92z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
           <div className="min-w-0">
@@ -2845,14 +2826,14 @@ function IncomingCallToast({
                 onClick={onAccept}
                 className="inline-flex items-center gap-2 rounded-full bg-green-500 px-3 py-1.5 text-white text-sm shadow hover:bg-green-600"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.86 19.86 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.86 19.86 0 012.08 4.18 2 2 0 014.06 2h3a2 2 0 012 1.72c.12.9.37 1.77.73 2.58a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.5-1.25a2 2 0 012.11-.45c.81.36 1.68.61 2.58.73A2 2 0 0122 16.92z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.86 19.86 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.86 19.86 0 012.08 4.18 2 2 0 014.06 2h3a2 2 0 012 1.72c.12.9.37 1.77.73 2.58a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.5-1.25a2 2 0 012.11-.45c.81.36 1.68.61 2.58.73A2 2 0 0122 16.92z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 Aceptar
               </button>
               <button
                 onClick={onReject}
                 className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-3 py-1.5 text-white text-sm shadow hover:bg-rose-600"
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 Rechazar
               </button>
             </div>

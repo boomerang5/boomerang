@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from '@supabase/auth-helpers-react'
 import Image from 'next/image'
@@ -54,11 +54,10 @@ function FeatureShowcase() {
           {features.map((feature, i) => (
             <div
               key={feature.id}
-              className={`absolute inset-0 flex items-center justify-center transition-all duration-700 ${
-                activeFeature === i 
-                  ? 'opacity-100 scale-100 rotate-0' 
-                  : 'opacity-0 scale-50 rotate-12'
-              }`}
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-700 ${activeFeature === i
+                ? 'opacity-100 scale-100 rotate-0'
+                : 'opacity-0 scale-50 rotate-12'
+                }`}
             >
               <div className={`w-full h-full rounded-[3rem] bg-gradient-to-br ${feature.color} flex items-center justify-center shadow-2xl`}>
                 <span className="text-[10rem] md:text-[12rem] filter drop-shadow-lg">
@@ -77,27 +76,23 @@ function FeatureShowcase() {
             key={feature.id}
             onClick={() => setActiveFeature(i)}
             onMouseEnter={() => setActiveFeature(i)}
-            className={`cursor-pointer p-6 rounded-2xl transition-all duration-300 ${
-              activeFeature === i
-                ? 'bg-white/20 backdrop-blur-md scale-105 shadow-xl border-2 border-white/40'
-                : 'bg-white/5 backdrop-blur-sm hover:bg-white/10 border-2 border-transparent'
-            }`}
+            className={`cursor-pointer p-6 rounded-2xl transition-all duration-300 ${activeFeature === i
+              ? 'bg-white/20 backdrop-blur-md scale-105 shadow-xl border-2 border-white/40'
+              : 'bg-white/5 backdrop-blur-sm hover:bg-white/10 border-2 border-transparent'
+              }`}
           >
             <div className="flex items-start gap-4">
-              <div className={`text-5xl transition-transform duration-300 ${
-                activeFeature === i ? 'scale-110' : 'scale-100'
-              }`}>
+              <div className={`text-5xl transition-transform duration-300 ${activeFeature === i ? 'scale-110' : 'scale-100'
+                }`}>
                 {feature.icon}
               </div>
               <div className="flex-1">
-                <h3 className={`text-2xl font-bold mb-2 transition-colors ${
-                  activeFeature === i ? 'text-white' : 'text-white/80'
-                }`}>
+                <h3 className={`text-2xl font-bold mb-2 transition-colors ${activeFeature === i ? 'text-white' : 'text-white/80'
+                  }`}>
                   {feature.title}
                 </h3>
-                <p className={`leading-relaxed transition-colors ${
-                  activeFeature === i ? 'text-white/90' : 'text-white/60'
-                }`}>
+                <p className={`leading-relaxed transition-colors ${activeFeature === i ? 'text-white/90' : 'text-white/60'
+                  }`}>
                   {feature.desc}
                 </p>
               </div>
@@ -123,54 +118,47 @@ function StepsShowcase() {
     <div className="relative max-w-6xl mx-auto">
       <div className="flex items-center justify-center gap-4 md:gap-6 flex-wrap md:flex-nowrap">
         {steps.map((step, i) => (
-          <>
+          <React.Fragment key={i}>
             <div
-              key={i}
               onClick={() => setActiveStep(i)}
               onMouseEnter={() => setActiveStep(i)}
-              className={`relative cursor-pointer transition-all duration-500 ${
-                activeStep === i ? 'scale-110 z-10' : 'scale-100'
-              }`}
+              className={`relative cursor-pointer transition-all duration-500 ${activeStep === i ? 'scale-110 z-10' : 'scale-100'
+                }`}
               style={{ width: '220px', flexShrink: 0 }}
             >
               <div
-                className={`rounded-3xl p-8 shadow-lg transition-all duration-500 text-center flex flex-col items-center justify-center border-4 ${
-                  activeStep === i
-                    ? 'bg-white shadow-2xl border-white transform'
-                    : 'bg-white/80 backdrop-blur-sm border-white/40 hover:bg-white/90'
-                }`}
+                className={`rounded-3xl p-8 shadow-lg transition-all duration-500 text-center flex flex-col items-center justify-center border-4 ${activeStep === i
+                  ? 'bg-white shadow-2xl border-white transform'
+                  : 'bg-white/80 backdrop-blur-sm border-white/40 hover:bg-white/90'
+                  }`}
                 style={{ width: '220px', height: '260px' }}
               >
                 {/* Número de paso */}
                 <div
-                  className={`absolute -top-4 -right-4 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-xl transition-all duration-500 ${
-                    activeStep === i ? 'scale-125' : 'scale-100'
-                  } bg-gradient-to-br ${step.color}`}
+                  className={`absolute -top-4 -right-4 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-xl transition-all duration-500 ${activeStep === i ? 'scale-125' : 'scale-100'
+                    } bg-gradient-to-br ${step.color}`}
                 >
                   {i + 1}
                 </div>
 
                 {/* Icono */}
                 <div
-                  className={`w-20 h-20 mx-auto mb-4 rounded-2xl flex items-center justify-center shadow-md transition-all duration-500 bg-gradient-to-br ${step.color} ${
-                    activeStep === i ? 'scale-110 rotate-0' : 'scale-100 rotate-3'
-                  }`}
+                  className={`w-20 h-20 mx-auto mb-4 rounded-2xl flex items-center justify-center shadow-md transition-all duration-500 bg-gradient-to-br ${step.color} ${activeStep === i ? 'scale-110 rotate-0' : 'scale-100 rotate-3'
+                    }`}
                 >
                   <span className="text-4xl">{step.icon}</span>
                 </div>
 
                 {/* Contenido */}
                 <h3
-                  className={`text-xl font-bold mb-2 transition-all duration-300 ${
-                    activeStep === i ? 'text-gray-900' : 'text-gray-700'
-                  }`}
+                  className={`text-xl font-bold mb-2 transition-all duration-300 ${activeStep === i ? 'text-gray-900' : 'text-gray-700'
+                    }`}
                 >
                   {step.title}
                 </h3>
                 <p
-                  className={`text-sm transition-all duration-300 ${
-                    activeStep === i ? 'text-gray-600' : 'text-gray-500'
-                  }`}
+                  className={`text-sm transition-all duration-300 ${activeStep === i ? 'text-gray-600' : 'text-gray-500'
+                    }`}
                 >
                   {step.desc}
                 </p>
@@ -181,9 +169,8 @@ function StepsShowcase() {
             {i < steps.length - 1 && (
               <div className="hidden md:flex items-center justify-center flex-shrink-0">
                 <svg
-                  className={`w-8 h-8 transition-all duration-500 ${
-                    activeStep === i ? 'text-white scale-125' : 'text-white/40 scale-100'
-                  }`}
+                  className={`w-8 h-8 transition-all duration-500 ${activeStep === i ? 'text-white scale-125' : 'text-white/40 scale-100'
+                    }`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -197,7 +184,7 @@ function StepsShowcase() {
                 </svg>
               </div>
             )}
-          </>
+          </React.Fragment>
         ))}
       </div>
     </div>
@@ -271,7 +258,7 @@ export default function Home() {
             <div className="relative animate-fade-in-right">
               {/* Glow effect detrás de la imagen */}
               <div className="absolute inset-0 bg-gradient-to-br from-orange-400/20 to-red-500/20 rounded-3xl blur-2xl scale-105"></div>
-              
+
               {/* Marco con efecto glassmorphism */}
               <div className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 backdrop-blur-sm bg-white/5 p-3 hover:scale-105 transition-transform duration-500">
                 <img
@@ -279,7 +266,7 @@ export default function Home() {
                   alt="Videollamada con traducción"
                   className="w-full h-auto object-contain rounded-2xl"
                 />
-                
+
                 {/* Badge flotante */}
                 <div className="absolute top-6 right-6 bg-gradient-to-r from-orange-500 to-red-500 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg animate-bounce-slow">
                   ✨ Traducción IA
@@ -296,14 +283,14 @@ export default function Home() {
           <div className="text-center mb-20">
             <h2 className="text-5xl md:text-6xl font-extrabold mb-4">
               <span className="text-white">
-                Lo que hace única a Boomerang
+                Lo que hace único a Boomerang
               </span>
             </h2>
             <p className="text-xl md:text-2xl text-white">
               Tecnología de vanguardia para conectar personas
             </p>
           </div>
-          
+
           <FeatureShowcase />
         </div>
       </section>
