@@ -129,6 +129,7 @@ function pickTargets(keys: string[]) {
 export default function VideoCallPage() {
   const router = useRouter()
   const { uuid: cachedUuid, isLoading: uuidLoading } = useUserUuid()
+
   // Traducción de voz
   const [translationText, setTranslationText] = useState('')
   const [originalText, setOriginalText] = useState('') // Texto original del peer
@@ -159,7 +160,8 @@ export default function VideoCallPage() {
             if (lastTs) {
               const dt = (r.timestamp - lastTs) / 1000;
               const db = r.bytesSent - lastBytes;
-              // Silenced: performance debugging log
+              const kbps = (db * 8) / 1000 / dt;
+              console.log(`${tag}: outbound audio ~${kbps.toFixed(1)} kbps, packets=${r.packetsSent}`);
             }
             lastBytes = r.bytesSent; lastTs = r.timestamp;
           }
@@ -181,7 +183,8 @@ export default function VideoCallPage() {
             if (lastTs) {
               const dt = (r.timestamp - lastTs) / 1000;
               const db = r.bytesReceived - lastBytes;
-              // Silenced: performance debugging log
+              const kbps = (db * 8) / 1000 / dt;
+              console.log(`${tag}: inbound audio ~${kbps.toFixed(1)} kbps, packets=${r.packetsReceived}`);
             }
             lastBytes = r.bytesReceived; lastTs = r.timestamp;
           }
@@ -289,7 +292,9 @@ export default function VideoCallPage() {
   // Solo activar transcripción manualmente (comentado auto-activación)
   /*
   useEffect(() => {
+    console.log('🔵 useEffect transcripción ejecutándose - callId=', callId)
     if (!callId) {
+      console.log('🔵 No callId, saliendo del useEffect')
       return
     }
     
@@ -303,7 +308,7 @@ export default function VideoCallPage() {
         if (hasTranscript) source = 'URL'
       }
     } catch (e) {
-      // Error leyendo URL, probando sessionStorage
+      console.log('🔵 Error leyendo URL, probando sessionStorage')
     }
     
     // Fallback a sessionStorage
@@ -314,14 +319,18 @@ export default function VideoCallPage() {
       } catch {}
     }
     
+    console.log('🔵 Resultado detección:', { hasTranscript, source, url: window.location?.search })
     
     if (hasTranscript) {
+      console.log('🔵🔵🔵 ACTIVANDO TRANSCRIPCIÓN desde', source)
       setCallTranscriptActive(true)
       
       // Verificar inmediatamente que se activó
       setTimeout(() => {
-        setWasTranscriptionUsed(true)
+        console.log('🔵 Estado después de setTimeout - callTranscriptActive debería ser true')
       }, 100)
+    } else {
+      console.log('❌ NO se activa transcripción')
     }
   }, [callId])
   */
@@ -347,6 +356,7 @@ export default function VideoCallPage() {
   const disabledUntilRef = useRef<number>(0)
   const iceDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([])
+  const processingSignalRef = useRef<boolean>(false)
 
   // ---- Controles de UI
   const [micOn, setMicOn] = useState(true)
@@ -430,6 +440,7 @@ export default function VideoCallPage() {
       // Limpiar cola de traducciones cuando se desactiva
       translationQueueRef.current = [];
       isPlayingTTSRef.current = false;
+      console.log('🧹 [COLA] Cola limpiada al desactivar traducción');
 
       // Restaurar audio del peer cuando se desactiva la traducción
       if (remoteVideoRef.current) {
@@ -540,6 +551,8 @@ export default function VideoCallPage() {
             // Calcular latencia
             const latency = Date.now() - startTime;
             setTranslationLatency(latency);
+
+            console.log('🔄 [RECONOCIMIENTO] Reconociendo continuamente...', { translated: translated.substring(0, 50) });
           }
         };
 
@@ -548,6 +561,11 @@ export default function VideoCallPage() {
             const startTime = Date.now();
             const translated = e.result.translations.get(targetLang) || '';
             const original = e.result.text || '';
+
+            console.log('✅ [RECONOCIMIENTO] Reconocido (no bloqueante):', {
+              original: original.substring(0, 50),
+              translated: translated.substring(0, 50)
+            });
 
             setTranslationText(translated);
             setOriginalText(original);
@@ -576,6 +594,7 @@ export default function VideoCallPage() {
         };
 
         await recognizer.startContinuousRecognitionAsync();
+        console.log('✓ Translation started - listening to peer audio');
       } catch (err: any) {
         console.error('Translation error:', err);
         setTranslationError('Error al iniciar traducción: ' + (err?.message || err));
@@ -616,6 +635,7 @@ export default function VideoCallPage() {
 
     // Agregar a la cola de traducciones
     translationQueueRef.current.push(finalText);
+    console.log(`📝 [COLA] Agregado a cola: "${finalText}" (cola: ${translationQueueRef.current.length})`);
 
     // Procesar cola si no está reproduciendo
     if (!isPlayingTTSRef.current) {
@@ -638,6 +658,8 @@ export default function VideoCallPage() {
       return;
     }
 
+    console.log(`🎤 [COLA] Procesando: "${textToPlay}" (restantes: ${translationQueueRef.current.length})`);
+
     try {
       const tokenData = lastTokenRef.current || await fetchSpeechToken();
       const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(tokenData.token, tokenData.region);
@@ -656,6 +678,7 @@ export default function VideoCallPage() {
         async (result: SpeechSDK.SpeechSynthesisResult) => {
           try {
             const ttsLatency = Date.now() - ttsStartTime;
+            console.log(`✅ [COLA] Completado en ${ttsLatency}ms: "${textToPlay}"`);
 
             synthesizer.close();
 
@@ -698,6 +721,8 @@ export default function VideoCallPage() {
             src.buffer = audioBuffer
             src.connect(audioCtxRef.current!.destination)
             src.start()
+
+            console.log('✅ [COLA] Audio reproducido localmente');
 
             // Cuando termine la reproducción, procesar la siguiente
             src.onended = () => {
@@ -987,6 +1012,8 @@ export default function VideoCallPage() {
   // === 1.b) Cargar identidad automáticamente (uuid + id numérico si existe)
   useEffect(() => {
     if (!sb) return
+    if (uuidLoading) return // Esperar a que el contexto UUID termine de cargar
+
       ; (async () => {
         let finalUuid: string | null = null
 
@@ -1205,9 +1232,7 @@ export default function VideoCallPage() {
       const ch = sb.channel(`user:${key}`, { config: { broadcast: { self: false } } })
 
       ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
-        try {
-          console.log('📨 ring payload received on channel:', `user:${key}`, payload)
-        } catch (e) { }
+        try { console.log('📨 ring payload received:', payload) } catch (e) { }
         // soportar varias formas de payload: payload.callId / payload.room, payload.from.{id,name} o payload.fromId/payload.fromName
         const cid = String(payload?.callId ?? payload?.room ?? '')
         if (!cid) return
@@ -1222,12 +1247,11 @@ export default function VideoCallPage() {
         // ❌ si ya vimos un ring con este callId (por el otro inbox), ignorar
         if (seenRingsRef.current.has(cid)) {
           if (incoming?.callId === cid) setIncoming(null)
-          log(`~ ring ignorado (duplicado) cid=${cid} en canal user:${key}`)
+          log(`~ ring ignorado (duplicado) cid=${cid}`)
           return
         }
         // marcar este ring como visto para bloquear el duplicado del otro canal
         seenRingsRef.current.add(cid)
-        log(`✅ ring NUEVO procesado en canal user:${key} - callId=${cid}`)
 
         // si la llamada ya fue manejada (aceptada/rechazada/cancelada), ignorar
         if (handledCallsRef.current.has(cid)) {
@@ -1243,9 +1267,19 @@ export default function VideoCallPage() {
         }
 
 
+
+        // Debug: verificar nombres en payload
+        console.log('🏷️ [DEBUG] Ring payload recibido:', {
+          'from.name': payload?.from?.name,
+          'fromName': payload?.fromName,
+          'from_name': payload?.from_name,
+          'name': payload?.name,
+          'fromId': fromId
+        })
+
         const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
         const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
-        log(`← ring PROCESADO en user:${key} from ${fromId} (${fromName}) callId=${cid}`)
+        log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
         setCallId(cid); callIdRef.current = cid
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
@@ -1261,7 +1295,7 @@ export default function VideoCallPage() {
         if (roleRef.current === 'caller') {
           setCallRowId(payload.id_llamada)
           if (!localStreamRef.current) await enableCam()
-          // dbAddCallParticipant ya no es necesario, create_call_with_participants lo hace automáticamente
+          await dbAddCallParticipant(payload.id_llamada, meIdInt, { host: true })
           await joinCallChannel(payload.callId)        // **espera SUBSCRIBED**
           setInCall(true)
           await startCall()                            // ahora sí, offer
@@ -1314,20 +1348,6 @@ export default function VideoCallPage() {
 
   }, [sb, meId, meNumericId])
 
-  /* ========= 2.c) Limpiar rings antiguos =========
-     Para evitar memory leaks limpiamos rings vistos cuando no hay llamadas activas
-  */
-  useEffect(() => {
-    const cleanup = setInterval(() => {
-      // Limpiamos el set de rings vistos cada 30 segundos si no hay llamadas activas
-      if (role === 'idle' && !inCall) {
-        seenRingsRef.current.clear()
-      }
-    }, 30000) // 30 segundos
-
-    return () => clearInterval(cleanup)
-  }, [role, inCall])
-
   /* ========= 2.b) Auto-acciones por query =========
      - ?to=<uuid|id>&autocall=1        -> inicia llamada automáticamente (caller)
      - ?incoming=<callId>&from=<id|uuid>&autoaccept=1 -> acepta automáticamente (callee)
@@ -1354,8 +1374,8 @@ export default function VideoCallPage() {
           await makeCall(to, shouldTranscript)
           try {
             sessionStorage.removeItem('vc_transcript')
-            // NO limpiar vc_call_title y vc_call_description aquí
-            // Se limpiarán en dbStartCall después de usarlos
+            sessionStorage.removeItem('vc_call_title')
+            sessionStorage.removeItem('vc_call_description')
           } catch { }
         })()
     }
@@ -1398,9 +1418,8 @@ export default function VideoCallPage() {
     (async () => {
       if (!localStreamRef.current) await enableCam();
       const idRow = await dbStartCall();
-      
       if (idRow) setCallRowId(idRow);
-      // dbAddCallParticipant ya no es necesario, create_call_with_participants lo hace automáticamente
+      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false });
       await joinCallChannel(incoming);
       setInCall(true);
 
@@ -1457,6 +1476,7 @@ export default function VideoCallPage() {
 
     // Asegurar que enviamos un nombre válido (SIEMPRE resolver para evitar cache incorrecto)
     let nameToSend = meName
+    console.log('[NAME DEBUG] Initial meName:', meName, 'meId:', meId, 'meNumericId:', meNumericId)
 
     // FORZAR resolución siempre (sin importar el valor actual de meName)
     try {
@@ -1466,10 +1486,11 @@ export default function VideoCallPage() {
           if (!error && data) {
             const u = Array.isArray(data) ? data[0] : data
             const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+            console.log('[NAME DEBUG] RPC data:', u, 'resolved:', resolved);
             if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
           }
         } catch (e) {
-          // RPC failed, continue to try UUID fetch
+          console.log('[NAME DEBUG] RPC failed:', e);
         }
       } else if (meId) {
         try {
@@ -1477,19 +1498,18 @@ export default function VideoCallPage() {
           if (res.ok) {
             const json = await res.json()
             const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+            console.log('[NAME DEBUG] UUID fetch:', json, 'resolved:', resolved);
             if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
           }
         } catch (e) {
-          // UUID fetch failed
+          console.log('[NAME DEBUG] UUID fetch failed:', e);
         }
       }
     } catch (e) {
-      // Overall resolution failed
+      console.log('[NAME DEBUG] Overall resolution failed:', e);
     }
 
-    // CREAR LA LLAMADA EN LA BASE DE DATOS ANTES DE ENVIAR EL RING
-    const idRow = await dbStartCall()
-    if (idRow) setCallRowId(idRow)
+    console.log('[NAME DEBUG] Final nameToSend:', nameToSend);
 
     for (const key of finalTargets) {
       const ch = sb.channel(`user:${key}`)
@@ -1521,9 +1541,8 @@ export default function VideoCallPage() {
     try {
       if (!localStreamRef.current) await enableCam()
       const idRow = await dbStartCall()
-      
       if (idRow) setCallRowId(idRow)
-      // dbAddCallParticipant ya no es necesario, create_call_with_participants lo hace automáticamente
+      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false })
       await joinCallChannel(currentCallId)
       setInCall(true)
 
@@ -1649,25 +1668,63 @@ export default function VideoCallPage() {
       if (m.from === meId) return
       if (!pcRef.current) mkPC()
 
+      // Evitar procesamiento concurrente de señales
+      if (processingSignalRef.current && (m.type === 'offer' || m.type === 'answer')) {
+        log(`! skipping ${m.type}, already processing signal`)
+        return
+      }
+
       if (m.type === 'offer') {
         log('← offer')
-        if (!localStreamRef.current) await enableCam()
-        await pcRef.current!.setRemoteDescription(m.sdp)
-        // Agregar tracks
-        localStreamRef.current!.getTracks().forEach(t => {
-          try {
-            pcRef.current!.addTrack(t, localStreamRef.current!)
-          } catch (e) { /* noop */ }
-        })
-        const answer = await pcRef.current!.createAnswer()
-        await pcRef.current!.setLocalDescription(answer)
-        await sendSignal({ type: 'answer', sdp: pcRef.current!.localDescription!, from: meId })
-        log('→ answer enviado')
-        drainIceQueue()
+        processingSignalRef.current = true
+        // Verificar estado antes de procesar offer
+        try {
+          if (pcRef.current!.signalingState === 'stable' || pcRef.current!.signalingState === 'have-remote-offer') {
+            if (!localStreamRef.current) await enableCam()
+            await pcRef.current!.setRemoteDescription(m.sdp)
+            // Agregar tracks sin duplicados
+            const senders = pcRef.current!.getSenders()
+            localStreamRef.current!.getTracks().forEach(t => {
+              const existingSender = senders.find(s => s.track === t)
+              if (!existingSender) {
+                try {
+                  pcRef.current!.addTrack(t, localStreamRef.current!)
+                } catch (e) { /* noop */ }
+              }
+            })
+            const answer = await pcRef.current!.createAnswer()
+            await pcRef.current!.setLocalDescription(answer)
+            await sendSignal({ type: 'answer', sdp: pcRef.current!.localDescription!, from: meId })
+            log('→ answer enviado')
+            drainIceQueue()
+            log('✅ offer processed successfully')
+          } else {
+            log(`! skipping offer, wrong state: ${pcRef.current!.signalingState}`)
+          }
+        } catch (error) {
+          log(`! error processing offer: ${error}`)
+          console.error('WebRTC Offer Error:', error)
+        } finally {
+          processingSignalRef.current = false
+        }
       } else if (m.type === 'answer') {
         log('← answer')
-        await pcRef.current!.setRemoteDescription(m.sdp)
-        drainIceQueue()
+        processingSignalRef.current = true
+        // Verificar estado antes de establecer remote description
+        try {
+          if (pcRef.current!.signalingState === 'have-local-offer') {
+            await pcRef.current!.setRemoteDescription(m.sdp)
+            drainIceQueue()
+            log('✅ answer processed successfully')
+          } else {
+            log(`! skipping answer, wrong state: ${pcRef.current!.signalingState}`)
+          }
+        } catch (error) {
+          log(`! error processing answer: ${error}`)
+          console.error('WebRTC Answer Error:', error)
+        } finally {
+          processingSignalRef.current = false
+        }
       } else if (m.type === 'ice') {
         if (!pcRef.current) mkPC()
         if (!pcRef.current!.remoteDescription) {
@@ -1762,11 +1819,15 @@ export default function VideoCallPage() {
     if (!localStreamRef.current) { log('Start call: primero Enable camera'); return }
 
     if (!pcRef.current) mkPC()
-    // Agregar tracks
+    // Agregar tracks sin duplicados
+    const senders = pcRef.current!.getSenders()
     localStreamRef.current.getTracks().forEach(t => {
-      try {
-        pcRef.current!.addTrack(t, localStreamRef.current!)
-      } catch (e) { /* noop */ }
+      const existingSender = senders.find(s => s.track === t)
+      if (!existingSender) {
+        try {
+          pcRef.current!.addTrack(t, localStreamRef.current!)
+        } catch (e) { /* noop */ }
+      }
     })
     const offer = await pcRef.current!.createOffer()
     await pcRef.current!.setLocalDescription(offer)
@@ -1784,76 +1845,21 @@ export default function VideoCallPage() {
 
   // ========= 5) RPCs BD (best-effort)
   const dbStartCall = async (): Promise<number | null> => {
-    if (!sb) {
-      console.error('❌ No hay cliente Supabase')
-      return null
-    }
-    
+    if (!sb || !callIdRef.current) return null
     try {
-      // PRUEBA DIRECTA CON VALORES HARDCODEADOS PARA VER SI FUNCIONA
-      // Leer datos del modal desde sessionStorage
-      const storedTitle = sessionStorage.getItem('vc_call_title')
-      const storedDescription = sessionStorage.getItem('vc_call_description')
-      
-      console.log('📖 Datos del sessionStorage:')
-      console.log('   - vc_call_title:', storedTitle)
-      console.log('   - vc_call_description:', storedDescription)
-      
-      // Usar valores del modal o fallbacks descriptivos
-      const finalTitle = (storedTitle && storedTitle.trim()) ? storedTitle.trim() : 'Llamada desde Boomerang'
-      const finalDescription = (storedDescription && storedDescription.trim()) ? storedDescription.trim() : 'Llamada realizada desde la aplicación'
-      
-      // Obtener IDs reales
-      const callerNumericId = meNumericId || 1  // Mi ID numérico
-      const calleeNumericId = Number(calleeUserIdRef.current) || 2  // ID del contactado
-      
-      console.log('🔍 Datos finales:')
-      console.log('   - Título:', finalTitle)
-      console.log('   - Descripción:', finalDescription)
-      console.log('   - Caller ID:', callerNumericId)
-      console.log('   - Callee ID:', calleeNumericId)
-      
-      const rpcParams = {
-        p_titulo: finalTitle,
-        p_descripcion: finalDescription,
-        p_caller_id: callerNumericId,
-        p_callee_id: calleeNumericId,
-        p_id_grupo: null
-      }
-      
-      console.log('� LLAMANDO AL SP CON VALORES DIRECTOS:', rpcParams)
-      
-      const { data, error } = await sb.rpc('create_call_with_modal_data', rpcParams)
-      
-      console.log('📋 RESPUESTA DEL SP:')
-      console.log('   - data:', data)
-      console.log('   - error:', error)
-      
-      if (error) { 
-        console.error('💀 ERROR:', error)
-        // Error logged above
-        return null 
-      }
-      
-      if (data) {
-        console.log('🎉 ¡ÉXITO! ID CREADO:', data)
-        // Llamada creada exitosamente - limpiar sessionStorage
-        try {
-          sessionStorage.removeItem('vc_call_title')
-          sessionStorage.removeItem('vc_call_description')
-        } catch (e) {
-          console.warn('⚠️ Error limpiando sessionStorage:', e)
-        }
-        return data as number
-      } else {
-        console.error('❌ Sin data')
-        // Error logged above
-        return null
-      }
-      
+      const { data, error } = await sb.rpc('start_call', {
+        p_id_grupo: null,
+        p_titulo: callIdRef.current,
+        p_descripcion: JSON.stringify({
+          from: callerUserIdRef.current,
+          to: calleeUserIdRef.current,
+        }),
+      })
+      if (error) { log('! start_call (no bloquea): ' + error.message); return null }
+      log('✓ DB start_call id=' + data)
+      return data as number
     } catch (e: any) {
-      console.error('💥 EXCEPCIÓN:', e)
-      // Error logged above
+      log('! start_call (excepción, no bloquea): ' + e?.message)
       return null
     }
   }
