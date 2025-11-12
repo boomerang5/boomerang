@@ -11,6 +11,7 @@ import { ThemeProvider } from "next-themes";
 import Image from "next/image";
 
 import SupabaseProvider from "./SupabaseProvider";
+import CookieWarningsSuppressor from "@/components/CookieWarningsSuppressor";
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -33,7 +34,7 @@ const geistSans = Geist({
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={geistSans.className} suppressHydrationWarning>
-  <body className="text-foreground overflow-x-hidden bg-gradient-to-br from-orange-400 via-orange-500 to-red-600 animate-gradient-flow">
+      <body className="text-foreground overflow-x-hidden bg-gradient-to-br from-orange-400 via-orange-500 to-red-600 animate-gradient-flow">
         {/* 👇 Toda la app envuelta con el SessionContextProvider */}
         <SupabaseProvider>
           <ThemeProvider
@@ -69,6 +70,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 {children}
               </div>
             </main>
+            {/* Suprimir warnings de cookies sin afectar funcionalidad */}
+            <CookieWarningsSuppressor />
           </ThemeProvider>
         </SupabaseProvider>
       </body>

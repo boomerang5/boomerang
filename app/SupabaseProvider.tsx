@@ -15,12 +15,8 @@ export default function SupabaseProvider({ children }: { children: React.ReactNo
     }
   });
 
-  // Limpiar cookies corruptas al inicializar
-  // NOTE: previously this component attempted to clear Supabase cookies on
-  // initialization. That caused valid session cookies to be removed and
-  // produced unexpected redirects to /sign-in. We no longer clear cookies
-  // here. If you need to clear corrupt cookies during development, do it
-  // manually or add a dev-only guarded method.
+  // No limpiar cookies - dejar que funcione como antes
+  // Las advertencias de cookies son solo warnings, no afectan funcionalidad
 
   return <SessionContextProvider supabaseClient={supabase}>{children}</SessionContextProvider>;
 }
