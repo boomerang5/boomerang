@@ -34,15 +34,24 @@ function naiveSearch(lines: any[], query: string, max = 12): string {
   return pick.map(lineToString).join("\n");
 }
 
-// Comportamiento “experto en transcripciones” 
+// Comportamiento "Analista experto en transcripciones"
 const BEHAVIOR = `
-Sos un analista experto en transcripciones (.ndjson) de llamadas/reuniones.
-Objetivo: responder con precisión y seguridad sobre el contenido de la transcripción provista.
-Reglas:
-- Tono directo y afirmativo; evitá “parece”, “podría”, “posiblemente”.
-- Si la información NO está en los extractos, respondé exactamente: "No está en la transcripción".
-- Priorizá hechos. Respondé breve (2–5 líneas). Usá viñetas si ayuda.
-- No inventes información ni uses contexto externo.
+Sos un Analista Experto en Transcripciones de llamadas y reuniones, que procesa archivos en formato .ndjson (como registros de diálogo con hablante y texto).
+Tu única fuente de conocimiento es el **texto de la transcripción provista**.
+
+###Objetivo Principal
+Proporcionar un análisis del contenido del diálogo con precisión, confianza y enfocándose en la información clave.
+
+### 📜 Reglas de Respuesta
+1.  **Tono y Seguridad:** Respondé con un tono **directo, seguro y afirmativo**. Está absolutamente prohibido usar términos que expresen duda, como: "parece", "podría", "posiblemente", "supongo", "la transcripción sugiere", o frases similares.
+2.  **Foco en la Información (Manejo de Preguntas):**
+    * **Si la información SOLICITADA está presente:** Resumí o extraé el hecho de forma concisa (máximo 5 líneas). Usá viñetas si la respuesta es una lista de hechos.
+    * **Si la información SOLICITADA NO está presente:** **NO respondas "No está en la transcripción"**. En su lugar, reconocé la falta de información y **reorientá la respuesta** al contenido general o principal que *sí* está disponible en la transcripción. Por ejemplo: "Esa información específica no se menciona. Sin embargo, la transcripción se centra en [TEMA PRINCIPAL], donde se habló de [HECHO CLAVE]."
+3.  **Fidelidad al Contenido:**
+    * **No inventes** información, hipótesis o uses contexto externo. Solo basate en el texto literal de la transcripción.
+    * Interpretá el contenido del diálogo, no la estructura del archivo (.ndjson). Asumí que las partes entre comillas son el *discurso* real de los participantes (ej: {"Hablante": "Diálogo"}).
+4.  **Flexibilidad de Pregunta:** Debés ser capaz de interpretar preguntas que se refieren a la transcripción de forma genérica o sin usar la palabra "transcripción" (ej: "¿De qué se habló en **la llamada**?", "¿Cuál fue **el tema**?").
+
 `.trim();
 
 export async function POST(req: Request) {
@@ -59,7 +68,10 @@ export async function POST(req: Request) {
     const transcriptPath: string | undefined = body?.transcriptPath;
 
     if (!message || typeof message !== "string") {
-      return NextResponse.json({ error: "Falta 'message' (string)" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Falta 'message' (string)" },
+        { status: 400 }
+      );
     }
 
     // Armar contexto desde el NDJSON (si se pasó transcriptPath)
@@ -70,7 +82,10 @@ export async function POST(req: Request) {
         const lines = await downloadNdjson(transcriptPath);
         console.log("📊 Líneas encontradas:", lines.length);
         context = naiveSearch(lines, message);
-        console.log("🔍 Contexto generado:", context ? context.substring(0, 200) + "..." : "Sin contexto");
+        console.log(
+          "🔍 Contexto generado:",
+          context ? context.substring(0, 200) + "..." : "Sin contexto"
+        );
       } catch (e: any) {
         console.warn("❌ No pude leer NDJSON:", e?.message || e);
         console.warn("📋 Transcripción path:", transcriptPath);
