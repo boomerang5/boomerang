@@ -16,7 +16,7 @@ export const signUpAction = async (formData: FormData) => {
     return encodedRedirect(
       "error",
       "/sign-up",
-      "Email and password are required",
+      "Email and password are required"
     );
   }
 
@@ -33,11 +33,12 @@ export const signUpAction = async (formData: FormData) => {
   if (error) {
     console.error(error.code + " " + error.message);
     return encodedRedirect("error", "/sign-up", error.message);
-  } else { // Si no hay error, se redirige al usuario a la página de inicio de sesión con un mensaje de éxito
+  } else {
+    // Si no hay error, se redirige al usuario a la página de inicio de sesión con un mensaje de éxito
     return encodedRedirect(
       "success",
       "/sign-up",
-      "Thanks for signing up! Please check your email for a verification link.",
+      "Thanks for signing up! Please check your email for a verification link."
     );
   }
 };
@@ -59,8 +60,12 @@ export const signInAction = async (formData: FormData) => {
     const code = (error as any).code; // Accede a la propiedad 'code' del error
 
     if (code === "email_not_confirmed" || msg === "Email not confirmed") {
-      msg = "Aún no confirmaste tu correo. Revisá tu email y seguí el enlace de verificación.";
-    } else if (code === "invalid_login_credentials" || msg === "Invalid login credentials") {
+      msg =
+        "Aún no confirmaste tu correo. Revisá tu email y seguí el enlace de verificación.";
+    } else if (
+      code === "invalid_login_credentials" ||
+      msg === "Invalid login credentials"
+    ) {
       msg = "Email o contraseña incorrectos.";
     } else if (msg.includes("Invalid login credentials")) {
       msg = "Email o contraseña incorrectos.";
@@ -82,7 +87,7 @@ export const signInAction = async (formData: FormData) => {
 export const forgotPasswordAction = async (formData: FormData) => {
   const email = formData.get("email")?.toString();
   const supabase = await createClient();
-  const origin = (await headers()).get("origin"); 
+  const origin = (await headers()).get("origin");
   const callbackUrl = formData.get("callbackUrl")?.toString();
 
   if (!email) {
@@ -92,18 +97,20 @@ export const forgotPasswordAction = async (formData: FormData) => {
   // Verificar si el usuario existe llamando a una RPC function o consultando auth.users
   // Usaremos la función rpc 'check_user_exists' si está disponible
   let userExists = true; // Por defecto asumimos que existe
-  
+
   try {
     // Intentar consultar si existe alguna función RPC para verificar usuarios
-    const { data: rpcData, error: rpcError } = await supabase
-      .rpc('check_user_exists', { email_param: email });
-    
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      "check_user_exists",
+      { email_param: email }
+    );
+
     if (!rpcError && rpcData !== null) {
       userExists = rpcData;
     }
   } catch (e) {
     // Si la función RPC no existe, continuamos de todos modos
-    console.log('RPC function not available, continuing with default behavior');
+    console.log("RPC function not available, continuing with default behavior");
   }
 
   // Si determinamos que el usuario no existe, retornar error
@@ -111,7 +118,7 @@ export const forgotPasswordAction = async (formData: FormData) => {
     return encodedRedirect(
       "error",
       "/forgot-password",
-      "El email ingresado no se encuentra registrado.",
+      "El email ingresado no se encuentra registrado."
     );
   }
 
@@ -121,11 +128,11 @@ export const forgotPasswordAction = async (formData: FormData) => {
   });
 
   if (error) {
-    console.error('Reset password error:', error);
+    console.error("Reset password error:", error);
     return encodedRedirect(
       "error",
       "/forgot-password",
-      "No se pudo enviar el correo de recuperación. Por favor, intenta más tarde.",
+      "No se pudo enviar el correo de recuperación. Por favor, intenta más tarde."
     );
   }
 
@@ -136,7 +143,7 @@ export const forgotPasswordAction = async (formData: FormData) => {
   return encodedRedirect(
     "success",
     "/forgot-password",
-    "Si el email está registrado, recibirás un enlace para restablecer tu contraseña.",
+    "Si el email está registrado, recibirás un enlace para restablecer tu contraseña."
   );
 };
 
@@ -150,7 +157,7 @@ export const resetPasswordAction = async (formData: FormData) => {
     encodedRedirect(
       "error",
       "/protected/reset-password",
-      "Password and confirm password are required",
+      "Password and confirm password are required"
     );
   }
 
@@ -158,7 +165,7 @@ export const resetPasswordAction = async (formData: FormData) => {
     encodedRedirect(
       "error",
       "/protected/reset-password",
-      "Passwords do not match",
+      "Passwords do not match"
     );
   }
 
@@ -170,7 +177,7 @@ export const resetPasswordAction = async (formData: FormData) => {
     encodedRedirect(
       "error",
       "/protected/reset-password",
-      "Password update failed",
+      "Password update failed"
     );
   }
 
@@ -178,7 +185,19 @@ export const resetPasswordAction = async (formData: FormData) => {
 };
 
 export async function signOutAction() {
-  const supabase = await createClient();   // ← como tu helper es async, acá SÍ va await
+  const supabase = await createClient(); // ← como tu helper es async, acá SÍ va await
   await supabase.auth.signOut();
+
+  // Limpiar cache del navegador al cerrar sesión
+  if (typeof window !== "undefined") {
+    try {
+      sessionStorage.removeItem("cached_uuid");
+      sessionStorage.removeItem("cached_uuid_timestamp");
+      sessionStorage.removeItem("vc_uuid");
+    } catch (e) {
+      console.error("Error clearing session storage:", e);
+    }
+  }
+
   redirect("/sign-in");
 }

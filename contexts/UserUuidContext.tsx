@@ -70,18 +70,24 @@ export function UserUuidProvider({ children }: { children: React.ReactNode }) {
     const isRefreshing = useRef(false)
 
     const fetchUuid = async (): Promise<string | null> => {
-        // 1. Verificar cache primero
+        // 1. Si hay usuario autenticado, SIEMPRE priorizar su ID
+        if (user?.id) {
+            const cachedUuid = uuidCache.get()
+            // Si el cache tiene un UUID diferente, limpiarlo primero
+            if (cachedUuid && cachedUuid !== user.id) {
+                console.log('🔄 User changed, clearing old cache:', cachedUuid, '→', user.id)
+                uuidCache.clear()
+            }
+            console.log('✅ UUID from session:', user.id)
+            uuidCache.set(user.id)
+            return user.id
+        }
+
+        // 2. Si no hay usuario, verificar cache
         const cachedUuid = uuidCache.get()
         if (cachedUuid) {
             console.log('✅ UUID from cache:', cachedUuid)
             return cachedUuid
-        }
-
-        // 2. Usar UUID de la sesión autenticada si está disponible
-        if (user?.id) {
-            console.log('✅ UUID from session:', user.id)
-            uuidCache.set(user.id)
-            return user.id
         }
 
         // 3. Llamar RPC solo si no hay cache y no hay sesión
