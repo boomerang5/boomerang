@@ -24,7 +24,13 @@ type SignalPayload =
   | { type: 'ice'; candidate: RTCIceCandidateInit; from: string }
   | { type: 'hangup'; from: string }
 
-type IncomingCall = { callId: string; fromId: string; fromName?: string; transcript?: boolean }
+type IncomingCall = {
+  callId: string;
+  fromId: string;
+  fromName?: string;
+  transcript?: boolean;
+  id_llamada?: number; // ⚠️ Añadir esta línea
+}
 
 /* =================== Helpers de datos =================== */
 
@@ -889,13 +895,23 @@ export default function VideoCallPage() {
 
         const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
         const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
+        const idLlamada = payload?.id_llamada ? Number(payload.id_llamada) : undefined
+        
+        console.log('🔧 Ring procesado:', { callId: cid, fromId, fromName, transcript: transcriptFlag, id_llamada: idLlamada })
+        
         log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
         setCallId(cid); callIdRef.current = cid
         setRole('callee'); roleRef.current = 'callee'
         callerUserIdRef.current = fromId
         calleeUserIdRef.current = String(meId || key)
         setPeerId(fromId)
-        setIncoming({ callId: cid, fromId, fromName, transcript: transcriptFlag }) // mostrar notificación
+        setIncoming({ 
+          callId: cid, 
+          fromId, 
+          fromName, 
+          transcript: transcriptFlag,
+          id_llamada: idLlamada 
+        }) // mostrar notificación
         try { navigator.vibrate?.(200) } catch { }
       })
 
@@ -905,7 +921,7 @@ export default function VideoCallPage() {
         if (roleRef.current === 'caller') {
           setCallRowId(payload.id_llamada)
           if (!localStreamRef.current) await enableCam()
-          await dbAddCallParticipant(payload.id_llamada, meIdInt, { host: true })
+          // ⚠️ NO agregar participante - ya se agregó en create_call_with_modal_data
           await joinCallChannel(payload.callId)        // **espera SUBSCRIBED**
           setInCall(true)
           await startCall()                            // ahora sí, offer
@@ -984,8 +1000,8 @@ export default function VideoCallPage() {
           await makeCall(to, shouldTranscript)
           try {
             sessionStorage.removeItem('vc_transcript')
-            sessionStorage.removeItem('vc_call_title')
-            sessionStorage.removeItem('vc_call_description')
+            // ✅ NO limpiar vc_call_title y vc_call_description aquí
+            // Se limpiarán solo al final de la llamada en endLocalCall
           } catch { }
         })()
     }
@@ -1000,6 +1016,7 @@ export default function VideoCallPage() {
     const from = qp('from') || qp('peer') || qp('to');
     const auto = qp('autoaccept');
     const token = qp('aa');
+    const idLlamadaParam = qp('id_llamada'); // ⚠️ Leer ID de llamada desde URL
 
     if (!incoming || !from || auto !== '1') return;
     if (!inboxReady) return;
@@ -1012,7 +1029,8 @@ export default function VideoCallPage() {
       setRole('callee');
       roleRef.current = 'callee';
       setPeerId(from);
-      setIncoming({ callId: incoming, fromId: from, fromName: 'Invitado' });
+      const existingCallId = idLlamadaParam ? Number(idLlamadaParam) : undefined;
+      setIncoming({ callId: incoming, fromId: from, fromName: 'Invitado', id_llamada: existingCallId });
       return;
     }
 
@@ -1027,9 +1045,15 @@ export default function VideoCallPage() {
 
     (async () => {
       if (!localStreamRef.current) await enableCam();
-      const idRow = await dbStartCall();
-      if (idRow) setCallRowId(idRow);
-      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false });
+      
+      // ✅ NO CREAR NUEVA LLAMADA - Usar la existente desde URL
+      const existingCallId = idLlamadaParam ? Number(idLlamadaParam) : null;
+      
+      if (existingCallId && existingCallId > 0) {
+        setCallRowId(existingCallId);
+        // ⚠️ NO agregar participante - ya se agregó en create_call_with_modal_data
+      }
+      
       await joinCallChannel(incoming);
       setInCall(true);
 
@@ -1042,7 +1066,7 @@ export default function VideoCallPage() {
         await ch.send({
           type: 'broadcast',
           event: 'accept',
-          payload: { callId: incoming, from: meId, id_llamada: idRow ?? undefined },
+          payload: { callId: incoming, from: meId, id_llamada: existingCallId ?? undefined },
         });
         await ch.unsubscribe();
       }
@@ -1051,126 +1075,127 @@ export default function VideoCallPage() {
 
   // ========= 3) Acciones Call/Accept/Reject/Cancel
   const makeCall = async (peerOverride?: string, sendTranscript: boolean = false) => {
-    // ACTIVAR TRANSCRIPCIÓN INMEDIATAMENTE SI ES SOLICITADA
-    if (sendTranscript) {
-      setCallTranscriptActive(true)
-    }
-
-    if (!sb) return
-    if (!inboxReady) return alert('Aún suscribiéndose al inbox… probá de nuevo en un segundo')
-
-    const targetPeer = (peerOverride ?? peerId).trim()
-    log(`~ makeCall targetPeer=${targetPeer}`)
-    if (!targetPeer) return alert('Falta Peer Usuario ID/UUID')
-    if (!localStreamRef.current) await enableCam()
-
-    const id = uuid()
-    setCallId(id); callIdRef.current = id
-    setRole('caller'); roleRef.current = 'caller'
-    callerUserIdRef.current = String(meId)
-    calleeUserIdRef.current = String(targetPeer)
-
-    const keys = await resolvePeerKeys(sb, String(targetPeer), log)
-    const targets = pickTargets(keys)
-
-    // 🚫 filtrar mis propios ids/uuids
-    const selfKeys = new Set([meId, meNumericId != null ? String(meNumericId) : ''].filter(Boolean))
-    const finalTargets = targets.filter(t => !selfKeys.has(t))
-
-    log(`→ ring targets: ${finalTargets.map(t => `user:${t}`).join(', ')}`)
-    if (!finalTargets.length) {
-      log('! No se resolvió ningún destino válido (tras filtrar self).')
-      alert('No se resolvió ningún destino válido.')
-      return
-    }
-
-    // Asegurar que enviamos un nombre válido (SIEMPRE resolver para evitar cache incorrecto)
-    let nameToSend = meName
-    console.log('[NAME DEBUG] Initial meName:', meName, 'meId:', meId, 'meNumericId:', meNumericId)
-
-    // FORZAR resolución siempre (sin importar el valor actual de meName)
-    try {
-      if (meNumericId != null) {
-        try {
-          const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
-          if (!error && data) {
-            const u = Array.isArray(data) ? data[0] : data
-            const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
-            console.log('[NAME DEBUG] RPC data:', u, 'resolved:', resolved);
-            if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
-          }
-        } catch (e) {
-          console.log('[NAME DEBUG] RPC failed:', e);
+  // ACTIVAR TRANSCRIPCIÓN INMEDIATAMENTE SI ES SOLICITADA
+  if (sendTranscript) {
+    setCallTranscriptActive(true)
+  }
+  if (!sb) return
+  if (!inboxReady) return alert('Aún suscribiéndose al inbox… probá de nuevo en un segundo')
+  const targetPeer = (peerOverride ?? peerId).trim()
+  log(`~ makeCall targetPeer=${targetPeer}`)
+  if (!targetPeer) return alert('Falta Peer Usuario ID/UUID')
+  if (!localStreamRef.current) await enableCam()
+  const id = uuid()
+  setCallId(id); callIdRef.current = id
+  setRole('caller'); roleRef.current = 'caller'
+  callerUserIdRef.current = String(meId)
+  calleeUserIdRef.current = String(targetPeer)
+  const keys = await resolvePeerKeys(sb, String(targetPeer), log)
+  const targets = pickTargets(keys)
+  // 🚫 filtrar mis propios ids/uuids
+  const selfKeys = new Set([meId, meNumericId != null ? String(meNumericId) : ''].filter(Boolean))
+  const finalTargets = targets.filter(t => !selfKeys.has(t))
+  log(`→ ring targets: ${finalTargets.map(t => `user:${t}`).join(', ')}`)
+  if (!finalTargets.length) {
+    log('! No se resolvió ningún destino válido (tras filtrar self).')
+    alert('No se resolvió ningún destino válido.')
+    return
+  }
+  // Asegurar que enviamos un nombre válido (SIEMPRE resolver para evitar cache incorrecto)
+  let nameToSend = meName
+  console.log('[NAME DEBUG] Initial meName:', meName, 'meId:', meId, 'meNumericId:', meNumericId)
+  // FORZAR resolución siempre (sin importar el valor actual de meName)
+  try {
+    if (meNumericId != null) {
+      try {
+        const { data, error } = await sb.rpc('get_user_by_id_usuario', { p_id_usuario: Number(meNumericId) })
+        if (!error && data) {
+          const u = Array.isArray(data) ? data[0] : data
+          const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
+          console.log('[NAME DEBUG] RPC data:', u, 'resolved:', resolved);
+          if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
         }
-      } else if (meId) {
-        try {
-          const res = await fetch(`/api/users/uuid/${meId}`)
-          if (res.ok) {
-            const json = await res.json()
-            const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
-            console.log('[NAME DEBUG] UUID fetch:', json, 'resolved:', resolved);
-            if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
-          }
-        } catch (e) {
-          console.log('[NAME DEBUG] UUID fetch failed:', e);
-        }
+      } catch (e) {
+        console.log('[NAME DEBUG] RPC failed:', e);
       }
-    } catch (e) {
-      console.log('[NAME DEBUG] Overall resolution failed:', e);
+    } else if (meId) {
+      try {
+        const res = await fetch(`/api/users/uuid/${meId}`)
+        if (res.ok) {
+          const json = await res.json()
+          const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
+          console.log('[NAME DEBUG] UUID fetch:', json, 'resolved:', resolved);
+          if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
+        }
+      } catch (e) {
+        console.log('[NAME DEBUG] UUID fetch failed:', e);
+      }
     }
+  } catch (e) {
+    console.log('[NAME DEBUG] Overall resolution failed:', e);
+  }
+  console.log('[NAME DEBUG] Final nameToSend:', nameToSend);
+  // 🔥 CREAR LA LLAMADA EN LA BASE DE DATOS ANTES DE ENVIAR EL RING
+  const idRow = await dbStartCall()
+  if (idRow) setCallRowId(idRow)
+  for (const key of finalTargets) {
+    const ch = sb.channel(`user:${key}`)
+    await ensureSubscribed(ch)
+    const ringPayload = {
+      callId: id,
+      room: id,
+      from: { id: meId, name: nameToSend, transcript: !!sendTranscript },
+      transcript: !!sendTranscript,
+      id_llamada: idRow // ⚠️ Pasar el ID de la llamada creada
+    }
+    await ch.send({
+      type: 'broadcast',
+      event: 'ring',
+      payload: ringPayload,
+    })
+    await ch.unsubscribe()
+  }
+  log(`→ ring enviado (callId=${id})`)
+}
 
-    console.log('[NAME DEBUG] Final nameToSend:', nameToSend);
-
-    for (const key of finalTargets) {
+  const accept = async () => {
+  if (!sb) return
+  if (!incoming) return alert('No hay llamada entrante')
+  if (roleRef.current !== 'callee') { log('! Accept: solo callee'); return }
+  // Usar los valores antes de que se pierdan
+  const currentCallId = incoming.callId
+  const toId = incoming.fromId
+  // Ocultar y marcar como manejada YA
+  setIncoming(null)
+  markHandled(currentCallId)
+  try {
+    if (!localStreamRef.current) await enableCam()
+    // ⚠️ NO agregar participante - ya se agregó en create_call_with_modal_data
+    await joinCallChannel(currentCallId)
+    setInCall(true)
+    setCallRowId(incoming.id_llamada) // ⚠️ Usar el ID de la llamada original
+    // Avisar al caller que aceptamos
+    const keys = await resolvePeerKeys(sb, String(toId), log)
+    const targets = pickTargets(keys)
+    for (const key of targets) {
       const ch = sb.channel(`user:${key}`)
       await ensureSubscribed(ch)
-      const ringPayload = { callId: id, room: id, from: { id: meId, name: nameToSend, transcript: !!sendTranscript }, transcript: !!sendTranscript }
       await ch.send({
         type: 'broadcast',
-        event: 'ring',
-        payload: ringPayload,
+        event: 'accept',
+        payload: {
+          callId: currentCallId,
+          from: meId,
+          id_llamada: incoming.id_llamada // ⚠️ Pasar el ID de la llamada original
+        }
       })
       await ch.unsubscribe()
     }
-    log(`→ ring enviado (callId=${id})`)
+  } catch (error) {
+    log('! Error al aceptar llamada: ' + (error as Error).message)
+    alert('Error al aceptar la llamada')
   }
-
-  const accept = async () => {
-    if (!sb) return
-    if (!incoming) return alert('No hay llamada entrante')
-    if (roleRef.current !== 'callee') { log('! Accept: solo callee'); return }
-
-    // Usar los valores antes de que se pierdan
-    const currentCallId = incoming.callId
-    const toId = incoming.fromId
-
-    // Ocultar y marcar como manejada YA
-    setIncoming(null)
-    markHandled(currentCallId)
-
-    try {
-      if (!localStreamRef.current) await enableCam()
-      const idRow = await dbStartCall()
-      if (idRow) setCallRowId(idRow)
-      await dbAddCallParticipant(idRow ?? -1, meIdInt, { host: false })
-      await joinCallChannel(currentCallId)
-      setInCall(true)
-
-      // Avisar al caller
-      const keys = await resolvePeerKeys(sb, String(toId), log)
-      const targets = pickTargets(keys)
-      for (const key of targets) {
-        const ch = sb.channel(`user:${key}`)
-        await ensureSubscribed(ch)
-        await ch.send({ type: 'broadcast', event: 'accept', payload: { callId: currentCallId, from: meId, id_llamada: idRow ?? undefined } })
-        await ch.unsubscribe()
-      }
-    } catch (error) {
-      log('! Error al aceptar llamada: ' + (error as Error).message)
-      alert('Error al aceptar la llamada')
-    }
-  }
-
+}
   const reject = async () => {
     if (!sb) return
     const cid = callIdRef.current
@@ -1273,6 +1298,110 @@ export default function VideoCallPage() {
       log(`~ presence sync call:${id} peers=${count}`)
     })
 
+    ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
+  try { console.log('📨 ring payload received:', payload) } catch (e) { }
+  // soportar varias formas de payload: payload.callId / payload.room, payload.from.{id,name} o payload.fromId/payload.fromName
+  const cid = String(payload?.callId ?? payload?.room ?? '')
+  if (!cid) return
+  // 🚫 si el ring viene de mí misma, ignorar (uuid o id numérico)
+  const fromId = String(payload?.from?.id ?? payload?.fromId ?? payload?.from_uuid ?? payload?.from_id ?? '')
+  if (fromId && (fromId === meId || (meNumericId != null && fromId === String(meNumericId)))) {
+    log('~ ring ignorado (from=me)')
+    return
+  }
+  // ❌ si ya vimos un ring con este callId (por el otro inbox), ignorar
+  if (seenRingsRef.current.has(cid)) {
+    if (incoming?.callId === cid) setIncoming(null)
+    log(`~ ring ignorado (duplicado) cid=${cid}`)
+    return
+  }
+  // marcar este ring como visto para bloquear el duplicado del otro canal
+  seenRingsRef.current.add(cid)
+  // si la llamada ya fue manejada (aceptada/rechazada/cancelada), ignorar
+  if (handledCallsRef.current.has(cid)) {
+    if (incoming?.callId === cid) setIncoming(null)
+    log(`~ ring ignorado (handled) cid=${cid}`)
+    return
+  }
+  // ignorar si no estamos idle
+  if (roleRef.current !== 'idle') {
+    log(`~ ring ignorado (no idle) cid=${cid}`)
+    return
+  }
+  // Debug: verificar nombres en payload
+  console.log('🏷️ [DEBUG] Ring payload recibido:', {
+    'from.name': payload?.from?.name,
+    'fromName': payload?.fromName,
+    'from_name': payload?.from_name,
+    'name': payload?.name,
+    'fromId': fromId
+  })
+  const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
+  const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
+  const idLlamada = payload?.id_llamada // ⚠️ Obtener el ID de la llamada original
+  log(`← ring on user:${key} from ${fromId} (${fromName}) callId=${cid}`)
+  setCallId(cid); callIdRef.current = cid
+  setRole('callee'); roleRef.current = 'callee'
+  callerUserIdRef.current = fromId
+  calleeUserIdRef.current = String(meId || key)
+  setPeerId(fromId)
+  setIncoming({
+    callId: cid,
+    fromId,
+    fromName,
+    transcript: transcriptFlag,
+    id_llamada: idLlamada // ⚠️ Guardar el ID de la llamada original
+  }) // mostrar notificación
+  try { navigator.vibrate?.(200) } catch { }
+})
+
+    // handle remote peer announcing they started/stopped sharing (so we can adjust fit)
+    ch.on('broadcast', { event: 'sharing' }, ({ payload }: any) => {
+      try {
+        const from = String(payload?.from ?? '')
+        if (!from || from === meId) return
+        const sharing = !!payload?.sharing
+        setPeerSharing(sharing)
+        log(`← sharing ${sharing ? 'START' : 'STOP'} from ${from}`)
+      } catch (e) { }
+    })
+
+    // handle transcript sync between peers (1-a-1 calls only)
+    ch.on('broadcast', { event: 'transcript_sync' }, ({ payload }: any) => {
+      try {
+        const fromUserId = String(payload?.fromUserId ?? '')
+        const isActive = Boolean(payload?.active)
+        const requestSync = Boolean(payload?.requestSync)
+
+        // Ignorar mis propios mensajes
+        if (fromUserId === meId || fromUserId === String(meNumericId)) return
+
+        log(`📝 transcript_sync from ${fromUserId}: active=${isActive}, requestSync=${requestSync}`)
+
+        // Si el peer solicita sync, enviarle mi estado actual
+        if (requestSync) {
+          ch.send({
+            type: 'broadcast',
+            event: 'transcript_sync',
+            payload: {
+              active: callTranscriptActive,
+              fromUserId: meId,
+              requestSync: false
+            }
+          })
+          log(`📝 Responded to transcript sync request: active=${callTranscriptActive}`)
+        }
+
+        // Si el peer tiene transcript activo y yo no, activarlo automáticamente
+        if (isActive && !callTranscriptActive) {
+          log('📝 Auto-enabling transcript to sync with peer')
+          setCallTranscriptActive(true)
+        }
+      } catch (e) {
+        log('! Error handling transcript_sync: ' + (e as Error)?.message)
+      }
+    })
+
     ch.on('broadcast', { event: 'signal' }, async ({ payload }) => {
       const m = payload as SignalPayload & { from: string }
       if (m.from === meId) return
@@ -1356,53 +1485,6 @@ export default function VideoCallPage() {
       }
     })
 
-    // handle remote peer announcing they started/stopped sharing (so we can adjust fit)
-    ch.on('broadcast', { event: 'sharing' }, ({ payload }: any) => {
-      try {
-        const from = String(payload?.from ?? '')
-        if (!from || from === meId) return
-        const sharing = !!payload?.sharing
-        setPeerSharing(sharing)
-        log(`← sharing ${sharing ? 'START' : 'STOP'} from ${from}`)
-      } catch (e) { }
-    })
-
-    // handle transcript sync between peers (1-a-1 calls only)
-    ch.on('broadcast', { event: 'transcript_sync' }, ({ payload }: any) => {
-      try {
-        const fromUserId = String(payload?.fromUserId ?? '')
-        const isActive = Boolean(payload?.active)
-        const requestSync = Boolean(payload?.requestSync)
-
-        // Ignorar mis propios mensajes
-        if (fromUserId === meId || fromUserId === String(meNumericId)) return
-
-        log(`📝 transcript_sync from ${fromUserId}: active=${isActive}, requestSync=${requestSync}`)
-
-        // Si el peer solicita sync, enviarle mi estado actual
-        if (requestSync) {
-          ch.send({
-            type: 'broadcast',
-            event: 'transcript_sync',
-            payload: {
-              active: callTranscriptActive,
-              fromUserId: meId,
-              requestSync: false
-            }
-          })
-          log(`📝 Responded to transcript sync request: active=${callTranscriptActive}`)
-        }
-
-        // Si el peer tiene transcript activo y yo no, activarlo automáticamente
-        if (isActive && !callTranscriptActive) {
-          log('📝 Auto-enabling transcript to sync with peer')
-          setCallTranscriptActive(true)
-        }
-      } catch (e) {
-        log('! Error handling transcript_sync: ' + (e as Error)?.message)
-      }
-    })
-
     await ensureSubscribed(ch)
     await ch.track({ id: presenceKey, name: meName })
     log(`✓ SUBSCRIBED call:${id}`)
@@ -1453,26 +1535,123 @@ export default function VideoCallPage() {
     log('→ signal ' + payload.type)
   }
 
-  // ========= 5) RPCs BD (best-effort)
   const dbStartCall = async (): Promise<number | null> => {
-    if (!sb || !callIdRef.current) return null
-    try {
-      const { data, error } = await sb.rpc('start_call', {
-        p_id_grupo: null,
-        p_titulo: callIdRef.current,
-        p_descripcion: JSON.stringify({
-          from: callerUserIdRef.current,
-          to: calleeUserIdRef.current,
-        }),
-      })
-      if (error) { log('! start_call (no bloquea): ' + error.message); return null }
-      log('✓ DB start_call id=' + data)
-      return data as number
-    } catch (e: any) {
-      log('! start_call (excepción, no bloquea): ' + e?.message)
-      return null
-    }
+
+  if (!sb) {
+    console.log('❌ No hay cliente Supabase');
+    return null;
   }
+
+  try {
+    // 🔍 PASO 1: Leer datos del modal desde sessionStorage
+    const storedTitle = sessionStorage.getItem('vc_call_title');
+    const storedDescription = sessionStorage.getItem('vc_call_description');
+
+    console.log('📖 Datos del modal leídos:');
+    console.log('   - Título:', storedTitle);
+    console.log('   - Descripción:', storedDescription);
+
+    // 🔍 PASO 2: Preparar valores finales (modal o fallbacks)
+    const finalTitle = (storedTitle && storedTitle.trim())
+      ? storedTitle.trim()
+      : 'Llamada Boomerang';
+
+    const finalDescription = (storedDescription && storedDescription.trim())
+      ? storedDescription.trim()
+      : 'Llamada realizada desde la aplicación';
+
+    // 🔍 PASO 3: Obtener IDs de usuarios
+    const callerNumericId = meNumericId;
+    if (!callerNumericId) {
+      console.error('❌ No se pudo obtener el ID numérico del caller');
+      return null;
+    }
+
+    // Convertir callee ID (puede ser UUID o número)
+    let calleeNumericId: number | null = null;
+    const calleeInput = calleeUserIdRef.current;
+
+    if (!calleeInput) {
+      console.error('❌ No se proporcionó un ID de callee');
+      return null;
+    }
+
+    if (/^\d+$/.test(calleeInput)) {
+      // Es un número, usarlo directamente
+      calleeNumericId = Number(calleeInput);
+    } else {
+      // Es UUID, convertir a ID numérico
+      try {
+        const { data: userData, error: userError } = await sb
+          .from('Usuario')
+          .select('id')
+          .eq('User_id', calleeInput)
+          .maybeSingle();
+
+        if (userError) {
+          console.error('❌ Error al buscar el ID numérico del callee:', userError);
+          return null;
+        }
+
+        if (!userData?.id) {
+          console.error('❌ No se encontró el ID numérico para el UUID:', calleeInput);
+          return null;
+        }
+
+        calleeNumericId = userData.id;
+      } catch (e) {
+        console.error('❌ Error al convertir UUID a ID numérico:', e);
+        return null;
+      }
+    }
+
+    console.log('🔍 IDs de usuarios:');
+    console.log('   - Caller (yo):', callerNumericId);
+    console.log('   - Callee (contactado):', calleeNumericId);
+
+    // 🔍 PASO 4: Validar que los IDs sean válidos
+    if (!calleeNumericId || calleeNumericId <= 0) {
+      console.error('❌ ID de callee inválido:', calleeNumericId);
+      return null;
+    }
+
+    // 🔍 PASO 5: Preparar parámetros para el SP
+    const rpcParams = {
+      p_titulo: finalTitle,
+      p_descripcion: finalDescription,
+      p_caller_id: callerNumericId,
+      p_callee_id: calleeNumericId,
+      p_id_grupo: null
+    };
+
+    console.log('📞 Llamando a create_call_with_modal_data con:', rpcParams);
+
+    // 🔍 PASO 6: Ejecutar el stored procedure
+    const { data, error } = await sb.rpc('create_call_with_modal_data', rpcParams);
+
+    console.log('📋 RESPUESTA DEL SP:');
+    console.log('   - data:', data);
+    console.log('   - error:', error);
+
+    if (error) {
+      console.error('❌ ERROR del SP:', error.message);
+      return null;
+    }
+
+    if (data && typeof data === 'number' && data > 0) {
+      console.log('🎉 ¡Llamada creada exitosamente! ID:', data);
+      return data;
+    } else {
+      console.error('❌ Respuesta inválida del SP:', data);
+      return null;
+    }
+
+  } catch (e: any) {
+    console.error('💥 Error crítico en dbStartCall:', e?.message || e);
+    return null;
+  }
+};
+
 
   const dbEndCall = async () => {
     if (!sb) return
@@ -1483,16 +1662,18 @@ export default function VideoCallPage() {
   }
 
   const dbAddCallParticipant = async (llamadaId: number, usuarioIdInt: number | null, { host = false } = {}) => {
-    if (!sb) return
-    if (usuarioIdInt == null) { log('! add_call_participant: usuarioIdInt null/NaN, omito'); return }
-    const { error } = await sb.rpc('add_call_participant', {
-      p_id_llamada: Number(llamadaId),
-      p_id_usuario: Number(usuarioIdInt),
-      p_host: !!host,
-    })
-    if (error) log('! add_call_participant: ' + error.message)
-    else log(`✓ DB add_call_participant (host=${!!host})`)
-  }
+  if (!sb) return
+  if (usuarioIdInt == null) { log('! add_call_participant: usuarioIdInt null/NaN, omito'); return }
+  if (llamadaId == null || llamadaId <= 0) { log('! add_call_participant: llamadaId inválido, omito'); return }
+  const { error } = await sb.rpc('add_call_participant', {
+    p_id_llamada: Number(llamadaId),
+    p_id_usuario: Number(usuarioIdInt),
+    p_host: !!host,
+  })
+  if (error) log('! add_call_participant: ' + error.message)
+  else log(`✓ DB add_call_participant (host=${!!host})`)
+}
+
 
   // ========= 6) Medios
   const enableCam = async () => {
@@ -1853,6 +2034,15 @@ export default function VideoCallPage() {
     pendingIceRef.current = []
     setInCall(false)
     setCallTranscriptActive(false)
+
+    // 🧹 LIMPIAR sessionStorage del modal AL FINAL de la llamada
+    try {
+      sessionStorage.removeItem('vc_call_title')
+      sessionStorage.removeItem('vc_call_description')
+      log('🧹 SessionStorage del modal limpiado al finalizar llamada')
+    } catch (e) {
+      log('⚠️ Error limpiando sessionStorage: ' + e)
+    }
 
     setEnding(false)
   }

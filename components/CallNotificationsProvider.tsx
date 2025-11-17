@@ -6,7 +6,7 @@ import { useUser, useSupabaseClient } from '@supabase/auth-helpers-react';
 import { useUserUuid } from '@/contexts/UserUuidContext';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
-type IncomingCall = { callId: string; fromId: string; fromName?: string; transcript?: boolean };
+type IncomingCall = { callId: string; fromId: string; fromName?: string; transcript?: boolean; id_llamada?: number };
 
 // Mejor tipar explícito el canal
 async function ensureSubscribed(ch: RealtimeChannel): Promise<void> {
@@ -154,9 +154,10 @@ export default function CallNotificationsProvider({
           const transcriptFlag = Boolean(
             payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe || payload?.from?.transcription
           );
+          const idLlamada = payload?.id_llamada; // ⚠️ Capturar ID de llamada de BD
           currentCallIdRef.current = callId;
           peerIdRef.current = fromId;
-          const incomingData = { callId, fromId, fromName, transcript: transcriptFlag };
+          const incomingData = { callId, fromId, fromName, transcript: transcriptFlag, id_llamada: idLlamada };
           setIncoming(incomingData);
 
           log(`✅ Incoming call set: ${callId} from ${fromId} (${fromName}) transcript:${transcriptFlag}`);
@@ -242,6 +243,12 @@ export default function CallNotificationsProvider({
     if (incoming?.transcript) {
       url.searchParams.set('transcript', '1');
       log('📝 Passing transcript=1 to videollamada page');
+    }
+
+    // ⚠️ CRÍTICO: Pasar el ID de la llamada de BD para evitar crear una nueva
+    if (incoming?.id_llamada) {
+      url.searchParams.set('id_llamada', String(incoming.id_llamada));
+      log('📋 Passing id_llamada to videollamada page:', incoming.id_llamada);
     }
 
     setIncoming(null);

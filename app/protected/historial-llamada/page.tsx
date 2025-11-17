@@ -64,6 +64,16 @@ function formatTime(ts: string) {
 }
 
 function formatDateOnly(ts: string) {
+  // 🔧 FIX: Parsear directamente el string SIN conversión de timezone
+  // Extraer fecha directamente del string de PostgreSQL (GMT-3)
+  const match = ts.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  
+  if (match) {
+    const [, year, month, day] = match
+    return `${day}/${month}/${year}`
+  }
+  
+  // Fallback si el formato es diferente
   const d = new Date(ts)
   const day = String(d.getDate()).padStart(2, '0')
   const month = String(d.getMonth() + 1).padStart(2, '0')
@@ -72,6 +82,16 @@ function formatDateOnly(ts: string) {
 }
 
 function formatTimeOnly(ts: string) {
+  // 🔧 FIX: Parsear directamente el string SIN conversión de timezone
+  // Extraer hora directamente del string de PostgreSQL (GMT-3)
+  const match = ts.match(/[T\s](\d{2}):(\d{2})/)
+  
+  if (match) {
+    const [, hours, minutes] = match
+    return `${hours}:${minutes}`
+  }
+  
+  // Fallback si el formato es diferente
   const d = new Date(ts)
   const hours = String(d.getHours()).padStart(2, '0')
   const minutes = String(d.getMinutes()).padStart(2, '0')

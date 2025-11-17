@@ -116,6 +116,16 @@ export default function CallHistoryPage() {
 
   // Funciones de utilidad
   const formatDate = (isoString: string): string => {
+    // 🔧 FIX: Parsear directamente el string SIN conversión de timezone
+    // Extraer fecha y hora directamente del string de PostgreSQL (GMT-3)
+    const match = isoString.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/)
+    
+    if (match) {
+      const [, year, month, day, hours, minutes] = match
+      return `${day}/${month}/${year}, ${hours}:${minutes}`
+    }
+    
+    // Fallback si el formato es diferente
     const date = new Date(isoString)
     return date.toLocaleDateString('es-ES', {
       day: '2-digit',
