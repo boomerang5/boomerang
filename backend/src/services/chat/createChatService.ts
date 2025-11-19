@@ -7,9 +7,14 @@ interface CreateChatParams {
   idGrupo?: number | null;
 }
 
-export async function createChatService({ idUsuario, idContacto, nombreGrupo, idGrupo}: CreateChatParams): Promise<number | null> {
+export async function createChatService({
+  idUsuario,
+  idContacto,
+  nombreGrupo,
+  idGrupo,
+}: CreateChatParams): Promise<number | null> {
   // Intentar usar la función mejorada primero, fallback a la original
-  let { data, error } = await supabase.rpc("create_chat_improved", { 
+  let { data, error } = await supabase.rpc("create_chat_improved", {
     p_id_usuario_creador: idUsuario,
     p_id_usuario_destinatario: idContacto,
     p_nombre: nombreGrupo,
@@ -17,9 +22,8 @@ export async function createChatService({ idUsuario, idContacto, nombreGrupo, id
   });
 
   // Si la función mejorada no existe, usar la original
-  if (error && error.message && error.message.includes('does not exist')) {
-    console.log('⚠️ Usando función create_chat original (create_chat_improved no encontrada)');
-    const fallback = await supabase.rpc("create_chat", { 
+  if (error && error.message && error.message.includes("does not exist")) {
+    const fallback = await supabase.rpc("create_chat", {
       p_id_emisor: idUsuario,
       p_id_contacto: idContacto,
       p_nombre: nombreGrupo,
@@ -32,7 +36,10 @@ export async function createChatService({ idUsuario, idContacto, nombreGrupo, id
   if (error) {
     // No terminar el proceso desde un servicio: propagar el error para que el caller lo maneje.
     // Normalizar por si `error` no es una instancia de Error.
-    const err = error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
+    const err =
+      error instanceof Error
+        ? error
+        : new Error((error as any)?.message ?? String(error));
     throw err;
   }
 

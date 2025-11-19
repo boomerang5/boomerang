@@ -7,8 +7,7 @@ export async function getUserChatsService(idUsuario: number) {
   });
 
   // Si la función mejorada no existe, usar la original
-  if (error && error.message && error.message.includes('does not exist')) {
-    console.log('⚠️ Usando función get_user_chats original (get_user_chats_fixed no encontrada)');
+  if (error && error.message && error.message.includes("does not exist")) {
     const fallback = await supabase.rpc("get_user_chats", {
       p_id_usuario: idUsuario,
     });
@@ -17,10 +16,12 @@ export async function getUserChatsService(idUsuario: number) {
   }
 
   if (error) {
-    throw error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
+    throw error instanceof Error
+      ? error
+      : new Error((error as any)?.message ?? String(error));
   }
 
-  if (Array.isArray(data)) return data;        
-  if (data == null) return [];                
-  return [data]; 
+  if (Array.isArray(data)) return data;
+  if (data == null) return [];
+  return [data];
 }

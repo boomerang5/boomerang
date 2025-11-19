@@ -9,11 +9,11 @@ export async function getChatInfoService(idChat: number, idUsuario?: number) {
 
   if (error) {
     // Si la función no existe, crear respuesta básica desde tablas directamente
-    console.log('⚠️ get_chat_info no encontrada, usando consulta directa');
-    
+
     const { data: chatData, error: chatError } = await supabase
       .from("Chat")
-      .select(`
+      .select(
+        `
         id,
         nombre,
         id_tipo_chat,
@@ -24,7 +24,8 @@ export async function getChatInfoService(idChat: number, idUsuario?: number) {
           nombre,
           descripcion
         )
-      `)
+      `
+      )
       .eq("id", idChat)
       .single();
 
@@ -33,18 +34,21 @@ export async function getChatInfoService(idChat: number, idUsuario?: number) {
     }
 
     // Obtener participantes por separado
-    const { data: participantesData, error: participantesError } = await supabase
-      .from("ChatParticipante")
-      .select(`
+    const { data: participantesData, error: participantesError } =
+      await supabase
+        .from("ChatParticipante")
+        .select(
+          `
         Usuario (
           id,
           nombre,
           apellido,
           mail
         )
-      `)
-      .eq("id_chat", idChat)
-      .eq("eliminado", false);
+      `
+        )
+        .eq("id_chat", idChat)
+        .eq("eliminado", false);
 
     if (participantesError) {
       throw participantesError;
@@ -61,21 +65,23 @@ export async function getChatInfoService(idChat: number, idUsuario?: number) {
       .single();
 
     // Construir respuesta manual
-    const participantes = participantesData?.map(p => ({
-      id_usuario: (p.Usuario as any)?.id,
-      nombre: (p.Usuario as any)?.nombre,
-      apellido: (p.Usuario as any)?.apellido,
-      email: (p.Usuario as any)?.mail,
-      id_usuario_contacto: (p.Usuario as any)?.id
-    })) || [];
+    const participantes =
+      participantesData?.map((p) => ({
+        id_usuario: (p.Usuario as any)?.id,
+        nombre: (p.Usuario as any)?.nombre,
+        apellido: (p.Usuario as any)?.apellido,
+        email: (p.Usuario as any)?.mail,
+        id_usuario_contacto: (p.Usuario as any)?.id,
+      })) || [];
 
-    const grupoData = (chatData.Grupo as any);
-    
+    const grupoData = chatData.Grupo as any;
+
     const chatInfo = {
       id_chat: chatData.id,
-      nombre: chatData.id_tipo_chat === 2 && grupoData?.nombre 
-        ? grupoData.nombre 
-        : chatData.nombre,
+      nombre:
+        chatData.id_tipo_chat === 2 && grupoData?.nombre
+          ? grupoData.nombre
+          : chatData.nombre,
       descripcion: null,
       tipo_chat: chatData.id_tipo_chat,
       fecha_creacion: chatData.fecha_creacion,
@@ -84,14 +90,13 @@ export async function getChatInfoService(idChat: number, idUsuario?: number) {
       id_grupo: chatData.id_grupo || grupoData?.id || null,
       nombre_grupo: grupoData?.nombre || null,
       descripcion_grupo: grupoData?.descripcion || null,
-      participantes: participantes
+      participantes: participantes,
     };
 
     return [chatInfo];
   }
-  
-  if (Array.isArray(data)) return data;        
-  if (data == null) return [];                
-  return [data]; 
-}
 
+  if (Array.isArray(data)) return data;
+  if (data == null) return [];
+  return [data];
+}

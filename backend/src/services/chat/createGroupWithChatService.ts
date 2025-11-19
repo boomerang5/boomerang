@@ -7,7 +7,10 @@ export interface CreateGroupWithChatParams {
   participantes?: number[] | null; // IDs de usuarios a agregar como miembros
 }
 
-export type CreateGroupWithChatResult = { idGrupo: number; idChat: number } | null;
+export type CreateGroupWithChatResult = {
+  idGrupo: number;
+  idChat: number;
+} | null;
 
 export async function createGroupWithChatService({
   idUsuarioCreador,
@@ -25,8 +28,7 @@ export async function createGroupWithChatService({
   });
 
   // Si la función mejorada no existe, usar la original
-  if (error && error.message && error.message.includes('does not exist')) {
-    console.log('⚠️ Usando función create_group_with_chat original (create_group_with_chat_improved no encontrada)');
+  if (error && error.message && error.message.includes("does not exist")) {
     const fallback = await supabase.rpc("create_group_with_chat", {
       p_id_usuario_creador: idUsuarioCreador,
       p_nombre: nombre,
@@ -39,7 +41,9 @@ export async function createGroupWithChatService({
   }
 
   if (error) {
-    throw error instanceof Error ? error : new Error((error as any)?.message ?? String(error));
+    throw error instanceof Error
+      ? error
+      : new Error((error as any)?.message ?? String(error));
   }
 
   if (!data) {

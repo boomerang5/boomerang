@@ -7,14 +7,10 @@ export async function updateUsuarioProfileService(
   apodo: string,
   pais: string,
   genero: number,
-  fecha_nacimiento: string, 
+  fecha_nacimiento: string,
   idioma: number
 ) {
   try {
-    console.log("RPC update_usuario_profile ->", {
-      idUsuario, nombre, apellido, apodo, pais, genero, fecha_nacimiento, idioma,
-    });
-
     const { data, error } = await supabaseAdmin.rpc("update_usuario_profile", {
       p_id: idUsuario,
       p_nombre: nombre,
@@ -35,7 +31,7 @@ export async function updateUsuarioProfileService(
       throw new Error(`Usuario con ID ${idUsuario} no encontrado`);
     }
 
-    return data; 
+    return data;
   } catch (error) {
     throw error;
   }
