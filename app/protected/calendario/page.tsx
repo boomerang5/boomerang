@@ -1132,7 +1132,8 @@ function VistaDia({ eventos, fecha, onEventoClick, onClickEspacio, obtenerClaseC
               )}
               <div className="text-sm font-medium truncate relative z-10">{evento.titulo}</div>
               <div className="text-xs opacity-90 truncate relative z-10">
-                {fechaEvento.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+                {fechaEvento.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+
                 {evento.miConfirmacion === 'pendiente' && (
                   <span className="ml-2 text-xs bg-yellow-500 text-white px-1 rounded">Pendiente</span>
                 )}
@@ -1245,7 +1246,8 @@ function VistaSemana({ eventos, fecha, onEventoClick, onClickEspacio, obtenerCla
                       )}
                       <div className="text-xs font-medium truncate relative z-10">{evento.titulo}</div>
                       <div className="text-xs opacity-90 relative z-10">
-                        {fechaEvento.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+                        {fechaEvento.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+
                       </div>
                     </div>
                   );
@@ -1507,12 +1509,12 @@ function ModalEvento({
     }).filter(id => id !== null);
 
     const eventoData = {
-      titulo: titulo.trim(),
-      descripcion: descripcion.trim(),
-      fecha_programada: new Date(fecha).toISOString(),
-      color: colorSeleccionado,
-      invitados: invitadosIds,
-    };
+  titulo: titulo.trim(),
+  descripcion: descripcion.trim(),
+  fecha_programada: fecha, // Envía la fecha en formato local (ej: "2025-11-20T09:00:00")
+  color: colorSeleccionado,
+  invitados: invitadosIds,
+};
 
     onGuardar(eventoData);
   };
