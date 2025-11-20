@@ -62,7 +62,7 @@ export default function ProfileChecker({ children }: ProfileCheckerProps) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-orange-50 dark:bg-gray-700">
         <div className="flex items-center gap-3">
           <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
           <span className="text-gray-600 dark:text-gray-400">Verificando perfil...</span>

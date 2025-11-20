@@ -2,6 +2,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
 import ProtectedSidebar from '@/components/protectedSidebar';
+import ProtectedHeader from '@/components/ProtectedHeader';
 import ClientProviders from '@/app/ClientProviders';
 import CallNotificationsProvider from '@/components/CallNotificationsProvider';
 import ProfileChecker from '@/components/ProfileChecker';
@@ -20,18 +21,21 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
       <UserUuidProvider>
         <CallNotificationsProvider callRoute="/protected/videollamada">
           <ProfileChecker>
-            <div className="protected-layout flex min-h-screen bg-transparent">
-              <ProtectedSidebar />
-              <main className="flex-1 overflow-visible flex flex-col bg-white dark:bg-gray-700">
-                <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-10 w-full">
-                  {children}
-                </div>
-                {/* Footer con selector de tema solo en páginas protegidas */}
-                <footer className="w-full h-16 bg-transparent flex items-center justify-center gap-4 px-6">
-                  <p className="text-gray-600 dark:text-gray-400 text-sm font-medium">© 2025 Boomerang.</p>
-                  <ThemeSwitcher />
-                </footer>
-              </main>
+            <div className="min-h-screen flex flex-col bg-orange-50 dark:bg-gray-700 overflow-x-hidden">
+              <ProtectedHeader />
+              <div className="flex-1 flex overflow-hidden">
+                <ProtectedSidebar />
+                <main className="flex-1 overflow-y-auto flex flex-col bg-orange-50 dark:bg-gray-700">
+                  <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-10 w-full">
+                    {children}
+                  </div>
+                  {/* Footer con selector de tema solo en páginas protegidas */}
+                  <footer className="w-full h-16 bg-transparent flex items-center justify-center gap-4 px-6">
+                    <p className="text-gray-600 dark:text-gray-400 text-sm font-medium">© 2025 Boomerang.</p>
+                    <ThemeSwitcher />
+                  </footer>
+                </main>
+              </div>
             </div>
           </ProfileChecker>
         </CallNotificationsProvider>

@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Ocultar scrollbar en navegadores webkit */
+::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
+
+/* Ocultar scrollbar en Firefox */
+* {
+  scrollbar-width: none;
+}
+
 @layer base {
   :root {
     /* Exact Boomerang palette sampled from public/boomerang.png */

@@ -125,10 +125,12 @@ async function resolvePeerKeys(sb: SupabaseClient, peerInput: string, log?: (t: 
 }
 
 // Prioriza UUIDs; si no hay, usa lo que haya (numéricos)
+// ⚠️ SOLO retorna el primer target para evitar duplicación de llamadas
 function pickTargets(keys: string[]) {
-  // Enviar a TODOS los destinos resueltos (uuid y/o id), evitando duplicados
   const uniq = Array.from(new Set(keys.filter(Boolean)))
-  return uniq
+  // Preferir UUIDs (no numéricos) primero
+  const uuid = uniq.find(k => !/^\d+$/.test(k))
+  return uuid ? [uuid] : uniq.slice(0, 1)
 }
 
 export default function VideoCallPage() {
@@ -343,6 +345,8 @@ export default function VideoCallPage() {
   const iceDownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([])
   const processingSignalRef = useRef<boolean>(false)
+  // ⚠️ Ref para prevenir ejecuciones múltiples del AUTO-CALL
+  const autoCallExecutedRef = useRef<boolean>(false)
 
   // ---- Controles de UI
   const [micOn, setMicOn] = useState(true)
@@ -994,26 +998,28 @@ export default function VideoCallPage() {
     const auto = qp('autocall')
     if (!to || auto !== '1') return
     if (!meId || !inboxReady) return
-    setPeerId(to)
-    const onceKey = `autocall:${to}`
-    const once = sessionStorage.getItem(onceKey)
-    if (!once) {
-      sessionStorage.setItem(onceKey, 'done')
-        ; (async () => {
-          if (!localStreamRef.current) await enableCam()
-          // Check if caller wanted transcript saved (sessionStorage or URL param)
-          const fromStorage = sessionStorage.getItem('vc_transcript') === '1'
-          const fromUrl = qp('transcript') === '1'
-          const shouldTranscript = fromStorage || fromUrl
-          await makeCall(to, shouldTranscript)
-          try {
-            sessionStorage.removeItem('vc_transcript')
-            // ✅ NO limpiar vc_call_title y vc_call_description aquí
-            // Se limpiarán solo al final de la llamada en endLocalCall
-          } catch { }
-        })()
+    
+    // ⚠️ Prevenir ejecuciones múltiples con ref persistente
+    if (autoCallExecutedRef.current) {
+      return
     }
-    return () => { sessionStorage.removeItem(onceKey) }
+    
+    setPeerId(to)
+    autoCallExecutedRef.current = true
+    
+    ; (async () => {
+      if (!localStreamRef.current) await enableCam()
+      // Check if caller wanted transcript saved (sessionStorage or URL param)
+      const fromStorage = sessionStorage.getItem('vc_transcript') === '1'
+      const fromUrl = qp('transcript') === '1'
+      const shouldTranscript = fromStorage || fromUrl
+      await makeCall(to, shouldTranscript)
+      try {
+        sessionStorage.removeItem('vc_transcript')
+        // ✅ NO limpiar vc_call_title y vc_call_description aquí
+        // Se limpiarán solo al final de la llamada en endLocalCall
+      } catch { }
+    })()
   }, [sb, meId, inboxReady])
 
   // 3.b) AUTO-ACCEPT (con fallback a toast local si falta gate/token)
@@ -1111,7 +1117,6 @@ export default function VideoCallPage() {
   }
   // Asegurar que enviamos un nombre válido (SIEMPRE resolver para evitar cache incorrecto)
   let nameToSend = meName
-  console.log('[NAME DEBUG] Initial meName:', meName, 'meId:', meId, 'meNumericId:', meNumericId)
   // FORZAR resolución siempre (sin importar el valor actual de meName)
   try {
     if (meNumericId != null) {
@@ -1120,11 +1125,10 @@ export default function VideoCallPage() {
         if (!error && data) {
           const u = Array.isArray(data) ? data[0] : data
           const resolved = (u && (u.apodo || u.nombre || u.mail || u.User_id || u.user_id)) || null
-          console.log('[NAME DEBUG] RPC data:', u, 'resolved:', resolved);
           if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
         }
       } catch (e) {
-        console.log('[NAME DEBUG] RPC failed:', e);
+        // Silently fail
       }
     } else if (meId) {
       try {
@@ -1132,17 +1136,15 @@ export default function VideoCallPage() {
         if (res.ok) {
           const json = await res.json()
           const resolved = (json && (json.apodo || json.nombre || json.mail || json.User_id || json.user_id)) || null
-          console.log('[NAME DEBUG] UUID fetch:', json, 'resolved:', resolved);
           if (resolved) { nameToSend = String(resolved); setMeName(nameToSend) }
         }
       } catch (e) {
-        console.log('[NAME DEBUG] UUID fetch failed:', e);
+        // Silently fail
       }
     }
   } catch (e) {
-    console.log('[NAME DEBUG] Overall resolution failed:', e);
+    // Silently fail
   }
-  console.log('[NAME DEBUG] Final nameToSend:', nameToSend);
   // 🔥 CREAR LA LLAMADA EN LA BASE DE DATOS ANTES DE ENVIAR EL RING
   const idRow = await dbStartCall()
   if (idRow) setCallRowId(idRow)
@@ -1173,21 +1175,17 @@ export default function VideoCallPage() {
   // Usar los valores antes de que se pierdan
   const currentCallId = incoming.callId
   const toId = incoming.fromId
-  console.log('📞 [ACCEPT-CALLEE] Aceptando llamada:', { callId: currentCallId, fromId: toId, id_llamada: incoming.id_llamada })
   // Ocultar y marcar como manejada YA
   setIncoming(null)
   markHandled(currentCallId)
   try {
     if (!localStreamRef.current) {
-      console.log('📞 [ACCEPT-CALLEE] Habilitando cámara...')
       await enableCam()
     }
     // ⚠️ NO agregar participante - ya se agregó en create_call_with_modal_data
-    console.log('📞 [ACCEPT-CALLEE] Uniéndome al canal de llamada...')
     await joinCallChannel(currentCallId)
     setInCall(true)
-    setCallRowId(incoming.id_llamada ?? null) // ⚠️ Usar el ID de la llamada original
-    console.log('📞 [ACCEPT-CALLEE] Enviando confirmación de accept al caller...')
+    setCallRowId(incoming.id_llamada ?? null)
     // Avisar al caller que aceptamos
     const keys = await resolvePeerKeys(sb, String(toId), log)
     const targets = pickTargets(keys)
@@ -1200,15 +1198,13 @@ export default function VideoCallPage() {
         payload: {
           callId: currentCallId,
           from: meId,
-          id_llamada: incoming.id_llamada // ⚠️ Pasar el ID de la llamada original
+          id_llamada: incoming.id_llamada
         }
       })
       await ch.unsubscribe()
     }
-    console.log('📞 [ACCEPT-CALLEE] ✅ Accept enviado exitosamente')
   } catch (error) {
     log('! Error al aceptar llamada: ' + (error as Error).message)
-    console.error('📞 [ACCEPT-CALLEE] ❌ Error:', error)
     alert('Error al aceptar la llamada')
   }
 }
@@ -1253,21 +1249,34 @@ export default function VideoCallPage() {
 
   // ========= 4) Canal de llamada + WebRTC
   const mkPC = () => {
+    const existingPC = pcRef.current
+    // ⚠️ Si ya existe una PC válida, no crear otra (previene duplicación)
+    if (existingPC && existingPC.connectionState !== 'closed' && existingPC.connectionState !== 'failed') {
+      return
+    }
+    
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
 
     pc.onicecandidate = (e) => {
       if (e.candidate) sendSignal({ type: 'ice', candidate: e.candidate.toJSON(), from: meId })
     }
 
-    pc.ontrack = async (e) => {
+    pc.ontrack = (e) => {
+      log('← track ' + e.track.kind)
       const stream = e.streams[0]
+      if (!stream) return
+      
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = stream
-        try {
-          await remoteVideoRef.current.play()
-          log('~ remote stream set & playing')
-        } catch (err: any) {
-          log('! remote video play() blocked: ' + err?.message)
+        const videoEl = remoteVideoRef.current
+        videoEl.srcObject = stream
+        // Esperar a que el metadata esté listo antes de reproducir
+        videoEl.onloadedmetadata = () => {
+          videoEl.play().catch(err => {
+            // Ignorar errores de play() cuando el componente se desmonta
+            if (err.name !== 'AbortError') {
+              log('! remote video play() blocked: ' + err?.message)
+            }
+          })
         }
       }
     }
@@ -1315,10 +1324,8 @@ export default function VideoCallPage() {
     })
 
     ch.on('broadcast', { event: 'ring' }, ({ payload }) => {
-  try { console.log('📨 ring payload received:', payload) } catch (e) { }
   // soportar varias formas de payload: payload.callId / payload.room, payload.from.{id,name} o payload.fromId/payload.fromName
   const cid = String(payload?.callId ?? payload?.room ?? '')
-  if (!cid) return
   // 🚫 si el ring viene de mí misma, ignorar (uuid o id numérico)
   const fromId = String(payload?.from?.id ?? payload?.fromId ?? payload?.from_uuid ?? payload?.from_id ?? '')
   if (fromId && (fromId === meId || (meNumericId != null && fromId === String(meNumericId)))) {
@@ -1344,14 +1351,6 @@ export default function VideoCallPage() {
     log(`~ ring ignorado (no idle) cid=${cid}`)
     return
   }
-  // Debug: verificar nombres en payload
-  console.log('🏷️ [DEBUG] Ring payload recibido:', {
-    'from.name': payload?.from?.name,
-    'fromName': payload?.fromName,
-    'from_name': payload?.from_name,
-    'name': payload?.name,
-    'fromId': fromId
-  })
   const fromName = String(payload?.from?.name ?? payload?.fromName ?? payload?.from_name ?? payload?.name ?? 'Invitado')
   const transcriptFlag = Boolean(payload?.transcript || payload?.from?.transcript || payload?.from?.transcribe)
   const idLlamada = payload?.id_llamada // ⚠️ Obtener el ID de la llamada original
@@ -1422,77 +1421,74 @@ export default function VideoCallPage() {
       const m = payload as SignalPayload & { from: string }
       if (m.from === meId) return
       if (!pcRef.current) {
-        console.log('📞 [SIGNAL] Creando PeerConnection para recibir señal:', m.type)
         mkPC()
       }
 
       // Evitar procesamiento concurrente de señales
+      // Queue signal processing instead of dropping it
       if (processingSignalRef.current && (m.type === 'offer' || m.type === 'answer')) {
-        log(`! skipping ${m.type}, already processing signal`)
+        log(`! queuing ${m.type}, already processing signal`)
+        // Wait a bit and retry
+        setTimeout(() => {
+          if (callChRef.current) {
+            callChRef.current.send({ type: 'broadcast', event: 'signal', payload: m })
+          }
+        }, 100)
         return
       }
 
       if (m.type === 'offer') {
         log('← offer')
-        console.log('📞 [SIGNAL-OFFER] Recibido offer de:', m.from)
         processingSignalRef.current = true
-        // Verificar estado antes de procesar offer
         try {
-          console.log('📞 [SIGNAL-OFFER] Estado de señalización:', pcRef.current!.signalingState)
+          // Handle glare condition (both trying to call simultaneously)
+          if (pcRef.current!.signalingState === 'have-local-offer') {
+            await pcRef.current!.setLocalDescription({type: 'rollback'} as RTCSessionDescriptionInit)
+          }
           if (pcRef.current!.signalingState === 'stable' || pcRef.current!.signalingState === 'have-remote-offer') {
             if (!localStreamRef.current) {
-              console.log('📞 [SIGNAL-OFFER] Habilitando cámara antes de procesar offer...')
               await enableCam()
             }
-            console.log('📞 [SIGNAL-OFFER] Estableciendo remote description...')
             await pcRef.current!.setRemoteDescription(m.sdp)
+            
             // Agregar tracks sin duplicados
-            console.log('📞 [SIGNAL-OFFER] Agregando tracks locales...')
             const senders = pcRef.current!.getSenders()
             localStreamRef.current!.getTracks().forEach(t => {
-              const existingSender = senders.find(s => s.track === t)
+              const existingSender = senders.find(s => s.track && s.track.id === t.id && s.track.kind === t.kind)
               if (!existingSender) {
-                try {
-                  pcRef.current!.addTrack(t, localStreamRef.current!)
-                  console.log('📞 [SIGNAL-OFFER] Track agregado:', t.kind)
-                } catch (e) { /* noop */ }
+                const senderOfSameKind = senders.find(s => s.track && s.track.kind === t.kind)
+                if (senderOfSameKind && senderOfSameKind.track) {
+                  senderOfSameKind.replaceTrack(t).catch(e => console.error('Error replacing track:', e))
+                } else {
+                  try {
+                    pcRef.current!.addTrack(t, localStreamRef.current!)
+                  } catch (e) { console.error('Error adding track:', e) }
+                }
               }
             })
-            console.log('📞 [SIGNAL-OFFER] Creando answer...')
+            
             const answer = await pcRef.current!.createAnswer()
             await pcRef.current!.setLocalDescription(answer)
-            console.log('📞 [SIGNAL-OFFER] Enviando answer...')
             await sendSignal({ type: 'answer', sdp: pcRef.current!.localDescription!, from: meId })
             log('→ answer enviado')
             drainIceQueue()
-            log('✅ offer processed successfully')
-            console.log('📞 [SIGNAL-OFFER] ✅ Offer procesado exitosamente')
           } else {
             log(`! skipping offer, wrong state: ${pcRef.current!.signalingState}`)
-            console.log('📞 [SIGNAL-OFFER] ⚠️ Estado incorrecto, saltando offer:', pcRef.current!.signalingState)
           }
         } catch (error) {
           log(`! error processing offer: ${error}`)
-          console.error('📞 [SIGNAL-OFFER] ❌ Error procesando offer:', error)
         } finally {
           processingSignalRef.current = false
         }
       } else if (m.type === 'answer') {
         log('← answer')
-        console.log('📞 [SIGNAL-ANSWER] Recibido answer de:', m.from)
         processingSignalRef.current = true
-        // Verificar estado antes de establecer remote description
         try {
-          console.log('📞 [SIGNAL-ANSWER] Estado de señalización:', pcRef.current!.signalingState)
           if (pcRef.current!.signalingState === 'have-local-offer') {
-            console.log('📞 [SIGNAL-ANSWER] Estableciendo remote description...')
             await pcRef.current!.setRemoteDescription(m.sdp)
             drainIceQueue()
-            log('✅ answer processed successfully')
-            console.log('📞 [SIGNAL-ANSWER] ✅ Answer procesado exitosamente')
           } else {
             log(`! skipping answer, wrong state: ${pcRef.current!.signalingState}`)
-            console.log('📞 [SIGNAL-ANSWER] ⚠️ Estado incorrecto, saltando answer:', pcRef.current!.signalingState)
           }
         } catch (error) {
           log(`! error processing answer: ${error}`)
@@ -1509,14 +1505,8 @@ export default function VideoCallPage() {
         try { await pcRef.current!.addIceCandidate(m.candidate) } catch (e) { log('! addIceCandidate: ' + (e as Error).message) }
       } else if (m.type === 'hangup') {
         log('← hangup')
-        console.log('📞 [HANGUP] Peer colgó la llamada')
-
-        // Mostrar modal para que el usuario pueda guardar transcripción
-        console.log('📝 [HANGUP-REMOTE] Mostrando modal de transcripción...')
         setIsRemoteHangup(true)
         setShowSaveTranscriptModal(true)
-        // No llamar a endLocalCall ni redirectToMainPage aquí
-        // Se hará después de que el usuario cierre el modal
       }
     })
 
@@ -1545,38 +1535,53 @@ export default function VideoCallPage() {
     if (!ch) { log('Start call: no call channel (ref)'); return }
     if (!localStreamRef.current) { log('Start call: primero Enable camera'); return }
 
-    console.log('📞 [START-CALL] Iniciando proceso de llamada como caller...')
     if (!pcRef.current) {
-      console.log('📞 [START-CALL] Creando PeerConnection...')
       mkPC()
     }
     // Agregar tracks sin duplicados
-    console.log('📞 [START-CALL] Agregando tracks locales...')
     const senders = pcRef.current!.getSenders()
     localStreamRef.current.getTracks().forEach(t => {
-      const existingSender = senders.find(s => s.track === t)
+      const existingSender = senders.find(s => s.track && s.track.id === t.id && s.track.kind === t.kind)
       if (!existingSender) {
-        try {
-          pcRef.current!.addTrack(t, localStreamRef.current!)
-          console.log('📞 [START-CALL] Track agregado:', t.kind)
-        } catch (e) { /* noop */ }
+        const senderOfSameKind = senders.find(s => s.track && s.track.kind === t.kind)
+        if (senderOfSameKind && senderOfSameKind.track) {
+          senderOfSameKind.replaceTrack(t).catch(e => console.error('Error replacing track:', e))
+        } else {
+          try {
+            pcRef.current!.addTrack(t, localStreamRef.current!)
+          } catch (e) { console.error('Error adding track:', e) }
+        }
       }
     })
-    console.log('📞 [START-CALL] Creando offer...')
+    
     const offer = await pcRef.current!.createOffer()
     await pcRef.current!.setLocalDescription(offer)
-    console.log('📞 [START-CALL] Enviando offer...')
     await sendSignal({ type: 'offer', sdp: pcRef.current!.localDescription!, from: meId })
     log('→ offer enviado')
-    console.log('📞 [START-CALL] ✅ Offer enviado exitosamente')
   }
 
   const sendSignal = async (payload: SignalPayload) => {
     const ch = callChRef.current
     if (!ch) { log('sendSignal: no call channel'); return }
-    await ch.send({ type: 'broadcast', event: 'signal', payload })
-    if (payload.type !== 'ice') setInCall(true)
-    log('→ signal ' + payload.type)
+    
+    try {
+      await ch.send({ type: 'broadcast', event: 'signal', payload })
+      if (payload.type !== 'ice') setInCall(true)
+      log('→ signal ' + payload.type)
+    } catch (e) {
+      console.error(`❌ Error enviando señal ${payload.type}:`, e)
+      // Retry once after a short delay
+      if (payload.type !== 'ice') {
+        console.log(`🔄 Reintentando envío de ${payload.type}...`)
+        await new Promise(r => setTimeout(r, 500))
+        try {
+          await ch.send({ type: 'broadcast', event: 'signal', payload })
+          log('→ signal ' + payload.type + ' (retry ok)')
+        } catch (retryError) {
+          console.error(`❌ Reintento fallido para ${payload.type}:`, retryError)
+        }
+      }
+    }
   }
 
   const dbStartCall = async (): Promise<number | null> => {
@@ -1759,11 +1764,8 @@ export default function VideoCallPage() {
   }
 
   const hangup = async () => {
-    console.log('📞 [HANGUP] Usuario colgando la llamada...')
-
     // Verificar si se usó transcripción durante la llamada
     if (wasTranscriptionUsed && transcriptEntries.length > 0) {
-      console.log('📝 [HANGUP] Se detectó uso de transcripción, mostrando modal para guardar...')
       setShowSaveTranscriptModal(true)
       return // No colgar aún, esperar decisión del usuario
     }
@@ -1773,7 +1775,6 @@ export default function VideoCallPage() {
   }
 
   const performHangup = async () => {
-    console.log('📞 [HANGUP] Ejecutando colgado definitivo...')
     if (callChRef.current && callIdRef.current) {
       try { await sendSignal({ type: 'hangup', from: meId }) } catch { }
     }
@@ -2043,13 +2044,11 @@ export default function VideoCallPage() {
     // **NUEVO**: Verificar si es hangup local o remoto
     if (isRemoteHangup) {
       // Es hangup remoto - limpiar y redirigir
-      console.log('📞 [HANGUP-REMOTE] Finalizando después de modal transcripción...')
       setIsRemoteHangup(false) // Reset del estado
       await endLocalCall('remote_hangup')
       redirectToMainPage()
     } else {
       // Es hangup local - proceder con colgado
-      console.log('📞 [HANGUP-LOCAL] Procediendo con colgado definitivo...')
       await performHangup()
     }
   }
