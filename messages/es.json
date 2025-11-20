@@ -1,0 +1,53 @@
+{
+  "Header": {
+    "signIn": "Iniciar sesión",
+    "signUp": "Registrarse"
+  },
+  "HomePage": {
+    "hero": {
+      "title": "Comunicación",
+      "titleHighlight": "sin barreras",
+      "subtitle": "Videollamadas con traducción en tiempo real.",
+      "subtitleLine2": "Conecta con cualquier persona, sin importar el idioma.",
+      "ctaPrimary": "Comenzar ahora",
+      "ctaSecondary": "Ver cómo funciona",
+      "badge": "¡En vivo!"
+    },
+    "features": {
+      "sectionTitle": "¿Por qué elegir Boomerang?",
+      "sectionSubtitle": "Características que hacen la diferencia",
+      "liveTranslation": {
+        "title": "Traducción en tiempo real",
+        "description": "Habla en tu idioma y tu interlocutor escucha en el suyo. La traducción se realiza instantáneamente durante la videollamada."
+      },
+      "noInstall": {
+        "title": "Sin instalación",
+        "description": "Accede directamente desde tu navegador. No necesitas descargar ninguna aplicación ni extensión."
+      },
+      "security": {
+        "title": "Seguridad garantizada",
+        "description": "Tus conversaciones están protegidas con cifrado de extremo a extremo. Tu privacidad es nuestra prioridad."
+      }
+    },
+    "howItWorks": {
+      "sectionTitle": "¿Cómo funciona?",
+      "sectionSubtitle": "Comienza en segundos",
+      "step1": {
+        "title": "Crea tu cuenta",
+        "description": "Regístrate gratis en minutos"
+      },
+      "step2": {
+        "title": "Añade contactos",
+        "description": "Invita a tus amigos o colegas"
+      },
+      "step3": {
+        "title": "Inicia videollamada",
+        "description": "Conéctate con un clic"
+      },
+      "step4": {
+        "title": "Habla libremente",
+        "description": "La traducción se hace automáticamente"
+      }
+    }
+  }
+}

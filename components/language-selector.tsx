@@ -1,32 +1,51 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 
 export function LanguageSelector() {
-  const [selectedLanguage, setSelectedLanguage] = useState('es')
+  const router = useRouter()
+  const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+
+  // Extraer el locale del pathname directamente
+  const locale = pathname.split('/')[1] || 'es'
 
   const languages = [
     { code: 'es', name: 'Español' },
     { code: 'en', name: 'English' },
   ]
 
-  const currentLanguage = languages.find(lang => lang.code === selectedLanguage)
+  const currentLanguage = languages.find(lang => lang.code === locale)
 
-  const handleLanguageChange = (code: string) => {
-    setSelectedLanguage(code)
+  const handleLanguageChange = (newLocale: string) => {
+    if (newLocale === locale) {
+      setIsOpen(false)
+      return
+    }
+
     setIsOpen(false)
-    // Aquí el backend puede implementar la lógica de traducción
-    console.log('Idioma seleccionado:', code)
+    
+    startTransition(() => {
+      // Construir nueva ruta: reemplazar el primer segmento del locale
+      const segments = pathname.split('/')
+      segments[1] = newLocale
+      const newPathname = segments.join('/')
+      
+      router.push(newPathname)
+      router.refresh()
+    })
   }
 
   return (
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 bg-white/10 backdrop-blur-md border-2 border-white hover:border-white text-white px-6 py-3 rounded-full font-bold text-base transition-all duration-300 hover:scale-105 hover:bg-white/20"
+        disabled={isPending}
+        className="flex items-center gap-2 bg-white/10 backdrop-blur-md border-2 border-white hover:border-white text-white px-6 py-3 rounded-full font-bold text-base transition-all duration-300 hover:scale-105 hover:bg-white/20 disabled:opacity-50"
       >
-        <span>{currentLanguage?.name}</span>
+        <span>{currentLanguage?.name || locale.toUpperCase()}</span>
         <svg
           className={`w-4 h-4 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
@@ -51,14 +70,15 @@ export function LanguageSelector() {
               <button
                 key={language.code}
                 onClick={() => handleLanguageChange(language.code)}
-                className={`w-full flex items-center justify-between px-4 py-3 text-left transition-all duration-200 ${
-                  selectedLanguage === language.code
+                disabled={isPending}
+                className={`w-full flex items-center justify-between px-4 py-3 text-left transition-all duration-200 disabled:opacity-50 ${
+                  locale === language.code
                     ? 'bg-orange-500 text-white font-bold'
                     : 'text-gray-700 hover:bg-orange-50'
                 }`}
               >
                 <span className="font-medium">{language.name}</span>
-                {selectedLanguage === language.code && (
+                {locale === language.code && (
                   <svg
                     className="w-5 h-5"
                     fill="currentColor"

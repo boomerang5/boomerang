@@ -1,0 +1,53 @@
+{
+  "Header": {
+    "signIn": "Sign in",
+    "signUp": "Sign up"
+  },
+  "HomePage": {
+    "hero": {
+      "title": "Communication without",
+      "titleHighlight": "barriers",
+      "subtitle": "Video calls with real-time translation.",
+      "subtitleLine2": "Connect with anyone, regardless of language.",
+      "ctaPrimary": "Get started",
+      "ctaSecondary": "See how it works",
+      "badge": "Live now!"
+    },
+    "features": {
+      "sectionTitle": "Why choose Boomerang?",
+      "sectionSubtitle": "Features that make the difference",
+      "liveTranslation": {
+        "title": "Real-time translation",
+        "description": "Speak in your language and your interlocutor hears in theirs. Translation happens instantly during the video call."
+      },
+      "noInstall": {
+        "title": "No installation required",
+        "description": "Access directly from your browser. No need to download any app or extension."
+      },
+      "security": {
+        "title": "Security guaranteed",
+        "description": "Your conversations are protected with end-to-end encryption. Your privacy is our priority."
+      }
+    },
+    "howItWorks": {
+      "sectionTitle": "How does it work?",
+      "sectionSubtitle": "Get started in seconds",
+      "step1": {
+        "title": "Create your account",
+        "description": "Sign up for free in minutes"
+      },
+      "step2": {
+        "title": "Add contacts",
+        "description": "Invite your friends or colleagues"
+      },
+      "step3": {
+        "title": "Start video call",
+        "description": "Connect with one click"
+      },
+      "step4": {
+        "title": "Speak freely",
+        "description": "Translation happens automatically"
+      }
+    }
+  }
+}
