@@ -1095,6 +1095,11 @@ export default function VideoCallPage() {
   }
   if (!sb) return
   if (!inboxReady) return alert('Aún suscribiéndose al inbox… probá de nuevo en un segundo')
+  // 🔒 Prevent creating a call if one is already in progress
+  if (callRowId !== null) {
+    log('⚠️ Ya existe una llamada en curso, evitando duplicado')
+    return
+  }
   const targetPeer = (peerOverride ?? peerId).trim()
   log(`~ makeCall targetPeer=${targetPeer}`)
   if (!targetPeer) return alert('Falta Peer Usuario ID/UUID')
@@ -2072,6 +2077,7 @@ export default function VideoCallPage() {
     callChRef.current = null
 
     setCallId(null); callIdRef.current = null
+    setCallRowId(null) // 🔧 Reset call row ID
     setRole('idle'); roleRef.current = 'idle'
     setCallPeers(0)
     pendingIceRef.current = []
@@ -2106,6 +2112,7 @@ export default function VideoCallPage() {
     setIncoming(null)
 
     setCallId(null); callIdRef.current = null
+    setCallRowId(null) // 🔧 Reset call row ID
     setRole('idle'); roleRef.current = 'idle'
     setCallPeers(0)
     cleanupPC()

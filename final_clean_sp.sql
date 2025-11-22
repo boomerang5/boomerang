@@ -41,7 +41,8 @@ BEGIN
     p_caller_id,
     v_id_llamada,
     true
-  );
+  )
+  ON CONFLICT ("idUsuario", "idLlamada") DO NOTHING;
 
   -- 3. Agregar el callee como participante
   INSERT INTO public."UsuarioXLlamada" (
@@ -53,7 +54,8 @@ BEGIN
     p_callee_id,
     v_id_llamada,
     false
-  );
+  )
+  ON CONFLICT ("idUsuario", "idLlamada") DO NOTHING;
 
   RETURN v_id_llamada;
 
@@ -66,3 +68,27 @@ $$ LANGUAGE plpgsql;
 -- Dar permisos
 GRANT EXECUTE ON FUNCTION create_call_with_modal_data(TEXT, TEXT, INTEGER, INTEGER, INTEGER) TO authenticated;
 GRANT EXECUTE ON FUNCTION create_call_with_modal_data(TEXT, TEXT, INTEGER, INTEGER, INTEGER) TO anon;
+
+-- ============================================================================
+-- SP para finalizar llamada
+-- ============================================================================
+DROP FUNCTION IF EXISTS end_call(INTEGER);
+
+CREATE OR REPLACE FUNCTION end_call(
+  p_id_llamada INTEGER
+)
+RETURNS VOID AS $$
+BEGIN
+  -- Actualizar la llamada con fecha_fin y calcular duración en SEGUNDOS
+  UPDATE public."Llamada"
+  SET 
+    fecha_fin = LOCALTIMESTAMP,
+    duracion_calculada = EXTRACT(EPOCH FROM (LOCALTIMESTAMP - fecha_inicio))::INTEGER
+  WHERE id = p_id_llamada
+    AND fecha_fin IS NULL; -- Solo actualizar si no se ha finalizado antes
+END;
+$$ LANGUAGE plpgsql;
+
+-- Dar permisos
+GRANT EXECUTE ON FUNCTION end_call(INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION end_call(INTEGER) TO anon;

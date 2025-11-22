@@ -15,11 +15,14 @@ export function TranslationOverlay({
     }
 
     const handleTargetLangChange = (targetLang: string) => {
-        onConfigChange({ targetLang })
-        // Actualizar voz automáticamente cuando cambia idioma
+        // Actualizar voz automáticamente cuando cambia idioma a MASCULINA (índice 1)
         const lang = TARGET_LANGUAGE_OPTIONS.find(l => l.value === targetLang)
-        if (lang) {
-            onConfigChange({ targetLang, voice: lang.voices[0].value })
+        if (lang && lang.voices.length > 1) {
+            onConfigChange({ targetLang, voice: lang.voices[1].value }) // ⚠️ Voz masculina (índice 1)
+        } else if (lang) {
+            onConfigChange({ targetLang, voice: lang.voices[0].value }) // Fallback si solo hay una voz
+        } else {
+            onConfigChange({ targetLang })
         }
     }
 
