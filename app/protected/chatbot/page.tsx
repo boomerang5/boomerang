@@ -123,8 +123,9 @@ export default function ChatBotPage() {
   // Búsqueda
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Ref para scroll automático
+  // Ref para scroll automático dentro del contenedor de mensajes
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const canChat = useMemo(
     () => !!selectedTranscriptPath && !!selectedSession && !!userId,
@@ -295,9 +296,11 @@ export default function ChatBotPage() {
     loadTranscripts(userId);
   }, [userId]);
 
-  // Scroll automático cuando cambian los mensajes
+  // Scroll automático SOLO dentro del contenedor de mensajes (no la página completa)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesEndRef.current && messagesContainerRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
   }, [messages]);
 
   // ---------- Editar título ----------
@@ -574,7 +577,10 @@ export default function ChatBotPage() {
                         {/* Avatar y título */}
                         <div
                           className="flex items-center gap-3 flex-1 cursor-pointer"
-                          onClick={() => !isEditing && onSelectSession(session)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (!isEditing) onSelectSession(session);
+                          }}
                         >
                           <Image
                             src="/mascota.png"
@@ -700,7 +706,7 @@ export default function ChatBotPage() {
               {/* Línea superior */}
               <div className="border-t border-gray-200 mb-2" />
               {/* Mensajes */}
-              <div className="flex-1 flex flex-col gap-4 overflow-y-auto">
+              <div ref={messagesContainerRef} className="flex-1 flex flex-col gap-4 overflow-y-auto">
                 {messages.length === 0 && !isSending && (
                   <div className="text-center py-8">
                     <div className="mb-4">
@@ -745,6 +751,7 @@ export default function ChatBotPage() {
                 className="w-full flex items-center gap-2 mt-4"
                 onSubmit={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   send();
                 }}
               >

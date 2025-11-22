@@ -77,21 +77,13 @@ export async function POST(req: Request) {
     let context = "";
     if (transcriptPath) {
       try {
-        console.log("📥 Descargando transcripción:", transcriptPath);
         const lines = await downloadNdjson(transcriptPath);
-        console.log("📊 Líneas encontradas:", lines.length);
         context = naiveSearch(lines, message);
-        console.log(
-          "🔍 Contexto generado:",
-          context ? context.substring(0, 200) + "..." : "Sin contexto"
-        );
       } catch (e: any) {
         console.warn("❌ No pude leer NDJSON:", e?.message || e);
         console.warn("📋 Transcripción path:", transcriptPath);
         // seguimos sin contexto
       }
-    } else {
-      console.log("⚠️ No se proporcionó transcriptPath");
     }
 
     const system = [

@@ -331,6 +331,12 @@ export default function VideoCallPage() {
   const roleRef = useRef<Role>('idle')
   useEffect(() => { callIdRef.current = callId }, [callId])
   useEffect(() => { roleRef.current = role }, [role])
+  
+  // ⚠️ Refs para transcripción (evitar closures en eventos de canal)
+  const wasTranscriptionUsedRef = useRef<boolean>(false)
+  const transcriptEntriesCountRef = useRef<number>(0)
+  useEffect(() => { wasTranscriptionUsedRef.current = wasTranscriptionUsed }, [wasTranscriptionUsed])
+  useEffect(() => { transcriptEntriesCountRef.current = transcriptEntries.length }, [transcriptEntries.length])
 
   // ---- WebRTC
   const pcRef = useRef<RTCPeerConnection | null>(null)
@@ -1511,7 +1517,15 @@ export default function VideoCallPage() {
       } else if (m.type === 'hangup') {
         log('← hangup')
         setIsRemoteHangup(true)
-        setShowSaveTranscriptModal(true)
+        
+        // ⚠️ Solo mostrar modal si se usó transcripción Y hay datos (usar refs para valores actuales)
+        if (wasTranscriptionUsedRef.current && transcriptEntriesCountRef.current > 0) {
+          setShowSaveTranscriptModal(true)
+        } else {
+          // Si no hay transcripción, colgar directamente sin modal
+          endLocalCall('remote_hangup')
+          redirectToMainPage()
+        }
       }
     })
 
