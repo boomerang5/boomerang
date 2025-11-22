@@ -57,7 +57,8 @@ BEGIN
     p_caller_id,
     v_id_llamada,
     true
-  );
+  )
+  ON CONFLICT ("idUsuario", "idLlamada") DO NOTHING;
 
   -- 3. Agregar el callee como participante (no host)
   INSERT INTO public."UsuarioXLlamada" (
@@ -69,7 +70,8 @@ BEGIN
     p_callee_id,
     v_id_llamada,
     false
-  );
+  )
+  ON CONFLICT ("idUsuario", "idLlamada") DO NOTHING;
 
   -- 4. Retornar el ID de la llamada creada
   RAISE NOTICE 'Llamada creada exitosamente: ID=%, titulo=%, descripcion=%', v_id_llamada, p_titulo, p_descripcion;
@@ -170,8 +172,30 @@ COMMENT ON FUNCTION create_call_with_modal_data(TEXT, TEXT, INTEGER, INTEGER, IN
 COMMENT ON FUNCTION get_user_call_history(INTEGER) IS 
 'Obtiene el historial completo de llamadas de un usuario, incluyendo participantes, rol (host/participante) y nombre del otro usuario en llamadas 1-a-1';
 
--- 4. Prueba del SP de creación de llamada (opcional, ajustar IDs)
--- SELECT create_call_with_modal_data('Llamada de Prueba', 'Descripción desde modal', 2, 3);
+-- ============================================================================
+-- 3. SP para finalizar llamada
+-- ============================================================================
+CREATE OR REPLACE FUNCTION end_call(
+  p_id_llamada INTEGER
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Actualizar la llamada con fecha_fin y calcular duración en SEGUNDOS
+  UPDATE public."Llamada"
+  SET 
+    fecha_fin = LOCALTIMESTAMP,
+    duracion_calculada = EXTRACT(EPOCH FROM (LOCALTIMESTAMP - fecha_inicio))::INTEGER
+  WHERE id = p_id_llamada
+    AND fecha_fin IS NULL; -- Solo actualizar si no se ha finalizado antes
+END;
+$$;
 
--- 5. Prueba del SP de historial (opcional, ajustar ID)
--- SELECT * FROM get_user_call_history(2);
+-- Dar permisos
+GRANT EXECUTE ON FUNCTION end_call(INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION end_call(INTEGER) TO anon;
+
+-- Comentario
+COMMENT ON FUNCTION end_call(INTEGER) IS 
+'Finaliza una llamada estableciendo la fecha_fin y calculando la duración';

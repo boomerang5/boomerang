@@ -39,7 +39,8 @@ BEGIN
     p_caller_id,
     v_id_llamada,
     true
-  );
+  )
+  ON CONFLICT ("idUsuario", "idLlamada") DO NOTHING;
 
   -- 3. Agregar el callee como participante (no host)
   INSERT INTO public."UsuarioXLlamada" (
@@ -51,7 +52,8 @@ BEGIN
     p_callee_id,
     v_id_llamada,
     false
-  );
+  )
+  ON CONFLICT ("idUsuario", "idLlamada") DO NOTHING;
 
   -- 4. Retornar el ID de la llamada creada
   RETURN v_id_llamada;
