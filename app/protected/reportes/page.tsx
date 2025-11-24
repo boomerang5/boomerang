@@ -62,18 +62,18 @@ export default function ReportesDashboard() {
 
   // Función para formatear fechas de manera legible
   const formatearPeriodo = (periodo: string) => {
-    try {
-      const fecha = new Date(periodo)
-      const opciones: Intl.DateTimeFormatOptions = { 
-        month: 'short', 
-        day: 'numeric' 
-      }
-      return fecha.toLocaleDateString('es-ES', opciones)
-    } catch {
-      // Si no es una fecha válida, devolver el periodo original
-      return periodo
-    }
+  try {
+    const [year, month, day] = periodo.split('-');
+    const fecha = new Date(Number(year), Number(month) - 1, Number(day)); // Crea fecha en timezone local
+    const opciones: Intl.DateTimeFormatOptions = {
+      month: 'short',
+      day: 'numeric'
+    };
+    return fecha.toLocaleDateString('es-ES', opciones);
+  } catch {
+    return periodo;
   }
+};
 
   // Función para formatear tiempo
   const formatearTiempo = (minutos: number): string => {
@@ -117,10 +117,13 @@ export default function ReportesDashboard() {
       setEstadisticas(data.estadisticasGenerales)
       
       // Transformar los datos de actividad temporal para mostrar fechas legibles
-      const actividadConFechasFormateadas = (data.actividadTemporal || []).map((item: ActividadTemporalData) => ({
-        ...item,
-        periodoFormateado: formatearPeriodo(item.periodo)
-      }))
+      const actividadConFechasFormateadas = (data.actividadTemporal || [])
+  .sort((a, b) => new Date(b.periodo).getTime() - new Date(a.periodo).getTime()) // Orden descendente
+  .map((item: ActividadTemporalData) => ({
+    ...item,
+    periodoFormateado: formatearPeriodo(item.periodo)
+  }))
+  .slice(0, 7); // Ahora sí toma los 7 más recientes
       
       setActividadTemporal(actividadConFechasFormateadas.slice(0, 7)) // Últimos 7 días para el dashboard
 
@@ -289,29 +292,29 @@ export default function ReportesDashboard() {
 
           {/* Actividad Temporal */}
           {actividadTemporal && actividadTemporal.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Actividad de los Últimos 7 Días</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {actividadTemporal.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
-                      <div className="font-medium">{item.periodoFormateado}</div>
-                      <div className="flex items-center space-x-4">
-                        <span className="text-sm text-muted-foreground">
-                          {item.totalLlamadas} llamadas
-                        </span>
-                        <span className="font-medium">
-                          {formatearTiempo(item.duracionTotal)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+  <Card>
+    <CardHeader>
+      <CardTitle>Actividad de los Últimos 7 Días</CardTitle>
+    </CardHeader>
+    <CardContent>
+      <div className="space-y-2">
+        {actividadTemporal.map((item, index) => (
+          <div key={index} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50">
+            <div className="font-medium">{item.periodoFormateado}</div>
+            <div className="flex items-center space-x-4">
+              <span className="text-sm text-muted-foreground">
+                {item.totalLlamadas} llamadas
+              </span>
+              <span className="font-medium">
+                {formatearTiempo(item.duracionTotal)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </CardContent>
+  </Card>
+)}
 
           {/* Navegación a Reportes Detallados */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

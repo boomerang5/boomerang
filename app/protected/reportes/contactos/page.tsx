@@ -59,17 +59,18 @@ export default function ReportesContactos() {
 
   // Función para formatear fechas de manera legible
   const formatearPeriodo = (periodo: string) => {
-    try {
-      const fecha = new Date(periodo)
-      const opciones: Intl.DateTimeFormatOptions = { 
-        month: 'short', 
-        day: 'numeric' 
-      }
-      return fecha.toLocaleDateString('es-ES', opciones)
-    } catch {
-      return periodo
-    }
+  try {
+    const [year, month, day] = periodo.split('-').map(Number);
+    const fecha = new Date(year, month - 1, day); // Crea fecha local
+    const opciones: Intl.DateTimeFormatOptions = {
+      month: 'short',
+      day: 'numeric'
+    };
+    return fecha.toLocaleDateString('es-ES', opciones);
+  } catch {
+    return periodo;
   }
+};
 
   // Función para formatear tiempo
   const formatearTiempo = (minutos: number): string => {
@@ -114,10 +115,14 @@ export default function ReportesContactos() {
       const colaboracionData = await colaboracionRes.json()
 
       // Transformar datos temporales con fechas formateadas
-      const contactosConFechas = temporalData.map((item: ContactosTemporal) => ({
-        ...item,
-        periodoFormateado: formatearPeriodo(item.periodo)
-      }))
+      const contactosConFechas = temporalData
+  .sort((a, b) => new Date(b.periodo).getTime() - new Date(a.periodo).getTime()) // Orden descendente
+  .map((item: ContactosTemporal) => ({
+    ...item,
+    periodoFormateado: formatearPeriodo(item.periodo)
+  }))
+  .slice(0, 14); // Últimos 14 días
+setContactosTemporal(contactosConFechas);
       
       setContactosTemporal(contactosConFechas.slice(0, 14)) // Últimos 14 días
       setContactosFavoritos(favoritosData.slice(0, 10)) // Top 10 contactos
@@ -146,7 +151,7 @@ export default function ReportesContactos() {
   })
 
   const tasaAceptacion = estadisticasContactos.totalRecibidas > 0 
-    ? (estadisticasContactos.totalAceptadas / estadisticasContactos.totalRecibidas * 100)
+    ? (estadisticasContactos.totalAceptadas / (estadisticasContactos.totalRecibidas + estadisticasContactos.totalEnviadas) * 100)
     : 0
 
   // Datos para gráfico de distribución de solicitudes
@@ -252,7 +257,7 @@ export default function ReportesContactos() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{tasaAceptacion.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground">de las recibidas</p>
+            <p className="text-xs text-muted-foreground">de todas las solicitudes</p>
           </CardContent>
         </Card>
 
