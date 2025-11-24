@@ -94,14 +94,33 @@ export class TranslationQueue {
   }
 
   public add(text: string): void {
+    // Evitar duplicados: no agregar si el texto ya está en la cola
+    if (this.queue.includes(text)) {
+      console.log(
+        `⏭️ [TTS] Texto ya en cola, omitiendo: "${text.substring(0, 30)}..."`
+      );
+      return;
+    }
     this.queue.push(text);
+    console.log(
+      `➕ [TTS] Agregado a cola (total: ${this.queue.length}): "${text.substring(0, 30)}..."`
+    );
   }
 
   public async process(
     voice: string,
     tokenData: TranslationTokenData
   ): Promise<void> {
-    if (this.queue.length === 0 || this.isPlaying) return;
+    if (this.queue.length === 0) {
+      return;
+    }
+
+    if (this.isPlaying) {
+      console.log(
+        `🔇 [TTS] Ya reproduciendo, esperando... (${this.queue.length} en cola)`
+      );
+      return;
+    }
 
     this.isPlaying = true;
     const textToPlay = this.queue.shift();
@@ -111,14 +130,20 @@ export class TranslationQueue {
       return;
     }
 
+    console.log(
+      `🔊 [TTS] Reproduciendo (${this.queue.length} restantes): "${textToPlay}"`
+    );
+
     try {
       await this.synthesizeAndPlay(textToPlay, voice, tokenData);
+      console.log(`✅ [TTS] Reproducción completada`);
     } catch (error) {
-      console.error("Error procesando TTS:", error);
+      console.error("❌ [TTS] Error procesando TTS:", error);
     } finally {
       this.isPlaying = false;
       // Procesar siguiente elemento en la cola
       if (this.queue.length > 0) {
+        console.log(`🔄 [TTS] Procesando siguiente en cola...`);
         this.process(voice, tokenData);
       }
     }
@@ -129,6 +154,10 @@ export class TranslationQueue {
     voice: string,
     tokenData: TranslationTokenData
   ): Promise<void> {
+    console.log(
+      `🎤 [SYNTHESIZE] Iniciando síntesis para: "${text.substring(0, 50)}..."`
+    );
+
     return new Promise((resolve, reject) => {
       const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(
         tokenData.token,
@@ -136,20 +165,31 @@ export class TranslationQueue {
       );
       speechConfig.speechSynthesisVoiceName = voice;
 
-      const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig);
-      const ttsStartTime = Date.now();
+      // ⚠️ CRÍTICO: Usar AudioConfig NULL para evitar reproducción automática del SDK
+      const synthesizer = new SpeechSDK.SpeechSynthesizer(
+        speechConfig,
+        null as any
+      );
 
+      // ⚠️ Usar speakTextAsync con el synthesizer configurado sin AudioConfig
+      // Esto evita que el SDK reproduzca automáticamente el audio
       synthesizer.speakTextAsync(
         text,
         async (result: SpeechSDK.SpeechSynthesisResult) => {
           try {
             synthesizer.close();
+            console.log(
+              `🎤 [SYNTHESIZE] Síntesis completada, procesando audio...`
+            );
 
             if (
               result.reason !==
               SpeechSDK.ResultReason.SynthesizingAudioCompleted
             ) {
-              console.error("TTS failed:", (result as any).errorDetails);
+              console.error(
+                "❌ [TTS] Síntesis falló:",
+                (result as any).errorDetails
+              );
               reject(
                 new Error(
                   "Error en síntesis de voz: " +
@@ -161,6 +201,7 @@ export class TranslationQueue {
 
             const audioData = (result as any).audioData;
             if (!audioData) {
+              console.log(`⚠️ [SYNTHESIZE] Sin datos de audio`);
               resolve();
               return;
             }
@@ -173,10 +214,14 @@ export class TranslationQueue {
             // Decodificar el audio
             let audioBuffer: AudioBuffer | null = null;
             const audioCtx = this.getAudioContext();
+            console.log(`🔊 [AUDIO] AudioContext state: ${audioCtx.state}`);
 
             try {
               audioBuffer = await audioCtx.decodeAudioData(
                 arrayBuf.slice(0) as ArrayBuffer
+              );
+              console.log(
+                `✅ [AUDIO] Audio decodificado: ${audioBuffer.duration.toFixed(2)}s`
               );
             } catch {
               // Fallback a callback API
@@ -187,6 +232,9 @@ export class TranslationQueue {
                   rej
                 );
               });
+              console.log(
+                `✅ [AUDIO] Audio decodificado (fallback): ${audioBuffer.duration.toFixed(2)}s`
+              );
             }
 
             if (!audioBuffer) {
@@ -194,23 +242,61 @@ export class TranslationQueue {
               return;
             }
 
-            // Reproducir el audio LOCALMENTE
+            // Asegurar que el AudioContext no esté suspendido
+            if (audioCtx.state === "suspended") {
+              await audioCtx.resume();
+              console.log(`▶️ [AUDIO] AudioContext resumed`);
+            }
+
+            // Crear fuente de audio
             const source = audioCtx.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(audioCtx.destination);
-            source.start();
 
-            // Cuando termine la reproducción, resolver
-            source.onended = () => resolve();
+            // Crear GainNode para control de volumen
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = 1.0;
+
+            // Conectar: source → gainNode → destination
+            source.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            console.log(`🎵 [AUDIO] Iniciando reproducción (SOLO UNA VEZ)...`);
+
+            // Asegurar que onended solo se ejecute una vez
+            let hasEnded = false;
+            let hasStarted = false;
+
+            source.onended = () => {
+              if (!hasEnded) {
+                hasEnded = true;
+                console.log(`🛑 [AUDIO] Reproducción finalizada`);
+                try {
+                  source.disconnect();
+                  gainNode.disconnect();
+                } catch (e) {
+                  // Ignorar errores de desconexión
+                }
+                resolve();
+              }
+            };
+
+            // Reproducir UNA SOLA VEZ
+            if (!hasStarted) {
+              hasStarted = true;
+              source.start(0);
+              console.log(
+                `▶️ [AUDIO] source.start(0) ejecutado - Reproduciendo por AudioContext`
+              );
+            }
           } catch (err) {
-            console.error("TTS speak handler error", err);
+            console.error("❌ [SYNTHESIZE] Error en handler", err);
             reject(
               new Error("Error procesando audio TTS: " + (err as Error).message)
             );
           }
         },
         (error: string) => {
-          console.error("TTS error:", error);
+          console.error("❌ [SYNTHESIZE] TTS error:", error);
           try {
             synthesizer.close();
           } catch {}

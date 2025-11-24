@@ -571,7 +571,13 @@ export default function VideoCallPage() {
     setTranslationConfig(prev => ({ ...prev, ...updates }))
   }
 
-  const toggleTranslate = () => { setTranslateOn(v => !v) }
+  const toggleTranslate = () => { 
+    setTranslateOn(v => {
+      const newValue = !v;
+      console.log(`🌐 [TRADUCCIÓN] ${newValue ? 'ACTIVADA' : 'DESACTIVADA'} - Video del peer será ${newValue ? 'silenciado' : 'restaurado'}`);
+      return newValue;
+    });
+  }
 
   const toggleTranscript = () => {
     setCallTranscriptActive(v => {
@@ -2253,6 +2259,7 @@ export default function VideoCallPage() {
                 micOn={true}
                 inCall={!!callId}
                 videoRef={remoteVideoRef}
+                muted={translateOn}
                 peerSharing={peerSharing}
               />
             </div>
@@ -2363,6 +2370,13 @@ function VideoTile({
   peerSharing?: boolean
   mirrored?: boolean
 }) {
+  // Debug: Log cuando cambie el estado de muted para video remoto
+  useEffect(() => {
+    if (!isYou && videoRef.current) {
+      console.log(`🔇 [VIDEO] Video remoto muted=${muted}, elemento.muted=${videoRef.current.muted}`);
+    }
+  }, [muted, isYou, videoRef]);
+
   const handleToggleFullscreen = async () => {
     const v = videoRef.current
     if (!v) return

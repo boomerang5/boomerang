@@ -89,17 +89,7 @@ export function useTranslation({
 
       // Limpiar la ref del último texto procesado
       lastProcessedTextRef.current = "";
-
-      // Restaurar audio del peer cuando se desactiva la traducción
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.muted = false;
-      }
       return;
-    }
-
-    // Silenciar audio del peer cuando se activa la traducción
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.muted = true;
     }
 
     // ⚠️ Limpiar finalText al reiniciar (cambio de idioma) para evitar TTS con texto anterior
@@ -196,8 +186,16 @@ export function useTranslation({
           const translated = e.result.translations.get(config.targetLang) || "";
           const original = e.result.text || "";
 
+          console.log(
+            `📝 [RECOGNIZED] Original: "${original}" | Traducido: "${translated}"`
+          );
+          console.log(
+            `📝 [RECOGNIZED] Último procesado: "${lastProcessedTextRef.current}"`
+          );
+
           // ⚠️ Procesar TTS INMEDIATAMENTE aquí (sin esperar useEffect)
           if (translated && translated !== lastProcessedTextRef.current) {
+            console.log(`✅ [RECOGNIZED] Texto NUEVO, agregando a cola TTS`);
             lastProcessedTextRef.current = translated;
 
             // Agregar a cola TTS inmediatamente con la voz MÁS RECIENTE
@@ -208,6 +206,8 @@ export function useTranslation({
                 lastTokenRef.current
               );
             }
+          } else if (translated === lastProcessedTextRef.current) {
+            console.log(`⏭️ [RECOGNIZED] Texto DUPLICADO, omitiendo TTS`);
           }
 
           setState((prev) => ({
