@@ -474,16 +474,10 @@ export default function DashboardPage() {
             subtitle="Cara a cara en segundos"
           />
           <ActionBubble
-            href="/protected/pizarra"
-            emoji="✏️"
-            title="Usá la pizarra"
-            subtitle="Escribí con tu mano, sin mouse"
-          />
-          <ActionBubble
-            href="/protected/calendario"
-            emoji="📅"
-            title="Programá reuniones"
-            subtitle="Organizate con tiempo"
+            href="/protected/chats"
+            emoji="💬"
+            title="Chateá con amigos"
+            subtitle="De todo el mundo"
           />
           <ActionBubble
             href="/protected/chatbot"
@@ -492,10 +486,16 @@ export default function DashboardPage() {
             subtitle="Tu asistente en la app"
           />
           <ActionBubble
-            href="/protected/chats"
-            emoji="💬"
-            title="Chateá con amigos"
-            subtitle="De todo el mundo"
+            href="/protected/calendario"
+            emoji="📅"
+            title="Programá reuniones"
+            subtitle="Organizate con tiempo"
+          />
+          <ActionBubble
+            href="/protected/pizarra"
+            emoji="✏️"
+            title="Usá la pizarra"
+            subtitle="Escribí con tu mano, sin mouse"
           />
         </div>
       </section>

@@ -1468,7 +1468,7 @@ export default function ChatsPage() {
                 ) : (
                   messages.map((m: any) => {
                     const isMine = m.id_emisor === currentEmisorRef.current;
-                    const time = m.fecha ? new Date(m.fecha).toLocaleTimeString() : '';
+                    const time = m.fecha ? new Date(m.fecha).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
                     const tipoChat = selectedChatData.id_tipo_chat || (selectedChatData as any).tipo_chat
                     const isGroupChat = tipoChat === 2 || tipoChat === '2';
                     

@@ -199,5 +199,5 @@ export async function signOutAction() {
     }
   }
 
-  redirect("/sign-in");
+  redirect("/");
 }

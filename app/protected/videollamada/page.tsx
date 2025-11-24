@@ -952,7 +952,7 @@ export default function VideoCallPage() {
         }
       })
 
-      ch.on('broadcast', { event: 'reject' }, ({ payload }) => {
+      ch.on('broadcast', { event: 'reject' }, async ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
         markHandled(payload.callId)
         log(`← reject (via user:${key})`)
@@ -961,14 +961,14 @@ export default function VideoCallPage() {
         // Si soy el caller (Usuario A), redirigir a pantalla principal
         if (roleRef.current === 'caller') {
           console.log('📞 [REJECT] Llamada rechazada por el peer, redirigiendo...')
-          resetCall()
+          await resetCall()
           redirectToMainPage()
         } else {
-          resetCall()
+          await resetCall()
         }
       })
 
-      ch.on('broadcast', { event: 'cancel' }, ({ payload }) => {
+      ch.on('broadcast', { event: 'cancel' }, async ({ payload }) => {
         if (payload.callId !== callIdRef.current) return
         markHandled(payload.callId)
         log(`← cancel (via user:${key})`)
@@ -977,10 +977,10 @@ export default function VideoCallPage() {
         // Si soy el callee (Usuario B), redirigir a pantalla principal
         if (roleRef.current === 'callee') {
           console.log('📞 [CANCEL] Llamada cancelada por el caller, redirigiendo...')
-          resetCall()
+          await resetCall()
           redirectToMainPage()
         } else {
-          resetCall()
+          await resetCall()
         }
       })
 
@@ -1244,7 +1244,7 @@ export default function VideoCallPage() {
       await ch.unsubscribe()
     }
     log(`→ reject enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
-    resetCall()
+    await resetCall()
   }
 
   const cancel = async () => {
@@ -1261,7 +1261,7 @@ export default function VideoCallPage() {
     }
     markHandled(callIdRef.current)
     log(`→ cancel enviado a: ${targets.map(t => `user:${t}`).join(', ')}`)
-    resetCall()
+    await resetCall()
   }
 
   // ========= 4) Canal de llamada + WebRTC
@@ -2126,7 +2126,10 @@ export default function VideoCallPage() {
     localStreamRef.current = null
   }
 
-  const resetCall = () => {
+  const resetCall = async () => {
+    // Finalizar llamada en DB antes de limpiar
+    try { await dbEndCall() } catch { }
+    
     // No marcamos acá porque reject/cancel ya marcaron; si cae por otro camino:
     markHandled(callIdRef.current)
     setIncoming(null)
