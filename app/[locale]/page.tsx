@@ -20,7 +20,7 @@ const features = [
   },
   {
     id: 2,
-    icon: "🔒",
+    icon: "✏️",
     translationKey: "security",
     color: "from-green-400 to-emerald-600"
   },

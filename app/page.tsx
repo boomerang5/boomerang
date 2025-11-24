@@ -22,7 +22,7 @@ const features = [
   },
   {
     id: 2,
-    icon: "🔒",
+    icon: "✏️",
     title: "Seguridad total",
     desc: "Cifrado extremo a extremo que protege tus conversaciones.",
     color: "from-green-400 to-emerald-600"

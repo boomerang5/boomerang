@@ -22,9 +22,9 @@ const slides = [
     gradient: "from-blue-500 to-cyan-500"
   },
   {
-    icon: "🔒",
-    title: "100% Seguro",
-    desc: "Tus conversaciones están protegidas con cifrado de extremo a extremo",
+    icon: "✏️",
+    title: "Pizarra Aérea",
+    desc: "Tu creatividad no tiene techo. Nuestra pizarra aérea tampoco.",
     gradient: "from-green-500 to-emerald-500"
   },
 ]
