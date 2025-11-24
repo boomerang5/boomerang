@@ -262,7 +262,7 @@ export default function Home() {
               {/* Marco con efecto glassmorphism */}
               <div className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 backdrop-blur-sm bg-white/5 p-3 hover:scale-105 transition-transform duration-500">
                 <img
-                  src="/videollamada.png"
+                  src="/imagen-llamada.png"
                   alt="Videollamada con traducción"
                   className="w-full h-auto object-contain rounded-2xl"
                 />
